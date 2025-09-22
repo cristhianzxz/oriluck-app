@@ -26,7 +26,7 @@ const AuthProvider = ({ children }) => {
   return (
     <AuthContext.Provider value={value}>
       {!loading && children}
-    </AuthContext.Provider>
+    </Auth-Context.Provider>
   );
 };
 
@@ -53,7 +53,6 @@ const AuthPage = () => {
   const [showTermsModal, setShowTermsModal] = useState(false);
 
   useEffect(() => {
-    // If a user is already logged in, redirect them from auth page to lobby
     if (currentUser) {
       navigate('/lobby', { replace: true });
     }
@@ -65,7 +64,6 @@ const AuthPage = () => {
     setMessage("");
     try {
       await signInWithEmailAndPassword(auth, email, password);
-      // Explicitly navigate on success
       navigate('/lobby');
     } catch (error) {
       setLoading(false);
@@ -87,7 +85,6 @@ const AuthPage = () => {
     setMessage("");
     try {
       await createUserWithEmailAndPassword(auth, email, password);
-      // Explicitly navigate on success
       navigate('/lobby');
     } catch (error) {
       setLoading(false);
