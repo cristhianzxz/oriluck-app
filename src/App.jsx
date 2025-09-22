@@ -2,16 +2,6 @@ import React, { useState, useEffect, createContext, useContext } from "react";
 import { Routes, Route, useNavigate, Navigate } from "react-router-dom";
 import { auth } from "./firebase";
 import { onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword } from "firebase/auth";
-<<<<<<< HEAD
-import { createUserDocument } from "./firestoreService";
-import Dashboard from "./Dashboard";
-import fondo from "./assets/fondo.png";
-
-// Create an Auth Context
-export const AuthContext = createContext(null);
-
-// AuthProvider component
-=======
 import fondo from "./assets/fondo.png";
 import GameLobby from "./components/GameLobby";
 
@@ -19,7 +9,6 @@ import GameLobby from "./components/GameLobby";
 const AuthContext = createContext(null);
 
 // AuthProvider component that provides auth state to children
->>>>>>> b96842bb289eebfc31c028da95bb268c3a2a2844
 const AuthProvider = ({ children }) => {
   const [currentUser, setCurrentUser] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -33,12 +22,6 @@ const AuthProvider = ({ children }) => {
   }, []);
 
   const value = { currentUser, loading };
-<<<<<<< HEAD
-  return <AuthContext.Provider value={value}>{!loading && children}</AuthContext.Provider>;
-};
-
-// Protected Route
-=======
 
   return (
     <AuthContext.Provider value={value}>
@@ -48,17 +31,12 @@ const AuthProvider = ({ children }) => {
 };
 
 // A component that protects routes that require authentication
->>>>>>> b96842bb289eebfc31c028da95bb268c3a2a2844
 const ProtectedRoute = ({ children }) => {
   const { currentUser } = useContext(AuthContext);
   return currentUser ? children : <Navigate to="/" replace />;
 };
 
-<<<<<<< HEAD
-// Login/Register Page (TU INTERFAZ ORIGINAL)
-=======
 // The authentication page component
->>>>>>> b96842bb289eebfc31c028da95bb268c3a2a2844
 const AuthPage = () => {
   const navigate = useNavigate();
   const { currentUser } = useContext(AuthContext);
@@ -71,22 +49,13 @@ const AuthPage = () => {
   const [countryCode, setCountryCode] = useState("+58");
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
-<<<<<<< HEAD
-  const [success, setSuccess] = useState(false);
-=======
->>>>>>> b96842bb289eebfc31c028da95bb268c3a2a2844
   const [acceptedTerms, setAcceptedTerms] = useState(false);
   const [showTermsModal, setShowTermsModal] = useState(false);
 
   useEffect(() => {
-<<<<<<< HEAD
-    if (currentUser) {
-      navigate('/dashboard', { replace: true });
-=======
     // If a user is already logged in, redirect them from auth page to lobby
     if (currentUser) {
       navigate('/lobby', { replace: true });
->>>>>>> b96842bb289eebfc31c028da95bb268c3a2a2844
     }
   }, [currentUser, navigate]);
 
@@ -96,12 +65,8 @@ const AuthPage = () => {
     setMessage("");
     try {
       await signInWithEmailAndPassword(auth, email, password);
-<<<<<<< HEAD
-      navigate('/dashboard');
-=======
       // Explicitly navigate on success
       navigate('/lobby');
->>>>>>> b96842bb289eebfc31c028da95bb268c3a2a2844
     } catch (error) {
       setLoading(false);
       setMessage("❌ Usuario o contraseña incorrectos");
@@ -121,27 +86,9 @@ const AuthPage = () => {
     setLoading(true);
     setMessage("");
     try {
-<<<<<<< HEAD
-      const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-      const user = userCredential.user;
-      
-      await createUserDocument(user, {
-        username: username,
-        phone: countryCode + phone
-      });
-      
-      setSuccess(true);
-      setMessage("✅ Te has registrado exitosamente");
-      setLoading(false);
-
-      setTimeout(() => {
-        navigate('/dashboard');
-      }, 2000);
-=======
       await createUserWithEmailAndPassword(auth, email, password);
       // Explicitly navigate on success
       navigate('/lobby');
->>>>>>> b96842bb289eebfc31c028da95bb268c3a2a2844
     } catch (error) {
       setLoading(false);
       if (error.code === "auth/email-already-in-use") {
@@ -152,7 +99,6 @@ const AuthPage = () => {
     }
   };
 
-  // TU INTERFAZ ORIGINAL COMPLETA
   return (
      <div
       className="flex flex-col items-center justify-center min-h-screen relative bg-cover bg-no-repeat"
@@ -162,27 +108,7 @@ const AuthPage = () => {
         <span className="text-yellow-400 neon-glow">ORI</span>
         <span className="text-green-500 neon-glow">LUCK</span>
       </h1>
-<<<<<<< HEAD
-
-      <style>
-      {`
-        .neon-glow {
-          text-shadow:
-            0 0 5px #fff,
-            0 0 10px #fff,
-            0 0 20px #ffd700,
-            0 0 30px #ffd700,
-            0 0 40px #00ff00,
-            0 0 55px #00ff00,
-            0 0 75px #00ff00;
-        }
-      `}
-      </style>
-
-      {/* 🌟 Bandera de Venezuela */}
-=======
       <style>{`.neon-glow{text-shadow:0 0 5px #fff,0 0 10px #fff,0 0 20px #ffd700,0 0 30px #ffd700,0 0 40px #00ff00,0 0 55px #00ff00,0 0 75px #00ff00;}`}</style>
->>>>>>> b96842bb289eebfc31c028da95bb268c3a2a2844
       <img
         src="https://upload.wikimedia.org/wikipedia/commons/0/06/Flag_of_Venezuela.svg"
         alt="Bandera de Venezuela"
@@ -212,11 +138,7 @@ function App() {
     <AuthProvider>
       <Routes>
         <Route path="/" element={<AuthPage />} />
-<<<<<<< HEAD
-        <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
-=======
         <Route path="/lobby" element={<ProtectedRoute><GameLobby /></ProtectedRoute>} />
->>>>>>> b96842bb289eebfc31c028da95bb268c3a2a2844
       </Routes>
     </AuthProvider>
   );
