@@ -16,8 +16,12 @@
     "framer-motion": "^12.23.13",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
+<<<<<<< HEAD
     "react-router-dom": "^7.9.1",
     "serve": "^14.2.5"
+=======
+    "react-router-dom": "^7.9.1"
+>>>>>>> b96842bb289eebfc31c028da95bb268c3a2a2844
   },
   "devDependencies": {
     "@eslint/js": "^9.33.0",

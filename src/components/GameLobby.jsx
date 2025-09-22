@@ -52,4 +52,8 @@ const GameLobby = () => {
   );
 };
 
+<<<<<<< HEAD
 export default GameLobby;
+=======
+export default GameLobby;
+>>>>>>> b96842bb289eebfc31c028da95bb268c3a2a2844
