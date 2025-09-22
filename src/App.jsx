@@ -1,7 +1,6 @@
 // 📌 App.jsx
 import React, { useState } from "react";
-import { auth } from "./firebase";
-import { signInWithEmailAndPassword, createUserWithEmailAndPassword } from "firebase/auth";
+import axios from "axios";
 import fondo from "./assets/fondo.png"; // tu fondo PNG
 
 function App() {
@@ -17,6 +16,7 @@ function App() {
   const [success, setSuccess] = useState(false);
   const [acceptedTerms, setAcceptedTerms] = useState(false); // ✅ Checkbox Términos
   const [showTermsModal, setShowTermsModal] = useState(false); // ✅ Modal Términos
+  const [token, setToken] = useState(localStorage.getItem('token'));
 
   // ✅ Login
   const handleLogin = async (e) => {
@@ -25,12 +25,16 @@ function App() {
     setMessage("");
 
     try {
-      await signInWithEmailAndPassword(auth, email, password);
+      const res = await axios.post('/api/auth/login', { email, password });
+      localStorage.setItem('token', res.data.token);
+      setToken(res.data.token);
       setMessage("Inicio de sesión exitoso ✅");
       setLoading(false);
+      // Here you would typically redirect the user or update the UI
     } catch (error) {
       setLoading(false);
-      setMessage("❌ Usuario o contraseña incorrectos");
+      const errorMsg = error.response?.data?.msg || "Error al iniciar sesión";
+      setMessage(`❌ ${errorMsg}`);
     }
   };
 
@@ -43,37 +47,47 @@ function App() {
       return;
     }
 
-    if (!/^\d+$/.test(phone)) {
-      setMessage("❌ El número de teléfono debe contener solo números");
-      return;
-    }
-
     setLoading(true);
     setMessage("");
 
     try {
-      await createUserWithEmailAndPassword(auth, email, password);
+      const res = await axios.post('/api/auth/register', { name: username, email, password });
       setSuccess(true);
-      setMessage("Te has registrado exitosamente ✅");
+      setMessage("Te has registrado exitosamente ✅. Serás redirigido al login.");
       setLoading(false);
 
       // ⏳ Espera 4 segundos y redirige al login
       setTimeout(() => {
         setSuccess(false);
         setShowLogin(true);
-        setInitialScreen(true);
         setMessage("");
         setAcceptedTerms(false);
       }, 4000);
     } catch (error) {
       setLoading(false);
-      if (error.code === "auth/email-already-in-use") {
-        setMessage("❌ Este correo ya está registrado");
-      } else {
-        setMessage("❌ Error al registrarse, intenta nuevamente");
-      }
+      const errorMsg = error.response?.data?.msg || "Error al registrarse, intenta nuevamente";
+      setMessage(`❌ ${errorMsg}`);
     }
   };
+
+  // A simple logged-in view
+  if (token) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-screen bg-gray-900 text-white">
+        <h1 className="text-4xl">Bienvenido a Oriluck</h1>
+        <p>Próximamente: la interfaz de juegos.</p>
+        <button
+          onClick={() => {
+            localStorage.removeItem('token');
+            setToken(null);
+          }}
+          className="mt-4 bg-red-600 text-white py-2 px-4 rounded-lg hover:bg-red-700 transition"
+        >
+          Cerrar Sesión
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div
