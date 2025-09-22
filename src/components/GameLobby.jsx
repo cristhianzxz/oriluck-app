@@ -1,14 +1,33 @@
-import React from 'react';
+import React, { useContext } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { auth } from '../firebase';
 import { signOut } from 'firebase/auth';
+import { AuthContext } from '../App';
 
 const GameLobby = () => {
+  const navigate = useNavigate();
+  const { currentUser } = useContext(AuthContext);
+  
+  const userData = {
+    username: currentUser?.email?.split('@')[0] || "Cristhianzxz",
+    balance: 1000,
+    isAdmin: currentUser?.email === "cristhianzxz@hotmail.com",
+  };
+
   const handleLogout = async () => {
     try {
       await signOut(auth);
     } catch (error) {
       console.error("Error signing out: ", error);
     }
+  };
+
+  const handleRechargeClick = () => {
+    navigate('/recharge');
+  };
+
+  const handleAdminClick = () => {
+    navigate('/admin');
   };
 
   const games = [
@@ -34,7 +53,7 @@ const GameLobby = () => {
       id: 3,
       name: "RULETA",
       icon: "🎡",
-      status: "construction",
+      status: "construction", 
       description: "Próximamente - Ruleta europea premium",
       color: "from-green-500 to-teal-500",
       glow: "shadow-lg shadow-green-500/20"
@@ -69,10 +88,8 @@ const GameLobby = () => {
   ];
 
   const handleGameClick = (game) => {
-    if (game.status === "active") {
-      if (game.name === "BINGO") {
-        alert("🎰 Redirigiendo al Bingo VIP...");
-      }
+    if (game.status === "active" && game.name === "BINGO") {
+      alert("🎰 Redirigiendo al Bingo VIP...");
     } else {
       alert("🚧 Este juego premium estará disponible próximamente");
     }
@@ -80,39 +97,52 @@ const GameLobby = () => {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-900 via-purple-900 to-gray-900 relative overflow-hidden">
-      {/* Efecto de partículas de lujo */}
+      {/* Efectos de fondo */}
       <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-transparent via-black/20 to-black/60"></div>
+      <div className="absolute top-20 left-10 w-32 h-32 bg-yellow-500/10 rounded-full blur-xl"></div>
+      <div className="absolute bottom-20 right-10 w-48 h-48 bg-purple-500/10 rounded-full blur-2xl"></div>
       
-      {/* Header de lujo */}
+      {/* Header */}
       <header className="relative z-10 bg-black/40 backdrop-blur-lg border-b border-gold-500/30 shadow-2xl">
         <div className="container mx-auto px-6 py-4">
           <div className="flex justify-between items-center">
-            {/* Logo Premium */}
             <div className="flex items-center space-x-4">
               <div className="text-4xl font-bold bg-gradient-to-r from-yellow-400 to-yellow-200 bg-clip-text text-transparent">
                 🎩 ORI<span className="text-green-400">LUCK</span> VIP
               </div>
               <div className="text-white/80">
                 <div className="text-sm opacity-60">SALA PREMIUM</div>
-                <div className="font-light text-gold-200">Bienvenido, Jugador Elite</div>
+                <div className="font-light text-gold-200">Bienvenido, {userData.username}</div>
               </div>
             </div>
 
-            {/* Panel de control */}
             <div className="flex items-center space-x-4">
-              {/* Saldo de lujo */}
+              {/* Saldo */}
               <div className="bg-gradient-to-r from-yellow-500/10 to-yellow-600/10 border border-yellow-500/30 rounded-xl px-6 py-3 backdrop-blur-sm">
                 <div className="text-xs text-yellow-300/80 font-medium">SALDO DISPONIBLE</div>
                 <div className="text-2xl font-bold text-yellow-300 flex items-center">
-                  💎 Bs. 10,000.00
+                  💎 Bs. {userData.balance.toLocaleString()}
                 </div>
               </div>
 
               {/* Botones de acción */}
               <div className="flex space-x-3">
-                <button className="bg-gradient-to-r from-green-600 to-green-500 hover:from-green-500 hover:to-green-400 text-white font-semibold px-6 py-3 rounded-xl transition-all duration-300 transform hover:scale-105 shadow-lg shadow-green-500/25">
+                <button 
+                  onClick={handleRechargeClick}
+                  className="bg-gradient-to-r from-green-600 to-green-500 hover:from-green-500 hover:to-green-400 text-white font-semibold px-6 py-3 rounded-xl transition-all duration-300 transform hover:scale-105 shadow-lg shadow-green-500/25"
+                >
                   💰 Recargar
                 </button>
+
+                {userData.isAdmin && (
+                  <button 
+                    onClick={handleAdminClick}
+                    className="bg-gradient-to-r from-red-600 to-red-500 hover:from-red-500 hover:to-red-400 text-white font-semibold px-6 py-3 rounded-xl transition-all duration-300 transform hover:scale-105 shadow-lg shadow-red-500/25"
+                  >
+                    ⚙️ Admin
+                  </button>
+                )}
+
                 <button
                   onClick={handleLogout}
                   className="bg-gradient-to-r from-red-600 to-red-500 hover:from-red-500 hover:to-red-400 text-white font-semibold px-6 py-3 rounded-xl transition-all duration-300 transform hover:scale-105 shadow-lg shadow-red-500/25"
@@ -127,7 +157,7 @@ const GameLobby = () => {
 
       {/* Contenido principal */}
       <main className="relative z-10 container mx-auto px-6 py-12">
-        {/* Título elegante */}
+        {/* Título */}
         <div className="text-center mb-16">
           <h1 className="text-6xl font-bold bg-gradient-to-r from-white to-gray-300 bg-clip-text text-transparent mb-4">
             SALA DE JUEGOS VIP
@@ -137,7 +167,7 @@ const GameLobby = () => {
           </p>
         </div>
 
-        {/* Grid de juegos de lujo */}
+        {/* Grid de juegos */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8 max-w-7xl mx-auto">
           {games.map((game) => (
             <div
@@ -145,20 +175,17 @@ const GameLobby = () => {
               onClick={() => handleGameClick(game)}
               className={`group relative bg-gradient-to-br ${game.color} rounded-2xl p-8 text-white cursor-pointer transform transition-all duration-500 hover:scale-105 hover:rotate-1 ${game.glow} border border-white/10 overflow-hidden`}
             >
-              {/* Efecto de brillo al hover */}
+              {/* Efecto de brillo */}
               <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent transform -skew-x-12 translate-x-[-100%] group-hover:translate-x-[100%] transition-transform duration-1000"></div>
               
-              {/* Icono del juego */}
               <div className="text-6xl mb-6 text-center filter drop-shadow-2xl">
                 {game.icon}
               </div>
               
-              {/* Contenido del juego */}
               <div className="relative z-10 text-center">
-                <h3 className="text-2xl font-bold mb-2 text-shadow">{game.name}</h3>
+                <h3 className="text-2xl font-bold mb-2">{game.name}</h3>
                 <p className="text-white/90 text-sm mb-4 font-light">{game.description}</p>
                 
-                {/* Badge de estado */}
                 <div className={`inline-flex items-center px-4 py-2 rounded-full text-xs font-semibold ${
                   game.status === "active" 
                     ? "bg-green-500/20 text-green-300 border border-green-500/30" 
@@ -174,18 +201,13 @@ const GameLobby = () => {
           ))}
         </div>
 
-        {/* Footer elegante */}
+        {/* Footer */}
         <div className="text-center mt-16 pt-8 border-t border-white/10">
           <p className="text-gray-400/60 text-sm font-light">
             🎩 ORI LUCK VIP - Donde la elegancia se encuentra con la fortuna • 2024
           </p>
         </div>
       </main>
-
-      {/* Efectos decorativos adicionales */}
-      <div className="absolute top-20 left-10 w-32 h-32 bg-yellow-500/10 rounded-full blur-xl"></div>
-      <div className="absolute bottom-20 right-10 w-48 h-48 bg-purple-500/10 rounded-full blur-2xl"></div>
-      <div className="absolute top-1/2 left-1/4 w-24 h-24 bg-green-500/5 rounded-full blur-lg"></div>
     </div>
   );
 };

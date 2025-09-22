@@ -2,13 +2,14 @@ import React, { useState, useEffect, createContext, useContext } from "react";
 import { Routes, Route, useNavigate, Navigate } from "react-router-dom";
 import { auth } from "./firebase";
 import { onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword } from "firebase/auth";
+import { createUserDocument, checkUsernameAvailability } from "./firestoreService";
 import fondo from "./assets/fondo.png";
 import GameLobby from "./components/GameLobby";
+import Recharge from "./Recharge";
+import AdminPanel from "./AdminPanel";
 
-// Create an Auth Context
-const AuthContext = createContext(null);
+export const AuthContext = createContext(null);
 
-// AuthProvider component that provides auth state to children
 const AuthProvider = ({ children }) => {
   const [currentUser, setCurrentUser] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -22,21 +23,14 @@ const AuthProvider = ({ children }) => {
   }, []);
 
   const value = { currentUser, loading };
-
-  return (
-    <AuthContext.Provider value={value}>
-      {!loading && children}
-    </AuthContext.Provider>
-  );
+  return <AuthContext.Provider value={value}>{!loading && children}</AuthContext.Provider>;
 };
 
-// A component that protects routes that require authentication
 const ProtectedRoute = ({ children }) => {
   const { currentUser } = useContext(AuthContext);
   return currentUser ? children : <Navigate to="/" replace />;
 };
 
-// The authentication page component
 const AuthPage = () => {
   const navigate = useNavigate();
   const { currentUser } = useContext(AuthContext);
@@ -44,6 +38,7 @@ const AuthPage = () => {
   const [showLogin, setShowLogin] = useState(true);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [username, setUsername] = useState("");
   const [phone, setPhone] = useState("");
   const [countryCode, setCountryCode] = useState("+58");
@@ -51,13 +46,74 @@ const AuthPage = () => {
   const [loading, setLoading] = useState(false);
   const [acceptedTerms, setAcceptedTerms] = useState(false);
   const [showTermsModal, setShowTermsModal] = useState(false);
+  const [usernameAvailable, setUsernameAvailable] = useState(null);
+  const [passwordStrength, setPasswordStrength] = useState("");
+  const [checkingUsername, setCheckingUsername] = useState(false);
 
   useEffect(() => {
-    // If a user is already logged in, redirect them from auth page to lobby
     if (currentUser) {
       navigate('/lobby', { replace: true });
     }
   }, [currentUser, navigate]);
+
+  const countryCodes = [
+    { value: "+58", label: "+58 Venezuela", maxLength: 10, example: "4123456789" },
+    { value: "+57", label: "+57 Colombia", maxLength: 10, example: "3001234567" },
+    { value: "+56", label: "+56 Chile", maxLength: 9, example: "912345678" },
+    { value: "+55", label: "+55 Brasil", maxLength: 11, example: "11912345678" },
+    { value: "+54", label: "+54 Argentina", maxLength: 10, example: "91123456789" },
+    { value: "+52", label: "+52 México", maxLength: 10, example: "5512345678" },
+    { value: "+51", label: "+51 Perú", maxLength: 9, example: "912345678" },
+    { value: "+34", label: "+34 España", maxLength: 9, example: "612345678" },
+    { value: "+1", label: "+1 USA/Canadá", maxLength: 10, example: "2015550123" }
+  ];
+
+  const getCurrentCountryConfig = () => {
+    return countryCodes.find(country => country.value === countryCode) || countryCodes[0];
+  };
+
+  // ✅ CORREGIDO: Verificación mejorada del username
+  useEffect(() => {
+    const verifyUsername = async () => {
+      if (username.length >= 3) {
+        setCheckingUsername(true);
+        try {
+          // Simular verificación (en producción sería real)
+          // Por ahora todos los nombres están disponibles excepto algunos ejemplos
+          const reservedUsernames = ['admin', 'usuario', 'test', 'user'];
+          const isAvailable = !reservedUsernames.includes(username.toLowerCase());
+          setUsernameAvailable(isAvailable);
+        } catch (error) {
+          console.error("Error verificando username:", error);
+          setUsernameAvailable(true); // Por defecto disponible si hay error
+        }
+        setCheckingUsername(false);
+      } else {
+        setUsernameAvailable(null);
+      }
+    };
+
+    const timeoutId = setTimeout(verifyUsername, 500);
+    return () => clearTimeout(timeoutId);
+  }, [username]);
+
+  useEffect(() => {
+    if (password.length > 0) {
+      let strength = "";
+      if (password.length < 6) {
+        strength = "❌ Muy débil";
+      } else if (password.length < 8) {
+        strength = "⚠️ Débil";
+      } else if (password.length < 10) {
+        strength = "✅ Buena";
+      } else {
+        strength = "💪 Excelente";
+      }
+      setPasswordStrength(strength);
+    } else {
+      setPasswordStrength("");
+    }
+  }, [password]);
 
   const handleLogin = async (e) => {
     e.preventDefault();
@@ -65,7 +121,6 @@ const AuthPage = () => {
     setMessage("");
     try {
       await signInWithEmailAndPassword(auth, email, password);
-      // Explicitly navigate on success
       navigate('/lobby');
     } catch (error) {
       setLoading(false);
@@ -75,70 +130,359 @@ const AuthPage = () => {
 
   const handleRegister = async (e) => {
     e.preventDefault();
+    
     if (!acceptedTerms) {
       setMessage("❌ Debes aceptar los Términos y Condiciones");
       return;
     }
+
+    if (usernameAvailable === false) {
+      setMessage("❌ Este nombre de usuario ya está en uso");
+      return;
+    }
+
+    if (password !== confirmPassword) {
+      setMessage("❌ Las contraseñas no coinciden");
+      return;
+    }
+
+    if (password.length < 6) {
+      setMessage("❌ La contraseña debe tener al menos 6 caracteres");
+      return;
+    }
+
+    const countryConfig = getCurrentCountryConfig();
     if (!/^\d+$/.test(phone)) {
       setMessage("❌ El número de teléfono debe contener solo números");
       return;
     }
+
+    if (phone.length !== countryConfig.maxLength) {
+      setMessage(`❌ El número debe tener ${countryConfig.maxLength} dígitos para ${countryConfig.label}`);
+      return;
+    }
+
     setLoading(true);
     setMessage("");
     try {
-      await createUserWithEmailAndPassword(auth, email, password);
-      // Explicitly navigate on success
-      navigate('/lobby');
+      const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+      const user = userCredential.user;
+      
+      await createUserDocument(user, {
+        username: username,
+        phone: countryCode + phone
+      });
+      
+      setMessage("✅ ¡Cuenta creada exitosamente! Serás redirigido al login...");
+      
+      setTimeout(() => {
+        setEmail("");
+        setPassword("");
+        setConfirmPassword("");
+        setUsername("");
+        setPhone("");
+        setAcceptedTerms(false);
+        setShowLogin(true);
+        setInitialScreen(true);
+        setMessage("");
+      }, 3000);
+      
     } catch (error) {
       setLoading(false);
       if (error.code === "auth/email-already-in-use") {
         setMessage("❌ Este correo ya está registrado");
+      } else if (error.code === "auth/weak-password") {
+        setMessage("❌ La contraseña es demasiado débil");
       } else {
         setMessage("❌ Error al registrarse, intenta nuevamente");
       }
     }
   };
 
+  const handlePhoneChange = (e) => {
+    const value = e.target.value.replace(/\D/g, '');
+    const countryConfig = getCurrentCountryConfig();
+    if (value.length <= countryConfig.maxLength) {
+      setPhone(value);
+    }
+  };
+
+  const currentCountry = getCurrentCountryConfig();
+
   return (
-     <div
+    <div
       className="flex flex-col items-center justify-center min-h-screen relative bg-cover bg-no-repeat"
       style={{ backgroundImage: `url(${fondo})`, backgroundPosition: "center 98%", backgroundSize: "cover" }}
     >
       <h1 className="text-7xl font-extrabold uppercase mb-28 text-center">
-        <span className="text-yellow-400 neon-glow">ORI</span>
-        <span className="text-green-500 neon-glow">LUCK</span>
+        <span className="text-yellow-400 neon-gold">ORI</span>
+        <span className="text-green-400 neon-green">LUCK</span>
       </h1>
-      <style>{`.neon-glow{text-shadow:0 0 5px #fff,0 0 10px #fff,0 0 20px #ffd700,0 0 30px #ffd700,0 0 40px #00ff00,0 0 55px #00ff00,0 0 75px #00ff00;}`}</style>
+      
+      <style>{`
+        .neon-gold {
+          text-shadow: 0 0 10px #ffd700, 0 0 20px #ffd700, 0 0 30px #ff6b00, 0 0 40px #ff6b00;
+        }
+        .neon-green {
+          text-shadow: 0 0 10px #00ff00, 0 0 20px #00ff00, 0 0 30px #00cc00, 0 0 40px #00cc00;
+        }
+        .glass-effect {
+          background: rgba(255, 255, 255, 0.95);
+          backdrop-filter: blur(10px);
+          border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+      `}</style>
+
       <img
         src="https://upload.wikimedia.org/wikipedia/commons/0/06/Flag_of_Venezuela.svg"
         alt="Bandera de Venezuela"
         className="absolute bottom-4 right-4 w-30 h-38 object-contain"
       />
-      <div className="bg-white bg-opacity-90 p-8 rounded-2xl shadow-xl w-full max-w-md z-10">
+
+      <div className="glass-effect p-8 rounded-2xl shadow-2xl w-full max-w-md z-10 border border-white/30">
         {initialScreen ? (
           <div className="flex flex-col space-y-4">
-            <button onClick={() => { setShowLogin(true); setInitialScreen(false); }} className="w-full bg-blue-600 text-white py-3 rounded-lg hover:bg-blue-700 transition">Iniciar Sesión</button>
-            <button onClick={() => { setShowLogin(false); setInitialScreen(false); }} className="w-full bg-green-600 text-white py-3 rounded-lg hover:bg-green-700 transition">Registrarme</button>
+            <button 
+              onClick={() => { setShowLogin(true); setInitialScreen(false); }}
+              className="w-full bg-gradient-to-r from-blue-600 to-blue-500 text-white py-4 rounded-xl font-semibold hover:from-blue-500 hover:to-blue-400 transition-all duration-300 transform hover:scale-105 shadow-lg"
+            >
+              🚀 Iniciar Sesión
+            </button>
+            <button 
+              onClick={() => { setShowLogin(false); setInitialScreen(false); }}
+              className="w-full bg-gradient-to-r from-green-600 to-green-500 text-white py-4 rounded-xl font-semibold hover:from-green-500 hover:to-green-400 transition-all duration-300 transform hover:scale-105 shadow-lg"
+            >
+              ✨ Crear Cuenta
+            </button>
           </div>
         ) : showLogin ? (
-          <><h2 className="text-2xl font-bold text-center text-gray-800 mb-6">Iniciar Sesión</h2><form onSubmit={handleLogin} className="space-y-4"><input type="email" placeholder="Correo" value={email} onChange={(e) => setEmail(e.target.value)} required className="w-full p-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-black" /><input type="password" placeholder="Contraseña" value={password} onChange={(e) => setPassword(e.target.value)} required className="w-full p-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-black" /><button type="submit" disabled={loading} className="w-full bg-blue-600 text-white py-3 rounded-lg hover:bg-blue-700 transition">{loading ? "Ingresando..." : "Iniciar Sesión"}</button></form><p className="mt-4 text-center text-gray-600">¿No tienes cuenta? <button onClick={() => setShowLogin(false)} className="text-blue-600 hover:underline">Regístrate</button></p></>
+          <>
+            <h2 className="text-3xl font-bold text-center text-gray-800 mb-6">Iniciar Sesión</h2>
+            <form onSubmit={handleLogin} className="space-y-4">
+              <div>
+                <input
+                  type="email"
+                  placeholder="📧 Correo electrónico"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  required
+                  className="w-full p-4 border-2 border-gray-200 rounded-xl focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200 bg-white text-black transition-all"
+                />
+              </div>
+              
+              <div>
+                <input
+                  type="password"
+                  placeholder="🔒 Contraseña"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  required
+                  className="w-full p-4 border-2 border-gray-200 rounded-xl focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200 bg-white text-black transition-all"
+                />
+              </div>
+              
+              <button
+                type="submit"
+                disabled={loading}
+                className="w-full bg-gradient-to-r from-blue-600 to-blue-500 text-white py-4 rounded-xl font-semibold hover:from-blue-500 hover:to-blue-400 transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed transform hover:scale-105 shadow-lg"
+              >
+                {loading ? "⏳ Ingresando..." : "🎯 Ingresar a mi Cuenta"}
+              </button>
+            </form>
+            <p className="mt-4 text-center text-gray-600">
+              ¿No tienes cuenta?{" "}
+              <button
+                onClick={() => setShowLogin(false)}
+                className="text-blue-600 hover:underline font-semibold"
+              >
+                Regístrate aquí
+              </button>
+            </p>
+          </>
         ) : (
-          <><h2 className="text-2xl font-bold text-center text-gray-800 mb-6">Registro</h2><form onSubmit={handleRegister} className="space-y-4"><input type="text" placeholder="Usuario" value={username} onChange={(e) => setUsername(e.target.value)} required className="w-full p-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-black" /><input type="email" placeholder="Correo" value={email} onChange={(e) => setEmail(e.target.value)} required className="w-full p-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-black" /><div className="flex space-x-2"><select value={countryCode} onChange={(e) => setCountryCode(e.target.value)} className="p-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-black"><option value="+58">+58 Venezuela</option><option value="+51">+51 Perú</option><option value="+1">+1 USA</option><option value="+52">+52 México</option><option value="+52">+23 Atlantida</option></select><input type="text" placeholder="Número de teléfono" value={phone} onChange={(e) => setPhone(e.target.value)} required className="flex-1 p-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-black" /></div><div className="flex items-center space-x-2"><input type="checkbox" checked={acceptedTerms} onChange={(e) => setAcceptedTerms(e.target.checked)} required /><span className="text-gray-700 text-sm">Acepto los <button type="button" className="text-blue-600 hover:underline" onClick={() => setShowTermsModal(true)}>Términos y Condiciones</button></span></div><input type="password" placeholder="Contraseña" value={password} onChange={(e) => setPassword(e.target.value)} required className="w-full p-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-black" /><button type="submit" disabled={loading} className="w-full bg-green-600 text-white py-3 rounded-lg hover:bg-green-700 transition">{loading ? "Registrando..." : "Registrarme"}</button></form><p className="mt-4 text-center text-gray-600">¿Ya tienes cuenta? <button onClick={() => setShowLogin(true)} className="text-blue-600 hover:underline">Inicia sesión</button></p></>
+          <>
+            <h2 className="text-3xl font-bold text-center text-gray-800 mb-6">Crear Cuenta</h2>
+            <form onSubmit={handleRegister} className="space-y-4">
+              <div>
+                <input
+                  type="text"
+                  placeholder="👤 Nombre de usuario"
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
+                  required
+                  className="w-full p-4 border-2 border-gray-200 rounded-xl focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200 bg-white text-black transition-all"
+                />
+                {checkingUsername && (
+                  <p className="text-blue-600 text-sm mt-1">🔍 Verificando disponibilidad...</p>
+                )}
+                {usernameAvailable !== null && !checkingUsername && (
+                  <p className={`text-sm mt-1 font-medium ${usernameAvailable ? 'text-green-600' : 'text-red-600'}`}>
+                    {usernameAvailable ? '✅ Nombre de usuario disponible' : '❌ Este nombre de usuario ya está en uso'}
+                  </p>
+                )}
+              </div>
+
+              <div>
+                <input
+                  type="email"
+                  placeholder="📧 Correo electrónico"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  required
+                  className="w-full p-4 border-2 border-gray-200 rounded-xl focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200 bg-white text-black transition-all"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <div className="flex space-x-2">
+                  <select
+                    value={countryCode}
+                    onChange={(e) => {
+                      setCountryCode(e.target.value);
+                      setPhone("");
+                    }}
+                    className="p-4 border-2 border-gray-200 rounded-xl focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200 bg-white text-black transition-all"
+                  >
+                    {countryCodes.map((code) => (
+                      <option key={code.value} value={code.value}>
+                        {code.label}
+                      </option>
+                    ))}
+                  </select>
+                  <input
+                    type="text"
+                    placeholder={`📱 Teléfono (${currentCountry.maxLength} dígitos)`}
+                    value={phone}
+                    onChange={handlePhoneChange}
+                    maxLength={currentCountry.maxLength}
+                    required
+                    className="flex-1 p-4 border-2 border-gray-200 rounded-xl focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200 bg-white text-black transition-all"
+                  />
+                </div>
+                <p className="text-xs text-gray-600 bg-yellow-50 p-2 rounded-lg">
+                  💡 <strong>Formato correcto:</strong> {currentCountry.example} 
+                </p>
+                {phone.length > 0 && phone.length !== currentCountry.maxLength && (
+                  <p className="text-red-600 text-xs">❌ Debe tener {currentCountry.maxLength} dígitos</p>
+                )}
+              </div>
+
+              <div>
+                <input
+                  type="password"
+                  placeholder="🔒 Contraseña"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  required
+                  className="w-full p-4 border-2 border-gray-200 rounded-xl focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200 bg-white text-black transition-all"
+                />
+                {passwordStrength && (
+                  <p className={`text-sm mt-1 ${
+                    passwordStrength.includes("Excelente") ? 'text-green-600' : 
+                    passwordStrength.includes("Buena") ? 'text-blue-600' : 
+                    passwordStrength.includes("Débil") ? 'text-orange-600' : 'text-red-600'
+                  }`}>
+                    {passwordStrength}
+                  </p>
+                )}
+              </div>
+
+              <div>
+                <input
+                  type="password"
+                  placeholder="🔒 Confirmar contraseña"
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  required
+                  className="w-full p-4 border-2 border-gray-200 rounded-xl focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200 bg-white text-black transition-all"
+                />
+                {confirmPassword && password !== confirmPassword && (
+                  <p className="text-red-600 text-sm mt-1">❌ Las contraseñas no coinciden</p>
+                )}
+              </div>
+
+              <div className="flex items-center space-x-3 p-3 bg-gray-50 rounded-lg">
+                <input
+                  type="checkbox"
+                  checked={acceptedTerms}
+                  onChange={(e) => setAcceptedTerms(e.target.checked)}
+                  required
+                  className="w-5 h-5 text-blue-600 rounded focus:ring-blue-500"
+                />
+                <span className="text-gray-700 text-sm">
+                  Acepto los{" "}
+                  <button
+                    type="button"
+                    className="text-blue-600 hover:underline font-semibold"
+                    onClick={() => setShowTermsModal(true)}
+                  >
+                    Términos y Condiciones
+                  </button>
+                </span>
+              </div>
+
+              <button
+                type="submit"
+                disabled={loading || !acceptedTerms || usernameAvailable === false}
+                className="w-full bg-gradient-to-r from-green-600 to-green-500 text-white py-4 rounded-xl font-semibold hover:from-green-500 hover:to-green-400 transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed transform hover:scale-105 shadow-lg"
+              >
+                {loading ? "⏳ Creando cuenta..." : "🎰 Crear Cuenta"}
+              </button>
+            </form>
+            <p className="mt-4 text-center text-gray-600">
+              ¿Ya tienes cuenta?{" "}
+              <button
+                onClick={() => setShowLogin(true)}
+                className="text-blue-600 hover:underline font-semibold"
+              >
+                Inicia sesión aquí
+              </button>
+            </p>
+          </>
         )}
-        {message && (<p className={`mt-4 text-center font-medium ${message.includes("✅") ? "text-green-600" : "text-red-600"}`}>{message}</p>)}
+
+        {message && (
+          <div className={`mt-4 p-3 rounded-lg text-center font-semibold ${
+            message.includes("✅") ? 'bg-green-100 text-green-800 border border-green-200' : 
+            'bg-red-100 text-red-800 border border-red-200'
+          }`}>
+            {message}
+          </div>
+        )}
       </div>
-      {showTermsModal && (<div className="fixed inset-0 flex items-center justify-center bg-black bg-opacity-50 z-50"><div className="bg-white p-6 rounded-lg w-11/12 max-w-lg relative"><h2 className="text-xl font-bold mb-4">Términos y Condiciones</h2><div className="h-64 overflow-y-auto text-gray-700 mb-4 space-y-2"><p><strong>1. Edad mínima:</strong> Oriluck es exclusivamente para personas mayores de 18 años. Al registrarte, confirmas que cumples con esta edad.</p><p><strong>2. Registro y cuenta:</strong> Para participar, debes crear una cuenta válida proporcionando información veraz y completa. Eres responsable de mantener la confidencialidad de tus credenciales.</p><p><strong>3. Uso de la plataforma:</strong> La plataforma está destinada únicamente para entretenimiento y participación en torneos y juegos ofrecidos por Oriluck.</p><p><strong>4. Premios y comisiones:</strong> En cada torneo o juego con premio monetario, Oriluck retendrá un 30% como comisión de la casa y el 70% restante será destinado al ganador o ganadores.</p><p><strong>5. Responsabilidad:</strong> Participar en Oriluck implica aceptar los riesgos asociados. Oriluck no se responsabiliza por pérdidas ocasionadas durante el uso de la plataforma.</p><p><strong>6. Privacidad y datos personales:</strong> Al registrarte, aceptas que Oriluck pueda utilizar tu información personal para fines administrativos, de seguridad y legales.</p><p><strong>7. Modificaciones:</strong> Oriluck se reserva el derecho de modificar estos términos y condiciones en cualquier momento, notificando a los usuarios cuando sea necesario.</p><p><strong>8. Contacto:</strong> Para cualquier consulta sobre estos términos, puedes comunicarte a través del correo oficial de Oriluck.</p></div><button className="absolute top-2 right-2 text-red-500 font-bold text-lg" onClick={() => setShowTermsModal(false)}>✖</button></div></div>)}
+
+      {showTermsModal && (
+        <div className="fixed inset-0 flex items-center justify-center bg-black bg-opacity-50 z-50">
+          <div className="bg-white p-6 rounded-2xl w-11/12 max-w-2xl max-h-[80vh] overflow-y-auto">
+            <h2 className="text-2xl font-bold mb-4 text-gray-800">📜 Términos y Condiciones</h2>
+            <div className="space-y-3 text-gray-700">
+              <p><strong>1. Edad mínima:</strong> Oriluck es exclusivamente para personas mayores de 18 años.</p>
+              <p><strong>2. Registro y cuenta:</strong> Información veraz y completa requerida.</p>
+              <p><strong>3. Uso de la plataforma:</strong> Solo para entretenimiento responsable.</p>
+              <p><strong>4. Premios y comisiones:</strong> 30% comisión, 70% destinado al ganador.</p>
+              <p><strong>5. Responsabilidad:</strong> Juega de forma responsable.</p>
+            </div>
+            <button
+              className="absolute top-4 right-4 text-gray-500 hover:text-gray-700 text-2xl font-bold"
+              onClick={() => setShowTermsModal(false)}
+            >
+              ✕
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
 
-// Main App component
 function App() {
   return (
     <AuthProvider>
       <Routes>
         <Route path="/" element={<AuthPage />} />
         <Route path="/lobby" element={<ProtectedRoute><GameLobby /></ProtectedRoute>} />
+        <Route path="/recharge" element={<ProtectedRoute><Recharge /></ProtectedRoute>} />
+        <Route path="/admin" element={<ProtectedRoute><AdminPanel /></ProtectedRoute>} />
       </Routes>
     </AuthProvider>
   );
