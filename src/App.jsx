@@ -1,10 +1,41 @@
-// 📌 App.jsx
-import React, { useState } from "react";
+import React, { useState, useEffect, createContext, useContext } from "react";
+import { Routes, Route, useNavigate, Navigate } from "react-router-dom";
 import { auth } from "./firebase";
-import { signInWithEmailAndPassword, createUserWithEmailAndPassword } from "firebase/auth";
-import fondo from "./assets/fondo.png"; // tu fondo PNG
+import { onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword } from "firebase/auth";
+import { createUserDocument } from "./firestoreService";
+import Dashboard from "./Dashboard";
+import fondo from "./assets/fondo.png";
 
-function App() {
+// Create an Auth Context
+export const AuthContext = createContext(null);
+
+// AuthProvider component
+const AuthProvider = ({ children }) => {
+  const [currentUser, setCurrentUser] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, user => {
+      setCurrentUser(user);
+      setLoading(false);
+    });
+    return unsubscribe;
+  }, []);
+
+  const value = { currentUser, loading };
+  return <AuthContext.Provider value={value}>{!loading && children}</AuthContext.Provider>;
+};
+
+// Protected Route
+const ProtectedRoute = ({ children }) => {
+  const { currentUser } = useContext(AuthContext);
+  return currentUser ? children : <Navigate to="/" replace />;
+};
+
+// Login/Register Page (TU INTERFAZ ORIGINAL)
+const AuthPage = () => {
+  const navigate = useNavigate();
+  const { currentUser } = useContext(AuthContext);
   const [initialScreen, setInitialScreen] = useState(true);
   const [showLogin, setShowLogin] = useState(true);
   const [email, setEmail] = useState("");
@@ -15,34 +46,34 @@ function App() {
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
-  const [acceptedTerms, setAcceptedTerms] = useState(false); // ✅ Checkbox Términos
-  const [showTermsModal, setShowTermsModal] = useState(false); // ✅ Modal Términos
+  const [acceptedTerms, setAcceptedTerms] = useState(false);
+  const [showTermsModal, setShowTermsModal] = useState(false);
 
-  // ✅ Login
+  useEffect(() => {
+    if (currentUser) {
+      navigate('/dashboard', { replace: true });
+    }
+  }, [currentUser, navigate]);
+
   const handleLogin = async (e) => {
     e.preventDefault();
     setLoading(true);
     setMessage("");
-
     try {
       await signInWithEmailAndPassword(auth, email, password);
-      setMessage("Inicio de sesión exitoso ✅");
-      setLoading(false);
+      navigate('/dashboard');
     } catch (error) {
       setLoading(false);
       setMessage("❌ Usuario o contraseña incorrectos");
     }
   };
 
-  // ✅ Registro
   const handleRegister = async (e) => {
     e.preventDefault();
-
     if (!acceptedTerms) {
       setMessage("❌ Debes aceptar los Términos y Condiciones");
       return;
     }
-
     if (!/^\d+$/.test(phone)) {
       setMessage("❌ El número de teléfono debe contener solo números");
       return;
@@ -50,21 +81,22 @@ function App() {
 
     setLoading(true);
     setMessage("");
-
     try {
-      await createUserWithEmailAndPassword(auth, email, password);
+      const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+      const user = userCredential.user;
+      
+      await createUserDocument(user, {
+        username: username,
+        phone: countryCode + phone
+      });
+      
       setSuccess(true);
-      setMessage("Te has registrado exitosamente ✅");
+      setMessage("✅ Te has registrado exitosamente");
       setLoading(false);
 
-      // ⏳ Espera 4 segundos y redirige al login
       setTimeout(() => {
-        setSuccess(false);
-        setShowLogin(true);
-        setInitialScreen(true);
-        setMessage("");
-        setAcceptedTerms(false);
-      }, 4000);
+        navigate('/dashboard');
+      }, 2000);
     } catch (error) {
       setLoading(false);
       if (error.code === "auth/email-already-in-use") {
@@ -75,6 +107,7 @@ function App() {
     }
   };
 
+  // TU INTERFAZ ORIGINAL COMPLETA
   return (
     <div
       className="flex flex-col items-center justify-center min-h-screen relative bg-cover bg-no-repeat"
@@ -86,7 +119,6 @@ function App() {
         <span className="text-green-500 neon-glow">LUCK</span>
       </h1>
 
-      {/* CSS Tailwind extendido */}
       <style>
       {`
         .neon-glow {
@@ -301,6 +333,18 @@ function App() {
         </div>
       )}
     </div>
+  );
+};
+
+// Main App component
+function App() {
+  return (
+    <AuthProvider>
+      <Routes>
+        <Route path="/" element={<AuthPage />} />
+        <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+      </Routes>
+    </AuthProvider>
   );
 }
 
