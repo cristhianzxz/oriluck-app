@@ -1,39 +1,74 @@
 import React, { useState, useEffect, createContext, useContext } from "react";
 import { Routes, Route, useNavigate, Navigate } from "react-router-dom";
 import { auth } from "./firebase";
-import { onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword } from "firebase/auth";
-import { createUserDocument, checkUsernameAvailability } from "./firestoreService";
+import { onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut } from "firebase/auth";
+import { createUserDocument, checkUsernameAvailability, getUserData } from "./firestoreService";
 import fondo from "./assets/fondo.png";
 import GameLobby from "./components/GameLobby";
 import Recharge from "./Recharge";
 import AdminPanel from "./AdminPanel";
+import TransactionHistory from "./components/TransactionHistory";
 
 export const AuthContext = createContext(null);
 
 const AuthProvider = ({ children }) => {
   const [currentUser, setCurrentUser] = useState(null);
+  const [userData, setUserData] = useState(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, user => {
-      setCurrentUser(user);
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      if (user) {
+        try {
+          const userDoc = await getUserData(user.uid);
+          setUserData(userDoc);
+          setCurrentUser(user);
+        } catch (error) {
+          console.error("Error cargando datos del usuario:", error);
+          setCurrentUser(user);
+        }
+      } else {
+        setCurrentUser(null);
+        setUserData(null);
+      }
       setLoading(false);
     });
+    
     return unsubscribe;
   }, []);
 
-  const value = { currentUser, loading };
-  return <AuthContext.Provider value={value}>{!loading && children}</AuthContext.Provider>;
+  const value = { 
+    currentUser, 
+    userData,
+    loading 
+  };
+  
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 };
 
 const ProtectedRoute = ({ children }) => {
-  const { currentUser } = useContext(AuthContext);
-  return currentUser ? children : <Navigate to="/" replace />;
+  const { currentUser, userData, loading } = useContext(AuthContext);
+  
+  if (loading) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-screen">
+        <div className="text-xl text-gray-700">Cargando...</div>
+      </div>
+    );
+  }
+  
+  if (!currentUser || userData?.suspended) {
+    return <Navigate to="/" replace />;
+  }
+  
+  return children;
 };
 
 const AuthPage = () => {
   const navigate = useNavigate();
-  const { currentUser } = useContext(AuthContext);
+  const { currentUser, userData, loading } = useContext(AuthContext);
+  
+  // ✅ TODOS LOS HOOKS PRIMERO - SIN INTERRUPCIONES
   const [initialScreen, setInitialScreen] = useState(true);
   const [showLogin, setShowLogin] = useState(true);
   const [email, setEmail] = useState("");
@@ -43,19 +78,16 @@ const AuthPage = () => {
   const [phone, setPhone] = useState("");
   const [countryCode, setCountryCode] = useState("+58");
   const [message, setMessage] = useState("");
-  const [loading, setLoading] = useState(false);
+  const [formLoading, setFormLoading] = useState(false);
   const [acceptedTerms, setAcceptedTerms] = useState(false);
   const [showTermsModal, setShowTermsModal] = useState(false);
   const [usernameAvailable, setUsernameAvailable] = useState(null);
   const [passwordStrength, setPasswordStrength] = useState("");
   const [checkingUsername, setCheckingUsername] = useState(false);
+  const [justRegistered, setJustRegistered] = useState(false);
+  const [registering, setRegistering] = useState(false);
 
-  useEffect(() => {
-    if (currentUser) {
-      navigate('/lobby', { replace: true });
-    }
-  }, [currentUser, navigate]);
-
+  // ✅ CONSTANTES Y FUNCIONES AUXILIARES DESPUÉS DE LOS HOOKS
   const countryCodes = [
     { value: "+58", label: "+58 Venezuela", maxLength: 10, example: "4123456789" },
     { value: "+57", label: "+57 Colombia", maxLength: 10, example: "3001234567" },
@@ -72,20 +104,35 @@ const AuthPage = () => {
     return countryCodes.find(country => country.value === countryCode) || countryCodes[0];
   };
 
-  // ✅ CORREGIDO: Verificación mejorada del username
+  const currentCountry = getCurrentCountryConfig();
+
+  const handlePhoneChange = (e) => {
+    const value = e.target.value.replace(/\D/g, '');
+    const countryConfig = getCurrentCountryConfig();
+    if (value.length <= countryConfig.maxLength) {
+      setPhone(value);
+    }
+  };
+
+  // ✅ USEEFFECT DESPUÉS DE LAS FUNCIONES QUE USA
+  useEffect(() => {
+    if (loading) return;
+    
+    if (currentUser && userData && !userData.suspended && !justRegistered && !registering) {
+      navigate('/lobby', { replace: true });
+    }
+  }, [currentUser, userData, loading, navigate, justRegistered, registering]);
+
   useEffect(() => {
     const verifyUsername = async () => {
       if (username.length >= 3) {
         setCheckingUsername(true);
         try {
-          // Simular verificación (en producción sería real)
-          // Por ahora todos los nombres están disponibles excepto algunos ejemplos
-          const reservedUsernames = ['admin', 'usuario', 'test', 'user'];
-          const isAvailable = !reservedUsernames.includes(username.toLowerCase());
+          const isAvailable = await checkUsernameAvailability(username);
           setUsernameAvailable(isAvailable);
         } catch (error) {
           console.error("Error verificando username:", error);
-          setUsernameAvailable(true); // Por defecto disponible si hay error
+          setUsernameAvailable(true);
         }
         setCheckingUsername(false);
       } else {
@@ -115,15 +162,15 @@ const AuthPage = () => {
     }
   }, [password]);
 
+  // ✅ FUNCIONES DE MANEJO DE EVENTOS
   const handleLogin = async (e) => {
     e.preventDefault();
-    setLoading(true);
+    setFormLoading(true);
     setMessage("");
     try {
       await signInWithEmailAndPassword(auth, email, password);
-      navigate('/lobby');
     } catch (error) {
-      setLoading(false);
+      setFormLoading(false);
       setMessage("❌ Usuario o contraseña incorrectos");
     }
   };
@@ -162,33 +209,49 @@ const AuthPage = () => {
       return;
     }
 
-    setLoading(true);
+    setFormLoading(true);
+    setRegistering(true);
     setMessage("");
     try {
       const userCredential = await createUserWithEmailAndPassword(auth, email, password);
       const user = userCredential.user;
       
-      await createUserDocument(user, {
+      const userCreated = await createUserDocument(user, {
         username: username,
         phone: countryCode + phone
       });
       
-      setMessage("✅ ¡Cuenta creada exitosamente! Serás redirigido al login...");
-      
-      setTimeout(() => {
-        setEmail("");
-        setPassword("");
-        setConfirmPassword("");
-        setUsername("");
-        setPhone("");
-        setAcceptedTerms(false);
-        setShowLogin(true);
-        setInitialScreen(true);
-        setMessage("");
-      }, 3000);
+      if (userCreated) {
+        await signOut(auth);
+
+        setJustRegistered(true);
+        setMessage("✅ ¡Cuenta creada exitosamente! Serás redirigido al login...");
+
+        setTimeout(() => {
+          setJustRegistered(false);
+          setRegistering(false);
+          setEmail("");
+          setPassword("");
+          setConfirmPassword("");
+          setUsername("");
+          setPhone("");
+          setAcceptedTerms(false);
+          setShowLogin(true);
+          setInitialScreen(true);
+          setMessage("");
+        }, 3000);
+
+        return;
+      } else {
+        setMessage("❌ Error al crear perfil de usuario");
+        setFormLoading(false);
+        setRegistering(false);
+        return;
+      }
       
     } catch (error) {
-      setLoading(false);
+      setFormLoading(false);
+      setRegistering(false);
       if (error.code === "auth/email-already-in-use") {
         setMessage("❌ Este correo ya está registrado");
       } else if (error.code === "auth/weak-password") {
@@ -199,16 +262,53 @@ const AuthPage = () => {
     }
   };
 
-  const handlePhoneChange = (e) => {
-    const value = e.target.value.replace(/\D/g, '');
-    const countryConfig = getCurrentCountryConfig();
-    if (value.length <= countryConfig.maxLength) {
-      setPhone(value);
-    }
-  };
+  // ✅ RETURN CONDICIONALES SOLO AL FINAL
+  if (loading) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-screen">
+        <div className="text-xl text-gray-700">Cargando...</div>
+      </div>
+    );
+  }
 
-  const currentCountry = getCurrentCountryConfig();
+  if (currentUser && userData?.suspended) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-screen relative bg-cover bg-no-repeat"
+        style={{ backgroundImage: `url(${fondo})`, backgroundPosition: "center 98%", backgroundSize: "cover" }}>
+        <div className="glass-effect p-8 rounded-2xl shadow-2xl w-full max-w-md z-10 border border-white/30">
+          <div className="bg-red-600 text-white p-6 rounded-xl text-center font-bold">
+            <div className="text-2xl mb-2">🚫 Cuenta Suspendida</div>
+            <div className="text-lg mb-4">
+              Tu cuenta ha sido suspendida por la administración de Oriluck.
+            </div>
+            <div className="text-sm opacity-90">
+              Si deseas apelar, comunícate con soporte.
+            </div>
+          </div>
+          
+          <button 
+            onClick={async () => {
+              await signOut(auth);
+              window.location.reload();
+            }}
+            className="w-full mt-4 bg-gray-600 text-white py-3 rounded-xl font-semibold hover:bg-gray-700 transition-all"
+          >
+            Volver al Login
+          </button>
+        </div>
+        
+        <style>{`
+          .glass-effect {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+          }
+        `}</style>
+      </div>
+    );
+  }
 
+  // ✅ RETURN PRINCIPAL AL FINAL
   return (
     <div
       className="flex flex-col items-center justify-center min-h-screen relative bg-cover bg-no-repeat"
@@ -283,10 +383,10 @@ const AuthPage = () => {
               
               <button
                 type="submit"
-                disabled={loading}
+                disabled={formLoading}
                 className="w-full bg-gradient-to-r from-blue-600 to-blue-500 text-white py-4 rounded-xl font-semibold hover:from-blue-500 hover:to-blue-400 transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed transform hover:scale-105 shadow-lg"
               >
-                {loading ? "⏳ Ingresando..." : "🎯 Ingresar a mi Cuenta"}
+                {formLoading ? "⏳ Ingresando..." : "🎯 Ingresar a mi Cuenta"}
               </button>
             </form>
             <p className="mt-4 text-center text-gray-600">
@@ -423,10 +523,10 @@ const AuthPage = () => {
 
               <button
                 type="submit"
-                disabled={loading || !acceptedTerms || usernameAvailable === false}
+                disabled={formLoading || !acceptedTerms || usernameAvailable === false}
                 className="w-full bg-gradient-to-r from-green-600 to-green-500 text-white py-4 rounded-xl font-semibold hover:from-green-500 hover:to-green-400 transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed transform hover:scale-105 shadow-lg"
               >
-                {loading ? "⏳ Creando cuenta..." : "🎰 Crear Cuenta"}
+                {formLoading ? "⏳ Creando cuenta..." : "🎰 Crear Cuenta"}
               </button>
             </form>
             <p className="mt-4 text-center text-gray-600">
@@ -483,6 +583,7 @@ function App() {
         <Route path="/lobby" element={<ProtectedRoute><GameLobby /></ProtectedRoute>} />
         <Route path="/recharge" element={<ProtectedRoute><Recharge /></ProtectedRoute>} />
         <Route path="/admin" element={<ProtectedRoute><AdminPanel /></ProtectedRoute>} />
+        <Route path="/history" element={<ProtectedRoute><TransactionHistory /></ProtectedRoute>} />
       </Routes>
     </AuthProvider>
   );

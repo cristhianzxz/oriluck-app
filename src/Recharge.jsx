@@ -1,7 +1,7 @@
-import React, { useState, useContext } from "react";
+import React, { useState, useEffect, useContext } from "react";
 import { useNavigate } from "react-router-dom";
 import { AuthContext } from "./App";
-import { createRechargeRequest } from "./firestoreService"; // Importar la función
+import { createRechargeRequest, getExchangeRate, createTransaction, getUserData } from "./firestoreService";
 
 const Recharge = () => {
   const navigate = useNavigate();
@@ -11,13 +11,54 @@ const Recharge = () => {
   const [reference, setReference] = useState("");
   const [date, setDate] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [userData, setUserData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [exchangeRate, setExchangeRate] = useState(100);
 
-  const userData = {
-    username: currentUser?.email?.split('@')[0] || "Usuario",
-    balance: 1000,
-  };
+  useEffect(() => {
+    const loadData = async () => {
+      if (currentUser) {
+        try {
+          console.log("🔍 Cargando datos del usuario y tasa...");
+          
+          const [userDataFromFirestore, currentExchangeRate] = await Promise.all([
+            getUserData(currentUser.uid),
+            getExchangeRate()
+          ]);
+          
+          if (userDataFromFirestore) {
+            setUserData({
+              username: userDataFromFirestore.username || currentUser.email?.split('@')[0] || "Usuario",
+              balance: userDataFromFirestore.balance || 0,
+              email: currentUser.email
+            });
+            console.log("✅ Datos del usuario cargados:", userDataFromFirestore.balance);
+          } else {
+            setUserData({
+              username: currentUser.email?.split('@')[0] || "Usuario",
+              balance: 0,
+              email: currentUser.email
+            });
+          }
+          
+          setExchangeRate(currentExchangeRate);
+          console.log("✅ Tasa de cambio cargada:", currentExchangeRate);
+          
+        } catch (error) {
+          console.error("❌ Error cargando datos:", error);
+          setUserData({
+            username: currentUser.email?.split('@')[0] || "Usuario",
+            balance: 0,
+            email: currentUser.email
+          });
+          setExchangeRate(100);
+        }
+      }
+      setLoading(false);
+    };
 
-  const exchangeRate = 100;
+    loadData();
+  }, [currentUser]);
 
   const calculateBs = () => {
     return amountUSD ? (parseFloat(amountUSD) * exchangeRate).toFixed(2) : "0.00";
@@ -68,6 +109,25 @@ const Recharge = () => {
       const requestId = await createRechargeRequest(requestData);
       
       if (requestId) {
+        console.log("✅ Solicitud creada con ID:", requestId);
+        
+        // 🔥 CREAR TRANSACCIÓN PENDIENTE PARA EL USUARIO
+        const transactionData = {
+          userId: currentUser.uid,
+          username: userData.username,
+          type: "recharge_request",
+          amount: parseFloat(amountUSD) * exchangeRate,
+          description: `Solicitud de recarga - ${amountUSD} USD`,
+          status: "pending",
+          requestId: requestId,
+          admin: "Sistema",
+          method: selectedMethod,
+          reference: reference
+        };
+        
+        console.log("💾 Creando transacción pendiente:", transactionData);
+        await createTransaction(transactionData);
+        
         alert("✅ Solicitud de recarga enviada. Será verificada por administración.");
         setAmountUSD("");
         setReference("");
@@ -86,35 +146,49 @@ const Recharge = () => {
     navigate('/lobby');
   };
 
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-gray-900 via-purple-900 to-gray-900 flex items-center justify-center">
+        <div className="text-white text-xl">Cargando...</div>
+      </div>
+    );
+  }
+
+  if (!userData) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-gray-900 via-purple-900 to-gray-900 flex items-center justify-center">
+        <div className="text-white text-xl">Error cargando datos del usuario</div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-900 via-purple-900 to-gray-900 relative overflow-hidden">
       {/* Efectos de fondo */}
       <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-transparent via-black/20 to-black/60"></div>
       
-      {/* Botón volver */}
-      <button 
-        onClick={handleBackToLobby}
-        className="absolute top-6 left-6 z-20 bg-gray-600 hover:bg-gray-700 text-white font-bold py-3 px-6 rounded-xl transition-all duration-300 transform hover:scale-105"
-      >
-        ← Volver al Lobby
-      </button>
+      
 
       {/* Header */}
-      <header className="relative z-10 bg-black/40 backdrop-blur-lg border-b border-gold-500/30 shadow-2xl">
-        <div className="container mx-auto px-6 py-4">
-          <div className="flex justify-between items-center">
-            <div className="flex items-center space-x-4">
-              <div className="text-3xl font-bold bg-gradient-to-r from-yellow-400 to-yellow-200 bg-clip-text text-transparent">
-                💰 RECARGAR SALDO
-              </div>
-              <div className="text-white/80">
-                <div className="text-sm opacity-60">Usuario: {userData.username}</div>
-                <div className="font-light text-gold-200">Saldo actual: Bs. {userData.balance.toLocaleString()}</div>
-              </div>
-            </div>
-          </div>
+      <header className="relative z-10 bg-black/40 backdrop-blur-lg border-b border-green-500/30 shadow-2xl">
+  <div className="container mx-auto px-6 py-4">
+    <div className="flex justify-between items-center">
+      <div className="flex items-center space-x-4">
+        {/* Botón volver al lobby */}
+        <button
+          onClick={() => navigate('/lobby')}
+          className="bg-gray-600 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded-xl transition-all duration-300 mr-4"
+        >
+          ← Volver al Lobby
+        </button>
+        <div className="text-3xl font-bold bg-gradient-to-r from-green-400 to-green-200 bg-clip-text text-transparent">
+          💳 RECARGAR SALDO
         </div>
-      </header>
+        {/* ...otros elementos del header si los hay... */}
+      </div>
+    </div>
+  </div>
+</header>
 
       <main className="relative z-10 container mx-auto px-6 py-8">
         <div className="max-w-4xl mx-auto">
@@ -167,6 +241,7 @@ const Recharge = () => {
                   <div className="p-4 rounded-xl bg-white/10 border-2 border-white/20">
                     <div className="text-white text-3xl font-bold">Bs. {calculateBs()}</div>
                     <div className="text-white/70 text-sm mt-2">Tasa del día: 1 USD = {exchangeRate} Bs</div>
+                    <div className="text-yellow-300 text-xs mt-1">💰 Tasa actualizada desde BCV</div>
                   </div>
                 </div>
               </div>
@@ -210,6 +285,7 @@ const Recharge = () => {
                   <li>• Mantén el comprobante de pago a la mano</li>
                   <li>• Para consultas: soporte@oriluck.com</li>
                   <li>• Las recargas se acreditan de lunes a domingo de 8:00 AM a 10:00 PM</li>
+                  <li>• <strong>Tasa BCV actualizada: 1 USD = {exchangeRate} Bs</strong></li>
                 </ul>
               </div>
 

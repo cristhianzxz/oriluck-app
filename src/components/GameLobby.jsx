@@ -1,18 +1,57 @@
-import React, { useContext } from 'react';
+import React, { useContext, useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { auth } from '../firebase';
 import { signOut } from 'firebase/auth';
 import { AuthContext } from '../App';
+import { getUserData } from "../firestoreService"; // Importar la función
 
 const GameLobby = () => {
   const navigate = useNavigate();
   const { currentUser } = useContext(AuthContext);
-  
-  const userData = {
-    username: currentUser?.email?.split('@')[0] || "Cristhianzxz",
-    balance: 1000,
-    isAdmin: currentUser?.email === "cristhianzxz@hotmail.com",
-  };
+  const [userData, setUserData] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  // 🔥 CORREGIDO: Obtener datos reales de Firestore
+  useEffect(() => {
+    const loadUserData = async () => {
+      if (currentUser) {
+        try {
+          console.log("🔍 Cargando datos del usuario...");
+          const userDataFromFirestore = await getUserData(currentUser.uid);
+          
+          if (userDataFromFirestore) {
+            setUserData({
+              username: userDataFromFirestore.username || currentUser.email?.split('@')[0] || "Usuario",
+              balance: userDataFromFirestore.balance || 0,
+              isAdmin: userDataFromFirestore.isAdmin || false,
+              email: currentUser.email
+            });
+            console.log("✅ Datos del usuario cargados:", userDataFromFirestore);
+          } else {
+            // Datos por defecto si no se encuentran
+            setUserData({
+              username: currentUser.email?.split('@')[0] || "Usuario",
+              balance: 0,
+              isAdmin: currentUser.email === "cristhianzxz@hotmail.com",
+              email: currentUser.email
+            });
+          }
+        } catch (error) {
+          console.error("❌ Error cargando datos del usuario:", error);
+          // Datos por defecto en caso de error
+          setUserData({
+            username: currentUser.email?.split('@')[0] || "Usuario",
+            balance: 0,
+            isAdmin: currentUser.email === "cristhianzxz@hotmail.com",
+            email: currentUser.email
+          });
+        }
+      }
+      setLoading(false);
+    };
+
+    loadUserData();
+  }, [currentUser]);
 
   const handleLogout = async () => {
     try {
@@ -95,6 +134,22 @@ const GameLobby = () => {
     }
   };
 
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-gray-900 via-purple-900 to-gray-900 flex items-center justify-center">
+        <div className="text-white text-xl">Cargando sala VIP...</div>
+      </div>
+    );
+  }
+
+  if (!userData) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-gray-900 via-purple-900 to-gray-900 flex items-center justify-center">
+        <div className="text-white text-xl">Error cargando datos del usuario</div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-900 via-purple-900 to-gray-900 relative overflow-hidden">
       {/* Efectos de fondo */}
@@ -149,6 +204,13 @@ const GameLobby = () => {
                 >
                   🚪 Salir
                 </button>
+
+                <button 
+  onClick={() => navigate('/history')}
+  className="bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 text-white font-semibold px-6 py-3 rounded-xl transition-all duration-300 transform hover:scale-105 shadow-lg shadow-blue-500/25"
+>
+  📊 Historial
+</button>
               </div>
             </div>
           </div>
