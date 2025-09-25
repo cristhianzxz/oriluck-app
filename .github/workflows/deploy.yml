@@ -17,6 +17,6 @@ jobs:
         run: npm install
 
       - name: Usar el secreto y mostrarlo (solo para prueba)
-        run: echo "El secreto es: $TICK_SECRET"
         env:
           TICK_SECRET: ${{ secrets.TICK_SECRET }}
+        run: echo "El secreto es: $TICK_SECRET"
