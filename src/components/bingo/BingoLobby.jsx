@@ -28,112 +28,71 @@ const BingoLobby = () => {
   const [purchasing, setPurchasing] = useState(false);
 
   useEffect(() => {
-    loadInitialData();
+    if (!currentUser) return;
 
-    const interval = setInterval(() => {
-      checkAutoStartTournaments();
-    }, 30000);
+    const loadStaticData = async () => {
+      try {
+        const rateDoc = await getDoc(doc(db, 'appSettings', 'exchangeRate'));
+        if (rateDoc.exists()) setExchangeRate(rateDoc.data().rate || 100);
 
-    return () => clearInterval(interval);
-  }, []);
-
-  const loadInitialData = async () => {
-    try {
-      const rateDoc = await getDoc(doc(db, 'appSettings', 'exchangeRate'));
-      if (rateDoc.exists()) {
-        setExchangeRate(rateDoc.data().rate || 100);
+        const userDoc = await getDoc(doc(db, 'users', currentUser.uid));
+        if (userDoc.exists()) setUserBalance(userDoc.data().balance || 0);
+      } catch (error) {
+        console.error("Error cargando datos estáticos:", error);
       }
+    };
 
-      const userDoc = await getDoc(doc(db, 'users', currentUser.uid));
-      if (userDoc.exists()) {
-        setUserBalance(userDoc.data().balance || 0);
-      }
+    loadStaticData();
 
-      const tournamentsQuery = query(
-        collection(db, 'bingoTournaments'),
-        where('status', 'in', ['waiting', 'active']),
-        orderBy('startTime', 'asc')
-      );
+    const tournamentsQuery = query(
+      collection(db, 'bingoTournaments'),
+      where('status', 'in', ['waiting', 'active']),
+      orderBy('startTime', 'asc')
+    );
 
-      const unsubscribe = onSnapshot(tournamentsQuery, (snapshot) => {
-        const tournamentsData = [];
-        snapshot.forEach((docSnap) => {
-          const data = docSnap.data();
-          tournamentsData.push({
-            id: docSnap.id,
-            ...data,
-            allowPurchases: data.status === 'waiting' && data.allowPurchases !== false
-          });
-        });
-        setTournaments(tournamentsData);
-        setLoading(false);
-      });
+    const unsubscribe = onSnapshot(tournamentsQuery, (snapshot) => {
+      const tournamentsData = snapshot.docs.map(docSnap => ({
+        id: docSnap.id,
+        ...docSnap.data(),
+        allowPurchases: docSnap.data().status === 'waiting' && docSnap.data().allowPurchases !== false
+      }));
+      
+      setTournaments(tournamentsData);
 
-      return unsubscribe;
-    } catch (error) {
-      console.error('Error cargando datos:', error);
-      setLoading(false);
-    }
-  };
-
-  const checkAutoStartTournaments = async () => {
-    try {
-      const now = new Date();
-      const tournamentsSnapshot = await getDocs(collection(db, 'bingoTournaments'));
-
-      const batch = writeBatch(db);
-      let updated = false;
-
-      tournamentsSnapshot.forEach((docSnap) => {
-        const tournament = docSnap.data();
-
-        if (
-          tournament.status === 'waiting' &&
-          tournament.startTime &&
-          tournament.startTime.toDate() <= now
-        ) {
-          batch.update(doc(db, 'bingoTournaments', docSnap.id), {
-            status: 'active',
-            allowPurchases: false,
-            startedAt: new Date()
-          });
-          updated = true;
+      if (selectedTournament) {
+        const updatedSelected = tournamentsData.find(t => t.id === selectedTournament.id);
+        if (updatedSelected) {
+          setSelectedTournament(updatedSelected);
+        } else {
+          setSelectedTournament(null);
         }
-      });
-
-      if (updated) {
-        await batch.commit();
-        console.log('Torneos iniciados automáticamente');
       }
-    } catch (error) {
-      console.error('Error en inicio automático:', error);
-    }
-  };
+      
+      setLoading(false);
+    }, (error) => {
+      console.error("Error en el listener de torneos:", error);
+      setLoading(false);
+    });
 
-  // Genera matriz 5x5 por columnas con FREE al centro
+    return () => unsubscribe();
+  }, [currentUser, selectedTournament?.id]);
+
+
   const generateBingoCardNumbers = () => {
     const ranges = [
-      { min: 1, max: 15 }, // B
-      { min: 16, max: 30 }, // I
-      { min: 31, max: 45 }, // N
-      { min: 46, max: 60 }, // G
-      { min: 61, max: 75 } // O
+      { min: 1, max: 15 }, { min: 16, max: 30 }, { min: 31, max: 45 }, { min: 46, max: 60 }, { min: 61, max: 75 }
     ];
-
     const card = [];
     for (let col = 0; col < 5; col++) {
       const column = [];
       const usedNumbers = new Set();
-
       for (let row = 0; row < 5; row++) {
         if (col === 2 && row === 2) {
           column.push('FREE');
         } else {
           let num;
           do {
-            num =
-              Math.floor(Math.random() * (ranges[col].max - ranges[col].min + 1)) +
-              ranges[col].min;
+            num = Math.floor(Math.random() * (ranges[col].max - ranges[col].min + 1)) + ranges[col].min;
           } while (usedNumbers.has(num));
           usedNumbers.add(num);
           column.push(num);
@@ -141,7 +100,7 @@ const BingoLobby = () => {
       }
       card.push(column);
     }
-    return card; // matriz 5x5 por columnas
+    return card;
   };
 
   const handleCardSelection = (cardNumber) => {
@@ -149,7 +108,6 @@ const BingoLobby = () => {
       alert('❌ La compra de cartones está cerrada para este torneo');
       return;
     }
-
     setSelectedCards((prev) => {
       if (prev.includes(cardNumber)) {
         return prev.filter((card) => card !== cardNumber);
@@ -171,28 +129,19 @@ const BingoLobby = () => {
       alert('Selecciona al menos un cartón');
       return;
     }
-
     if (purchasing) return;
-
     const totalCost = calculateTotal();
     if (userBalance < totalCost) {
       alert('❌ Saldo insuficiente');
       return;
     }
-
     setPurchasing(true);
 
     try {
-      // Verificación en tiempo real del torneo
       const currentTournamentDoc = await getDoc(doc(db, 'bingoTournaments', selectedTournament.id));
-      if (!currentTournamentDoc.exists()) {
-        alert('Torneo no encontrado');
-        setPurchasing(false);
-        return;
-      }
-
+      if (!currentTournamentDoc.exists()) throw new Error('Torneo no encontrado');
+      
       const updatedTournament = currentTournamentDoc.data();
-
       if (updatedTournament.status !== 'waiting' || updatedTournament.allowPurchases === false) {
         alert('❌ La compra de cartones está cerrada para este torneo');
         setSelectedCards([]);
@@ -201,10 +150,8 @@ const BingoLobby = () => {
       }
 
       const unavailableCards = selectedCards.filter(
-        (cardNumber) =>
-          updatedTournament.soldCards && updatedTournament.soldCards[`carton_${cardNumber}`]
+        (cardNumber) => updatedTournament.soldCards && updatedTournament.soldCards[`carton_${cardNumber}`]
       );
-
       if (unavailableCards.length > 0) {
         alert(`❌ Los siguientes cartones ya no están disponibles: ${unavailableCards.join(', ')}`);
         setSelectedCards(selectedCards.filter((card) => !unavailableCards.includes(card)));
@@ -213,20 +160,13 @@ const BingoLobby = () => {
       }
 
       const batch = writeBatch(db);
+      batch.update(doc(db, 'users', currentUser.uid), { balance: increment(-totalCost) });
 
-      // Descontar saldo del usuario
-      batch.update(doc(db, 'users', currentUser.uid), {
-        balance: increment(-totalCost)
-      });
+      const cardsPayload = selectedCards.map((cardNumber) => ({
+        cardNumber,
+        matrix: generateBingoCardNumbers()
+      }));
 
-      // Generar números por cartón UNA vez y preparar payloads
-      const cardsPayload = selectedCards.map((cardNumber) => {
-        const matrix = generateBingoCardNumbers();
-        const flat = matrix.flat(); // ← Guardar plano en Firestore (evita arrays anidados)
-        return { cardNumber, matrix, flat };
-      });
-
-      // Crear transacción de bingo (guardar arrays planos)
       const transactionRef = doc(collection(db, 'bingoTransactions'));
       batch.set(transactionRef, {
         userId: currentUser.uid,
@@ -234,24 +174,27 @@ const BingoLobby = () => {
         tournamentId: selectedTournament.id,
         tournamentName: selectedTournament.name,
         cardsBought: selectedCards,
-        cardDetails: cardsPayload.map(({ cardNumber, flat }) => ({
+        cardDetails: cardsPayload.map(({ cardNumber, matrix }) => ({
           cardNumber,
-          numbers: flat // ← plano (25 elementos)
+          // *** CORRECCIÓN DEL ERROR ***
+          // Aplanamos la matriz para evitar el error de "nested arrays".
+          numbers: matrix.flat() 
         })),
         totalAmount: totalCost,
         purchaseTime: new Date(),
         status: 'completed'
       });
 
-      // Marcar cartones como vendidos (guardar arrays planos)
-      cardsPayload.forEach(({ cardNumber, flat }) => {
+      cardsPayload.forEach(({ cardNumber, matrix }) => {
         const cardField = `soldCards.carton_${cardNumber}`;
         batch.update(doc(db, 'bingoTournaments', selectedTournament.id), {
           [cardField]: {
             userId: currentUser.uid,
             userName: currentUser.displayName || currentUser.email,
             purchaseTime: new Date(),
-            cardNumbers: flat, // ← plano (25 elementos)
+            // *** CORRECCIÓN DEL ERROR ***
+            // También aplanamos la matriz aquí.
+            cardNumbers: matrix.flat(),
             transactionId: transactionRef.id
           },
           availableCards: arrayRemove(cardNumber)
@@ -259,23 +202,18 @@ const BingoLobby = () => {
       });
 
       await batch.commit();
-
       alert(`✅ ¡Cartones comprados exitosamente! Total: Bs. ${totalCost.toLocaleString()}`);
       setSelectedCards([]);
-
-      // Recargar saldo
       const userDoc = await getDoc(doc(db, 'users', currentUser.uid));
       setUserBalance(userDoc.data().balance);
     } catch (error) {
       console.error('Error comprando cartones:', error);
       alert('❌ Error al realizar la compra. Intenta nuevamente.');
     }
-
     setPurchasing(false);
   };
 
-  const isAdmin =
-    currentUser?.email === 'cristhianzxz@hotmail.com' || currentUser?.email === 'admin@oriluck.com';
+  const isAdmin = currentUser?.email === 'cristhianzxz@hotmail.com' || currentUser?.email === 'admin@oriluck.com';
 
   if (loading) {
     return (
@@ -287,12 +225,20 @@ const BingoLobby = () => {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-900 via-purple-900 to-gray-900 p-6">
-      {/* Header */}
       <div className="max-w-7xl mx-auto mb-8">
-        <div className="flex justify-between items-center">
-          <div>
-            <h1 className="text-4xl font-bold text-white mb-2">🎯 BINGO ORILUCK</h1>
-            <p className="text-white/70">Selecciona un torneo y compra tus cartones</p>
+        <div className="flex justify-between items-center mb-4">
+          {/* --- MEJORA DE UI --- */}
+          <div className="flex items-center gap-4">
+            <button
+              onClick={() => navigate('/lobby')}
+              className="bg-gray-600 hover:bg-gray-700 text-white px-3 py-2 rounded-lg text-sm"
+            >
+              ← Volver
+            </button>
+            <div>
+              <h1 className="text-4xl font-bold text-white">🎯 BINGO ORILUCK</h1>
+              <p className="text-white/70">Selecciona un torneo y compra tus cartones</p>
+            </div>
           </div>
 
           <div className="flex items-center space-x-4">
@@ -300,20 +246,19 @@ const BingoLobby = () => {
               <div className="text-2xl font-bold text-white">Bs. {userBalance.toLocaleString()}</div>
               <div className="text-white/70">Saldo disponible</div>
             </div>
-
             {isAdmin && (
               <button
                 onClick={() => navigate('/admin/bingo')}
-                className="bg-purple-600 hover:bg-purple-500 text-white font-bold py-3 px-6 rounded-lg transition-all ml-4"
+                className="bg-purple-600 hover:bg-purple-500 text-white font-bold py-3 px-6 rounded-lg transition-all"
               >
-                ⚙️ Admin Bingo
+                ⚙️ Admin
               </button>
             )}
           </div>
         </div>
       </div>
 
-      {/* Mensaje si no hay torneos */}
+      {/* ... El resto del código es idéntico ... */}
       {tournaments.length === 0 && (
         <div className="text-center mb-8 bg-yellow-500/20 rounded-xl p-6 border border-yellow-500/30">
           <div className="text-6xl mb-4">🎯</div>
@@ -330,7 +275,6 @@ const BingoLobby = () => {
         </div>
       )}
 
-      {/* Lista de Torneos */}
       {tournaments.length > 0 && (
         <div className="max-w-7xl mx-auto grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
           {tournaments.map((tournament) => (
@@ -341,18 +285,19 @@ const BingoLobby = () => {
                   ? 'border-green-500 bg-green-500/20'
                   : 'border-white/20 hover:border-white/40'
               } ${!tournament.allowPurchases ? 'opacity-80' : ''}`}
-              onClick={() => setSelectedTournament(tournament)}
+              onClick={() => {
+                setSelectedTournament(tournament);
+                setSelectedCards([]);
+              }}
             >
               <h3 className="text-xl font-bold text-white mb-2">{tournament.name}</h3>
               <div className="text-white/70 mb-2">{tournament.startTime?.toDate().toLocaleString('es-VE')}</div>
-
               <div className="flex justify-between text-sm mb-2">
                 <span className={`${tournament.allowPurchases ? 'text-green-400' : 'text-red-400'}`}>
                   {tournament.allowPurchases ? '🟢 COMPRA ABIERTA' : '🔴 COMPRA CERRADA'}
                 </span>
                 <span className="text-yellow-400">Bs. {exchangeRate} por cartón</span>
               </div>
-
               <div className="flex justify-between text-sm">
                 <span className="text-blue-400">
                   {Object.keys(tournament.soldCards || {}).length}/100 cartones
@@ -367,7 +312,6 @@ const BingoLobby = () => {
                   {tournament.status === 'active' ? '🎮 JUGANDO' : '⏳ ESPERA'}
                 </span>
               </div>
-
               <div className="mt-2 text-center bg-purple-500/20 rounded-lg py-1">
                 <span className="text-white font-bold text-sm">
                   Premio: Bs.{' '}
@@ -379,7 +323,6 @@ const BingoLobby = () => {
         </div>
       )}
 
-      {/* Selección de Cartones */}
       {selectedTournament && (
         <div className="max-w-7xl mx-auto bg-white/10 rounded-xl p-6">
           <div className="flex justify-between items-center mb-4">
@@ -394,7 +337,6 @@ const BingoLobby = () => {
               {selectedTournament.allowPurchases ? '🟢 COMPRA ABIERTA' : '🔴 COMPRA CERRADA'}
             </span>
           </div>
-
           {!selectedTournament.allowPurchases && (
             <div className="bg-red-500/20 border border-red-500/30 rounded-lg p-3 mb-4">
               <p className="text-red-300 text-center">
@@ -402,14 +344,11 @@ const BingoLobby = () => {
               </p>
             </div>
           )}
-
           <div className="grid grid-cols-10 gap-2 mb-6">
             {Array.from({ length: 100 }, (_, i) => i + 1).map((cardNumber) => {
-              const isSold =
-                selectedTournament.soldCards && selectedTournament.soldCards[`carton_${cardNumber}`];
+              const isSold = selectedTournament.soldCards && selectedTournament.soldCards[`carton_${cardNumber}`];
               const isSelected = selectedCards.includes(cardNumber);
               const isAvailable = !isSold && selectedTournament.allowPurchases;
-
               return (
                 <button
                   key={cardNumber}
@@ -429,7 +368,6 @@ const BingoLobby = () => {
               );
             })}
           </div>
-
           {selectedCards.length > 0 && selectedTournament.allowPurchases && (
             <div className="bg-green-500/20 rounded-lg p-4 border border-green-500/30">
               <div className="flex justify-between items-center">
@@ -450,7 +388,6 @@ const BingoLobby = () => {
               </div>
             </div>
           )}
-
           {selectedTournament.status === 'active' && (
             <div className="mt-6 text-center">
               <button

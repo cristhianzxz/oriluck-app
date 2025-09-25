@@ -1,10 +1,8 @@
-import React, { useState, useEffect, useContext, useRef } from 'react';
+import React, { useState, useEffect, useContext } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { AuthContext } from '../../App';
-import { doc, onSnapshot, updateDoc, getDoc, setDoc } from 'firebase/firestore';
+import { doc, onSnapshot } from 'firebase/firestore';
 import { db } from '../../firebase';
-
-const BINGO_NUMBERS = Array.from({ length: 75 }, (_, i) => i + 1);
 
 const BingoGame = () => {
   const navigate = useNavigate();
@@ -18,10 +16,8 @@ const BingoGame = () => {
   const [winners, setWinners] = useState([]);
   const [userCards, setUserCards] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [isWinnerModalClosed, setIsWinnerModalClosed] = useState(false);
 
-  const intervalRef = useRef(null);
-
-  // Escuchar torneo en tiempo real
   useEffect(() => {
     if (!location.state?.tournament) {
       navigate('/bingo');
@@ -41,88 +37,29 @@ const BingoGame = () => {
       setWinners(data.winners || []);
       setUserCards(extractUserCards(data, currentUser?.uid));
       setLoading(false);
+
+      if (data.winners && data.winners.length > 0) {
+        setIsWinnerModalClosed(false);
+      }
     });
     return () => unsub();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [location, navigate, currentUser?.uid]);
 
-  // Lógica para sacar una bolita cada 3 segundos (solo si no hay ganador)
-  useEffect(() => {
-    if (!tournament || tournament.status !== 'active' || tournament.winners?.length > 0) {
-      clearInterval(intervalRef.current);
-      return;
+  // *** FUNCIÓN CORREGIDA ***
+  // Reconstruye la matriz 5x5 a partir del array plano guardado en Firestore.
+  function normalizeToColumnMatrix(flatArray) {
+    if (!Array.isArray(flatArray) || flatArray.length !== 25) {
+      // Devuelve una matriz vacía si los datos son incorrectos
+      return Array(5).fill(Array(5).fill(null));
     }
-    // Solo el primer usuario/admin ejecuta la lógica
-    if (currentUser?.uid && tournament?.startedBy === currentUser.uid) {
-      intervalRef.current = setInterval(async () => {
-        const tournamentRef = doc(db, 'bingoTournaments', tournament.id);
-        const docSnap = await getDoc(tournamentRef);
-        const data = docSnap.data();
-        if (data.winners && data.winners.length > 0) return; // Ya hay ganador
-        let available = BINGO_NUMBERS.filter((n) => !(data.calledNumbers || []).includes(n));
-        if (available.length === 0) return;
-        const nextNumber = available[Math.floor(Math.random() * available.length)];
-        await updateDoc(tournamentRef, {
-          calledNumbers: [...(data.calledNumbers || []), nextNumber],
-          currentNumber: nextNumber,
-        });
-      }, 3000);
+    const columns = [];
+    for (let c = 0; c < 5; c++) {
+      // Corta el array plano en 5 trozos de 5 elementos cada uno (las columnas)
+      columns.push(flatArray.slice(c * 5, c * 5 + 5));
     }
-    return () => clearInterval(intervalRef.current);
-  }, [tournament, currentUser]);
+    return columns;
+  }
 
-  // Iniciar el torneo si está en waiting
-  useEffect(() => {
-    if (!tournament || tournament.status !== 'waiting') return;
-    const startTournament = async () => {
-      const tournamentRef = doc(db, 'bingoTournaments', tournament.id);
-      await updateDoc(tournamentRef, {
-        status: 'active',
-        startedAt: new Date(),
-        startedBy: currentUser.uid,
-        calledNumbers: [],
-        currentNumber: null,
-        winners: [],
-      });
-    };
-    if (currentUser?.uid && tournament.status === 'waiting') {
-      startTournament();
-    }
-  }, [tournament, currentUser]);
-
-  // Verificar si el usuario ganó
-  useEffect(() => {
-    if (!userCards.length || !calledNumbers.length || winners.length > 0) return;
-    const hasWon = userCards.some(card => {
-      // Blackout: todos los números del cartón (excepto FREE) están en calledNumbers
-      const nums = card.numbers.flat().filter(n => n !== 'FREE');
-      return nums.every(n => calledNumbers.includes(n));
-    });
-    if (hasWon) {
-      const tournamentRef = doc(db, 'bingoTournaments', tournament.id);
-      const winnerObj = {
-        userId: currentUser.uid,
-        userName: currentUser.displayName || currentUser.email,
-        cardNumber: userCards[0].cardNumber,
-        prizeAmount: ((Object.keys(tournament.soldCards || {}).length * (tournament.pricePerCard || 100)) * 0.7)
-      };
-      updateDoc(tournamentRef, {
-        winners: [winnerObj],
-        status: 'finished'
-      });
-    }
-  }, [userCards, calledNumbers, winners, currentUser, tournament]);
-
-  // Cuando hay ganador, refrescar para todos y mostrar mensaje
-  useEffect(() => {
-    if (winners.length > 0) {
-      setTimeout(() => {
-        window.location.reload();
-      }, 4000);
-    }
-  }, [winners]);
-
-  // Extraer cartones del usuario
   function extractUserCards(tData, uid) {
     if (!uid || !tData?.soldCards) return [];
     const cards = [];
@@ -130,6 +67,7 @@ const BingoGame = () => {
       const cd = tData.soldCards[key];
       if (cd.userId === uid) {
         const cardNumber = parseInt(key.replace('carton_', ''), 10);
+        // Usamos la nueva función para reconstruir la matriz
         const numbers = normalizeToColumnMatrix(cd.cardNumbers);
         cards.push({ cardNumber, cardData: cd, numbers });
       }
@@ -137,40 +75,6 @@ const BingoGame = () => {
     return cards.sort((a, b) => a.cardNumber - b.cardNumber);
   }
 
-  // Normalizar cartón a matriz de columnas
-  function normalizeToColumnMatrix(input) {
-    const ensureFreeCenter = (m) => {
-      const matrix = m.map(col => col.slice());
-      if (matrix[2][2] !== 'FREE') matrix[2][2] = 'FREE';
-      return matrix;
-    };
-    if (Array.isArray(input) && Array.isArray(input[0])) {
-      const arr = input;
-      if (arr.length === 5 && arr.every(c => Array.isArray(c) && c.length === 5)) {
-        const inRange = (n, min, max) => typeof n === 'number' && n >= min && n <= max;
-        const ranges = [[1,15],[16,30],[31,45],[46,60],[61,75]];
-        const score = arr.reduce((acc, col, ci) => {
-          const [mn, mx] = ranges[ci];
-          return acc + col.reduce((s, v) => s + (v === 'FREE' || inRange(v, mn, mx) ? 1 : 0), 0);
-        }, 0);
-        if (score >= 20) return ensureFreeCenter(arr);
-        const cols = Array.from({ length: 5 }, () => Array(5).fill(null));
-        for (let r = 0; r < 5; r++) for (let c = 0; c < 5; c++) cols[c][r] = arr[r][c];
-        return ensureFreeCenter(cols);
-      }
-    }
-    if (Array.isArray(input) && !Array.isArray(input[0])) {
-      const flat = input.slice(0, 25);
-      if (flat.length === 25) {
-        const cols = [];
-        for (let c = 0; c < 5; c++) cols.push(flat.slice(c * 5, c * 5 + 5));
-        return ensureFreeCenter(cols);
-      }
-    }
-    return null;
-  }
-
-  // Colores para los números
   const getNumberColor = (number) => {
     if (number === 'FREE') return 'bg-purple-500 text-white';
     if (!calledNumbers.includes(number)) return 'bg-white/10 text-white';
@@ -198,6 +102,7 @@ const BingoGame = () => {
   }
 
   const pricePerCard = tournament.pricePerCard || 100;
+  const totalPrize = (Object.keys(tournament.soldCards || {}).length * pricePerCard) * 0.7;
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-900 via-purple-900 to-gray-900 p-4">
@@ -207,7 +112,7 @@ const BingoGame = () => {
             <h1 className="text-3xl font-bold text-white">🎰 BINGO EN VIVO</h1>
             <p className="text-white/70">{tournament.name}</p>
             <p className="text-white/60 text-sm">
-              Jugando desde: {tournament.startedAt?.toDate().toLocaleString('es-VE')}
+              {tournament.startedAt?.toDate().toLocaleString('es-VE')}
             </p>
           </div>
           <div className="flex items-center space-x-4">
@@ -257,7 +162,7 @@ const BingoGame = () => {
             </div>
             <div className="text-white/70 text-sm">
               {gameStatus === 'active'
-                ? 'La bolita está girando...'
+                ? 'El sorteo es automático...'
                 : gameStatus === 'finished'
                 ? `Ganadore${(winners?.length || 0) === 1 ? '' : 's'}: ${winners?.length || 0}`
                 : 'El torneo comenzará pronto'}
@@ -290,7 +195,7 @@ const BingoGame = () => {
               <div className="flex justify-between">
                 <span className="text-white/70">Premio total:</span>
                 <span className="text-green-400">
-                  Bs. {((Object.keys(tournament.soldCards || {}).length * pricePerCard) * 0.7).toLocaleString()}
+                  Bs. {totalPrize.toLocaleString()}
                 </span>
               </div>
               <div className="flex justify-between">
@@ -310,7 +215,6 @@ const BingoGame = () => {
             <div className="text-center py-12 bg-white/5 rounded-xl">
               <div className="text-6xl mb-4">📭</div>
               <p className="text-white/70 text-lg">No tienes cartones en este torneo</p>
-              <p className="text-white/50 text-sm mt-2">La compra de cartones se cierra cuando el torneo inicia</p>
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -344,11 +248,17 @@ const BingoGame = () => {
         </div>
       </div>
 
-      {winners.length > 0 && (
+      {winners.length > 0 && !isWinnerModalClosed && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50">
-          <div className="bg-gradient-to-br from-green-500 to-emerald-600 rounded-2xl p-8 max-w-2xl mx-4 text-center">
+          <div className="bg-gradient-to-br from-green-500 to-emerald-600 rounded-2xl p-8 max-w-2xl w-full mx-4 text-center relative">
+            <button 
+              onClick={() => setIsWinnerModalClosed(true)}
+              className="absolute top-2 right-2 bg-white/20 text-white rounded-full w-8 h-8 flex items-center justify-center hover:bg-white/40 transition-colors"
+            >
+              X
+            </button>
             <div className="text-6xl mb-4">🎉</div>
-            <h2 className="text-4xl font-bold text-white mb-4">¡BLACKOUT!</h2>
+            <h2 className="text-4xl font-bold text-white mb-4">¡BINGO!</h2>
             <div className="text-white text-lg mb-6">
               {winners.length === 1 ? '¡Tenemos un ganador!' : `¡Tenemos ${winners.length} ganadores!`}
             </div>
@@ -357,9 +267,11 @@ const BingoGame = () => {
               {winners.map((winner, index) => (
                 <div key={index} className="bg-white/20 rounded-lg p-3">
                   <div className="font-bold text-white text-lg">{winner.userName}</div>
-                  <div className="text-white/80">Cartón #{winner.cardNumber}</div>
+                  <div className="text-white/80">
+                    Carton{winner.cards?.length > 1 ? 'es' : ''}: #{winner.cards?.join(', ')}
+                  </div>
                   <div className="text-yellow-300 font-bold text-xl">
-                    Premio: Bs. {winner.prizeAmount?.toLocaleString()}
+                    Premio: Bs. {winner.prizeAmount?.toLocaleString('es-VE', { minimumFractionDigits: 2 })}
                   </div>
                 </div>
               ))}
@@ -371,12 +283,6 @@ const BingoGame = () => {
                 className="bg-white text-green-600 font-bold py-3 px-8 rounded-lg text-lg hover:bg-gray-100 transition-all"
               >
                 Volver al Lobby
-              </button>
-              <button
-                onClick={() => navigate('/lobby')}
-                className="bg-blue-600 text-white font-bold py-3 px-8 rounded-lg text-lg hover:bg-blue-500 transition-all"
-              >
-                🎮 Sala de Juegos
               </button>
             </div>
           </div>
