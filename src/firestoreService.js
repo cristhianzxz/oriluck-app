@@ -1,4 +1,4 @@
-import { doc, getDoc, setDoc, serverTimestamp, collection, query, where, getDocs, addDoc, updateDoc, orderBy, deleteDoc } from "firebase/firestore";
+import { doc, getDoc, setDoc, serverTimestamp, collection, query, where, getDocs, addDoc, updateDoc, orderBy, deleteDoc, arrayUnion } from "firebase/firestore";
 import { db } from "./firebase";
 
 // 📌 Crear usuario en Firestore
@@ -385,6 +385,160 @@ export const suspendUser = async (userId, suspend = true) => {
     return true;
   } catch (error) {
     console.error("Error suspendiendo usuario:", error);
+    return false;
+  }
+};
+
+// Agregar al final de firestoreService.js
+
+// 📌 SISTEMA DE SOPORTE - TICKETS
+
+// Crear nuevo ticket de soporte
+export const createSupportTicket = async (ticketData) => {
+  try {
+    console.log("🔍 Creando ticket de soporte:", ticketData);
+    
+    const ticketsRef = collection(db, 'supportTickets');
+    const ticketRef = doc(ticketsRef);
+    
+    const ticketId = `TKT-${new Date().getFullYear()}-${ticketRef.id.substring(0, 4).toUpperCase()}`;
+    
+    // 🔥 CORRECCIÓN: Crear el primer mensaje SIN serverTimestamp() en el array
+    const firstMessage = {
+      sender: ticketData.userId,
+      senderType: 'user',
+      message: ticketData.message,
+      timestamp: new Date() // ← Usar Date() normal en lugar de serverTimestamp()
+    };
+    
+    const ticket = {
+      ticketId,
+      userId: ticketData.userId,
+      username: ticketData.username,
+      email: ticketData.email,
+      subject: ticketData.subject,
+      message: ticketData.message, // Mensaje original por separado
+      category: ticketData.category,
+      status: 'abierto',
+      priority: ticketData.priority || 'medio',
+      createdAt: serverTimestamp(), // ← Este SÍ puede usar serverTimestamp()
+      updatedAt: serverTimestamp(),
+      adminAssignee: null,
+      messages: [firstMessage] // ← Array con el primer mensaje
+    };
+    
+    await setDoc(ticketRef, ticket);
+    console.log("✅ Ticket creado con ID:", ticketId);
+    return ticketId;
+    
+  } catch (error) {
+    console.error("❌ Error creando ticket:", error);
+    throw error;
+  }
+};
+
+// Obtener tickets del usuario
+export const getUserSupportTickets = async (userId) => {
+  try {
+    const ticketsRef = collection(db, 'supportTickets');
+    const q = query(
+      ticketsRef, 
+      where('userId', '==', userId),
+      orderBy('createdAt', 'desc')
+    );
+    
+    const querySnapshot = await getDocs(q);
+    const tickets = [];
+    
+    querySnapshot.forEach((doc) => {
+      tickets.push({
+        id: doc.id,
+        ...doc.data()
+      });
+    });
+    
+    console.log("✅ Tickets del usuario obtenidos:", tickets.length);
+    return tickets;
+    
+  } catch (error) {
+    console.error("❌ Error obteniendo tickets:", error);
+    return [];
+  }
+};
+
+// Obtener todos los tickets (para admin)
+export const getAllSupportTickets = async () => {
+  try {
+    const ticketsRef = collection(db, 'supportTickets');
+    const q = query(ticketsRef, orderBy('createdAt', 'desc'));
+    
+    const querySnapshot = await getDocs(q);
+    const tickets = [];
+    
+    querySnapshot.forEach((doc) => {
+      tickets.push({
+        id: doc.id,
+        ...doc.data()
+      });
+    });
+    
+    console.log("✅ Todos los tickets obtenidos:", tickets.length);
+    return tickets;
+    
+  } catch (error) {
+    console.error("❌ Error obteniendo todos los tickets:", error);
+    return [];
+  }
+};
+
+// Agregar mensaje a un ticket
+export const addMessageToTicket = async (ticketId, messageData) => {
+  try {
+    const ticketRef = doc(db, 'supportTickets', ticketId);
+    
+    const newMessage = {
+      sender: messageData.sender,
+      senderType: messageData.senderType,
+      message: messageData.message,
+      timestamp: new Date() // ← Usar Date() normal aquí también
+    };
+    
+    await updateDoc(ticketRef, {
+      messages: arrayUnion(newMessage),
+      status: messageData.senderType === 'admin' ? 'en_proceso' : 'abierto',
+      updatedAt: serverTimestamp(),
+      adminAssignee: messageData.senderType === 'admin' ? messageData.sender : null
+    });
+    
+    console.log("✅ Mensaje agregado al ticket:", ticketId);
+    return true;
+    
+  } catch (error) {
+    console.error("❌ Error agregando mensaje:", error);
+    return false;
+  }
+};
+
+// Actualizar estado del ticket
+export const updateTicketStatus = async (ticketId, newStatus, adminId = null) => {
+  try {
+    const ticketRef = doc(db, 'supportTickets', ticketId);
+    
+    const updateData = {
+      status: newStatus,
+      updatedAt: serverTimestamp()
+    };
+    
+    if (adminId) {
+      updateData.adminAssignee = adminId;
+    }
+    
+    await updateDoc(ticketRef, updateData);
+    console.log("✅ Estado del ticket actualizado:", ticketId, newStatus);
+    return true;
+    
+  } catch (error) {
+    console.error("❌ Error actualizando estado:", error);
     return false;
   }
 };

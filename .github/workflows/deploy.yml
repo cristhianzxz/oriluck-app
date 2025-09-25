@@ -1,0 +1,22 @@
+name: Deploy Functions
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Instalar dependencias
+      run: npm install
+
+    - name: Usar el secreto y mostrarlo (solo para prueba)
+      run: echo "El secreto es: $TICK_SECRET"
+      env:
+        TICK_SECRET: ${{ secrets.TICK_SECRET }}

@@ -8,6 +8,13 @@ import GameLobby from "./components/GameLobby";
 import Recharge from "./Recharge";
 import AdminPanel from "./AdminPanel";
 import TransactionHistory from "./components/TransactionHistory";
+import BingoLobby from './components/bingo/BingoLobby';
+import BingoGame from './components/bingo/BingoGame';
+import BingoAdmin from './components/bingo/BingoAdmin';
+
+// 🔥 NUEVAS IMPORTACIONES - Agregar estas líneas
+import SupportPage from "./SupportPage";
+import AdminSupportPage from "./AdminSupportPage";
 
 export const AuthContext = createContext(null);
 
@@ -575,6 +582,7 @@ const AuthPage = () => {
   );
 };
 
+// En App.jsx - Agregar después de las rutas existentes
 function App() {
   return (
     <AuthProvider>
@@ -584,6 +592,15 @@ function App() {
         <Route path="/recharge" element={<ProtectedRoute><Recharge /></ProtectedRoute>} />
         <Route path="/admin" element={<ProtectedRoute><AdminPanel /></ProtectedRoute>} />
         <Route path="/history" element={<ProtectedRoute><TransactionHistory /></ProtectedRoute>} />
+        
+        {/* 🔥 NUEVAS RUTAS DE SOPORTE */}
+        <Route path="/support" element={<ProtectedRoute><SupportPage /></ProtectedRoute>} />
+        <Route path="/admin/support" element={<ProtectedRoute><AdminSupportPage /></ProtectedRoute>} />
+        
+        {/* 🎯 NUEVAS RUTAS DE BINGO CON PROTECCIÓN */}
+        <Route path="/bingo" element={<ProtectedRoute><BingoLobby /></ProtectedRoute>} />
+        <Route path="/bingo/game" element={<ProtectedRoute><BingoGame /></ProtectedRoute>} />
+        <Route path="/admin/bingo" element={<ProtectedRoute><BingoAdmin /></ProtectedRoute>} />
       </Routes>
     </AuthProvider>
   );

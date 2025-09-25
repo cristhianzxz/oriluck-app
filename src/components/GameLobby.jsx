@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { auth } from '../firebase';
 import { signOut } from 'firebase/auth';
 import { AuthContext } from '../App';
-import { getUserData } from "../firestoreService"; // Importar la función
+import { getUserData } from "../firestoreService";
 
 const GameLobby = () => {
   const navigate = useNavigate();
@@ -11,7 +11,6 @@ const GameLobby = () => {
   const [userData, setUserData] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  // 🔥 CORREGIDO: Obtener datos reales de Firestore
   useEffect(() => {
     const loadUserData = async () => {
       if (currentUser) {
@@ -28,7 +27,6 @@ const GameLobby = () => {
             });
             console.log("✅ Datos del usuario cargados:", userDataFromFirestore);
           } else {
-            // Datos por defecto si no se encuentran
             setUserData({
               username: currentUser.email?.split('@')[0] || "Usuario",
               balance: 0,
@@ -38,7 +36,6 @@ const GameLobby = () => {
           }
         } catch (error) {
           console.error("❌ Error cargando datos del usuario:", error);
-          // Datos por defecto en caso de error
           setUserData({
             username: currentUser.email?.split('@')[0] || "Usuario",
             balance: 0,
@@ -126,10 +123,12 @@ const GameLobby = () => {
     }
   ];
 
+  // 🔥 CORRECCIÓN: Función actualizada para manejar clics en juegos
   const handleGameClick = (game) => {
     if (game.status === "active" && game.name === "BINGO") {
-      alert("🎰 Redirigiendo al Bingo VIP...");
-    } else {
+      // ✅ Navegar directamente a /bingo sin alert
+      navigate('/bingo');
+    } else if (game.status === "construction") {
       alert("🚧 Este juego premium estará disponible próximamente");
     }
   };
@@ -183,6 +182,13 @@ const GameLobby = () => {
               {/* Botones de acción */}
               <div className="flex space-x-3">
                 <button 
+                  onClick={() => navigate('/support')}
+                  className="bg-blue-600 hover:bg-blue-500 text-white font-semibold px-6 py-3 rounded-xl transition-all duration-300 transform hover:scale-105 shadow-lg shadow-blue-500/25"
+                >
+                  🆘 Soporte
+                </button>
+                
+                <button 
                   onClick={handleRechargeClick}
                   className="bg-gradient-to-r from-green-600 to-green-500 hover:from-green-500 hover:to-green-400 text-white font-semibold px-6 py-3 rounded-xl transition-all duration-300 transform hover:scale-105 shadow-lg shadow-green-500/25"
                 >
@@ -198,19 +204,19 @@ const GameLobby = () => {
                   </button>
                 )}
 
+                <button 
+                  onClick={() => navigate('/history')}
+                  className="bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 text-white font-semibold px-6 py-3 rounded-xl transition-all duration-300 transform hover:scale-105 shadow-lg shadow-blue-500/25"
+                >
+                  📊 Historial
+                </button>
+
                 <button
                   onClick={handleLogout}
                   className="bg-gradient-to-r from-red-600 to-red-500 hover:from-red-500 hover:to-red-400 text-white font-semibold px-6 py-3 rounded-xl transition-all duration-300 transform hover:scale-105 shadow-lg shadow-red-500/25"
                 >
                   🚪 Salir
                 </button>
-
-                <button 
-  onClick={() => navigate('/history')}
-  className="bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 text-white font-semibold px-6 py-3 rounded-xl transition-all duration-300 transform hover:scale-105 shadow-lg shadow-blue-500/25"
->
-  📊 Historial
-</button>
               </div>
             </div>
           </div>

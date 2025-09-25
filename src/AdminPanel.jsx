@@ -9,12 +9,12 @@ import {
   updateExchangeRate,
   createTransaction,
   getAllRechargeRequests,
-  findTransactionByRequestId,  // ← NUEVO
-  updateTransactionStatus,     // ← NUEVO
-  getAllUsers,                 // ← NUEVO PARA ADMIN USUARIOS
-  setUserBalance,              // ← NUEVO PARA ADMIN USUARIOS
-  deleteUserFromFirestore,     // ← NUEVO PARA ADMIN USUARIOS
-  suspendUser                  // ← NUEVO PARA ADMIN USUARIOS
+  findTransactionByRequestId,
+  updateTransactionStatus,
+  getAllUsers,
+  setUserBalance,
+  deleteUserFromFirestore,
+  suspendUser
 } from "./firestoreService";
 
 const AdminPanel = () => {
@@ -25,8 +25,8 @@ const AdminPanel = () => {
   const [rechargeRequests, setRechargeRequests] = useState([]);
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [allRequests, setAllRequests] = useState([]); // ← AGREGADO
-  const [historyFilter, setHistoryFilter] = useState("all"); // ← AGREGADO
+  const [allRequests, setAllRequests] = useState([]);
+  const [historyFilter, setHistoryFilter] = useState("all");
 
   // Verificar si es admin
   const isAdmin = currentUser?.email === "cristhianzxz@hotmail.com" || currentUser?.email === "admin@oriluck.com";
@@ -46,8 +46,8 @@ const AdminPanel = () => {
   }, [isAdmin, navigate]);
 
   const loadData = async () => {
-  setLoading(true);
-  try {
+    setLoading(true);
+    try {
       // Cargar solicitudes pendientes
       console.log("🔍 Llamando a getPendingRechargeRequests...");
       const requests = await getPendingRechargeRequests();
@@ -66,7 +66,7 @@ const AdminPanel = () => {
       
       setRechargeRequests(requests);
       
-      // 🔥 NUEVO: Cargar TODAS las solicitudes para el historial
+      // Cargar TODAS las solicitudes para el historial
       const allRechargeRequests = await getAllRechargeRequests();
       setAllRequests(allRechargeRequests);
       
@@ -75,9 +75,9 @@ const AdminPanel = () => {
       const rate = await getExchangeRate();
       console.log("🔍 Tasa de cambio obtenida:", rate);
       
-            setExchangeRate(rate);
+      setExchangeRate(rate);
 
-      // 🔥 Cargar usuarios
+      // Cargar usuarios
       const usersList = await getAllUsers();
       setUsers(usersList);
 
@@ -92,84 +92,84 @@ const AdminPanel = () => {
   };
 
   const handleRechargeAction = async (requestId, action) => {
-  try {
-    console.log("🔍 Procesando solicitud:", requestId, "Acción:", action);
-    
-    const request = rechargeRequests.find(req => req.id === requestId);
-    if (!request) {
-      console.log("❌ Solicitud no encontrada");
-      return;
-    }
-
-    // Buscar transacción existente por requestId
-    const existingTransaction = await findTransactionByRequestId(request.id);
-
-    if (action === "approved") {
-      // Actualizar transacción existente o crear si no existe
-      if (existingTransaction) {
-        await updateTransactionStatus(existingTransaction.id, "approved", currentUser.email);
-        console.log("✅ Transacción existente actualizada:", existingTransaction.id);
-      } else {
-        console.log("⚠️ No se encontró transacción existente, creando nueva...");
-        await createTransaction({
-          userId: request.userId,
-          username: request.username,
-          type: "recharge",
-          amount: request.amountBS,
-          description: `Recarga aprobada - ${request.amountUSD} USD`,
-          status: "approved",
-          requestId: request.id,
-          admin: currentUser.email,
-          method: request.method,
-          reference: request.reference
-        });
-      }
-
-      // Actualizar saldo del usuario
-      const success = await updateUserBalance(request.userId, request.amountBS);
-      if (!success) {
-        alert("❌ Error al actualizar el saldo");
+    try {
+      console.log("🔍 Procesando solicitud:", requestId, "Acción:", action);
+      
+      const request = rechargeRequests.find(req => req.id === requestId);
+      if (!request) {
+        console.log("❌ Solicitud no encontrada");
         return;
       }
 
-      // Marcar solicitud como aprobada
-      await updateRechargeRequest(request.id, "approved", currentUser.email);
-      alert(`✅ Recarga de $${request.amountUSD} USD aprobada para ${request.username}`);
+      // Buscar transacción existente por requestId
+      const existingTransaction = await findTransactionByRequestId(request.id);
 
-    } else {
-      // Acción: rechazado
-      if (existingTransaction) {
-        await updateTransactionStatus(existingTransaction.id, "rejected", currentUser.email);
-        console.log("✅ Transacción existente actualizada:", existingTransaction.id);
+      if (action === "approved") {
+        // Actualizar transacción existente o crear si no existe
+        if (existingTransaction) {
+          await updateTransactionStatus(existingTransaction.id, "approved", currentUser.email);
+          console.log("✅ Transacción existente actualizada:", existingTransaction.id);
+        } else {
+          console.log("⚠️ No se encontró transacción existente, creando nueva...");
+          await createTransaction({
+            userId: request.userId,
+            username: request.username,
+            type: "recharge",
+            amount: request.amountBS,
+            description: `Recarga aprobada - ${request.amountUSD} USD`,
+            status: "approved",
+            requestId: request.id,
+            admin: currentUser.email,
+            method: request.method,
+            reference: request.reference
+          });
+        }
+
+        // Actualizar saldo del usuario
+        const success = await updateUserBalance(request.userId, request.amountBS);
+        if (!success) {
+          alert("❌ Error al actualizar el saldo");
+          return;
+        }
+
+        // Marcar solicitud como aprobada
+        await updateRechargeRequest(request.id, "approved", currentUser.email);
+        alert(`✅ Recarga de $${request.amountUSD} USD aprobada para ${request.username}`);
+
       } else {
-        console.log("⚠️ No se encontró transacción existente, creando nueva...");
-        await createTransaction({
-          userId: request.userId,
-          username: request.username,
-          type: "recharge",
-          amount: request.amountBS,
-          description: `Recarga rechazada - ${request.amountUSD} USD`,
-          status: "rejected",
-          requestId: request.id,
-          admin: currentUser.email,
-          method: request.method,
-          reference: request.reference
-        });
+        // Acción: rechazado
+        if (existingTransaction) {
+          await updateTransactionStatus(existingTransaction.id, "rejected", currentUser.email);
+          console.log("✅ Transacción existente actualizada:", existingTransaction.id);
+        } else {
+          console.log("⚠️ No se encontró transacción existente, creando nueva...");
+          await createTransaction({
+            userId: request.userId,
+            username: request.username,
+            type: "recharge",
+            amount: request.amountBS,
+            description: `Recarga rechazada - ${request.amountUSD} USD`,
+            status: "rejected",
+            requestId: request.id,
+            admin: currentUser.email,
+            method: request.method,
+            reference: request.reference
+          });
+        }
+
+        // Marcar solicitud como rechazada
+        await updateRechargeRequest(request.id, "rejected", currentUser.email);
+        alert(`❌ Solicitud de recarga rechazada`);
       }
 
-      // Marcar solicitud como rechazada
-      await updateRechargeRequest(request.id, "rejected", currentUser.email);
-      alert(`❌ Solicitud de recarga rechazada`);
+      // Recargar datos
+      await loadData();
+      
+    } catch (error) {
+      console.error("❌ Error procesando solicitud:", error);
+      alert("❌ Error al procesar la solicitud");
     }
-
-    // Recargar datos
-    await loadData();
-    
-  } catch (error) {
-    console.error("❌ Error procesando solicitud:", error);
-    alert("❌ Error al procesar la solicitud");
-  }
-};
+  };
 
   const handleSaveExchangeRate = async () => {
     try {
@@ -206,51 +206,50 @@ const AdminPanel = () => {
       {/* Efectos de fondo */}
       <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-transparent via-black/20 to-black/60"></div>
       
-      
-
-     <header className="relative z-10 bg-black/40 backdrop-blur-lg border-b border-red-500/30 shadow-2xl">
-  <div className="container mx-auto px-6 py-4">
-    <div className="flex justify-between items-center">
-      <div className="flex items-center space-x-4">
-        {/* Botón volver al lobby */}
-        <button 
-          onClick={handleBackToLobby}
-          className="bg-gray-600 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded-xl transition-all duration-300 mr-4"
-        >
-          ← Volver al Lobby
-        </button>
-        <div className="text-3xl font-bold bg-gradient-to-r from-red-400 to-red-200 bg-clip-text text-transparent">
-          ⚙️ PANEL DE ADMINISTRACIÓN
+      <header className="relative z-10 bg-black/40 backdrop-blur-lg border-b border-red-500/30 shadow-2xl">
+        <div className="container mx-auto px-6 py-4">
+          <div className="flex justify-between items-center">
+            <div className="flex items-center space-x-4">
+              {/* Botón volver al lobby */}
+              <button 
+                onClick={handleBackToLobby}
+                className="bg-gray-600 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded-xl transition-all duration-300 mr-4"
+              >
+                ← Volver al Lobby
+              </button>
+              <div className="text-3xl font-bold bg-gradient-to-r from-red-400 to-red-200 bg-clip-text text-transparent">
+                ⚙️ PANEL DE ADMINISTRACIÓN
+              </div>
+              <div className="text-white/80">
+                <div className="text-sm opacity-60">Administrador: {currentUser?.email}</div>
+                <div className="font-light text-red-200">Solicitudes pendientes: {rechargeRequests.filter(r => r.status === "pending").length}</div>
+              </div>
+            </div>
+          </div>
         </div>
-        <div className="text-white/80">
-          <div className="text-sm opacity-60">Administrador: {currentUser?.email}</div>
-          <div className="font-light text-red-200">Solicitudes pendientes: {rechargeRequests.filter(r => r.status === "pending").length}</div>
-        </div>
-      </div>
-    </div>
-  </div>
-</header>
+      </header>
 
       <main className="relative z-10 container mx-auto px-6 py-8">
         <div className="max-w-7xl mx-auto">
           {/* Tabs de navegación */}
           <div className="flex space-x-4 mb-8">
-            {["recharges", "history", "settings", "users"].map((tab) => (
-  <button
-    key={tab}
-    onClick={() => setActiveTab(tab)}
-    className={`px-8 py-4 rounded-xl font-semibold text-lg transition-all duration-300 transform hover:scale-105 ${
-      activeTab === tab
-        ? "bg-red-500 text-white shadow-lg shadow-red-500/30"
-        : "bg-white/10 text-white hover:bg-white/20 border border-white/20"
-    }`}
-  >
-    {tab === "recharges" && "💳 Solicitudes de Recarga"}
-    {tab === "history" && "📊 Historial"}
-    {tab === "settings" && "⚙️ Configuración General"}
-    {tab === "users" && "👥 Usuarios"}
-  </button>
-))}
+            {["recharges", "history", "settings", "users", "support"].map((tab) => (
+              <button
+                key={tab}
+                onClick={() => setActiveTab(tab)}
+                className={`px-8 py-4 rounded-xl font-semibold text-lg transition-all duration-300 transform hover:scale-105 ${
+                  activeTab === tab
+                    ? "bg-red-500 text-white shadow-lg shadow-red-500/30"
+                    : "bg-white/10 text-white hover:bg-white/20 border border-white/20"
+                }`}
+              >
+                {tab === "recharges" && "💳 Solicitudes de Recarga"}
+                {tab === "history" && "📊 Historial"}
+                {tab === "settings" && "⚙️ Configuración General"}
+                {tab === "users" && "👥 Usuarios"}
+                {tab === "support" && "🎫 Soporte"}
+              </button>
+            ))}
           </div>
 
           {/* Contenido de las tabs */}
@@ -337,7 +336,6 @@ const AdminPanel = () => {
               </div>
             )}
 
-            {/* 🔥 NUEVO TAB: HISTORIAL */}
             {activeTab === "history" && (
               <div>
                 <h3 className="text-2xl font-bold text-white mb-6">📊 Historial Completo de Solicitudes</h3>
@@ -447,124 +445,168 @@ const AdminPanel = () => {
             )}
 
             {activeTab === "settings" && (
-  <div>
-    <h3 className="text-2xl font-bold text-white mb-6">⚙️ Configuración General</h3>
-    <div className="space-y-6 max-w-md">
-      <div>
-        <label className="block text-white font-semibold mb-3 text-lg">
-          💱 Tasa de Cambio (USD a Bs)
-        </label>
-        <input
-          type="number"
-          value={exchangeRate}
-          onChange={(e) => setExchangeRate(Number(e.target.value))}
-          className="w-full p-4 rounded-xl bg-white/10 border-2 border-white/20 text-white text-lg focus:outline-none focus:border-red-500 transition-all"
-        />
-        <div className="text-white/70 text-sm mt-2">1 USD = {exchangeRate} Bs</div>
-      </div>
-      <button 
-        onClick={handleSaveExchangeRate}
-        className="bg-red-600 hover:bg-red-500 text-white font-bold py-4 px-8 rounded-xl text-lg transition-all duration-300 transform hover:scale-105 w-full"
-      >
-        💾 Guardar Configuración
-      </button>
-      <div className="bg-yellow-500/20 rounded-xl p-4 border border-yellow-500/30">
-        <h4 className="font-bold text-yellow-300 mb-2">📊 Estadísticas</h4>
-        <div className="text-white/80 space-y-1 text-sm">
-          <div>• Solicitudes pendientes: {rechargeRequests.filter(r => r.status === "pending").length}</div>
-          <div>• Solicitudes aprobadas: {rechargeRequests.filter(r => r.status === "approved").length}</div>
-          <div>• Solicitudes rechazadas: {rechargeRequests.filter(r => r.status === "rejected").length}</div>
-          <div>• Total de solicitudes: {rechargeRequests.length}</div>
-        </div>
-      </div>
-    </div>
-  </div>
-)}
+              <div>
+                <h3 className="text-2xl font-bold text-white mb-6">⚙️ Configuración General</h3>
+                <div className="space-y-6 max-w-md">
+                  <div>
+                    <label className="block text-white font-semibold mb-3 text-lg">
+                      💱 Tasa de Cambio (USD a Bs)
+                    </label>
+                    <input
+                      type="number"
+                      value={exchangeRate}
+                      onChange={(e) => setExchangeRate(Number(e.target.value))}
+                      className="w-full p-4 rounded-xl bg-white/10 border-2 border-white/20 text-white text-lg focus:outline-none focus:border-red-500 transition-all"
+                    />
+                    <div className="text-white/70 text-sm mt-2">1 USD = {exchangeRate} Bs</div>
+                  </div>
+                  <button 
+                    onClick={handleSaveExchangeRate}
+                    className="bg-red-600 hover:bg-red-500 text-white font-bold py-4 px-8 rounded-xl text-lg transition-all duration-300 transform hover:scale-105 w-full"
+                  >
+                    💾 Guardar Configuración
+                  </button>
+                  <div className="bg-yellow-500/20 rounded-xl p-4 border border-yellow-500/30">
+                    <h4 className="font-bold text-yellow-300 mb-2">📊 Estadísticas</h4>
+                    <div className="text-white/80 space-y-1 text-sm">
+                      <div>• Solicitudes pendientes: {rechargeRequests.filter(r => r.status === "pending").length}</div>
+                      <div>• Solicitudes aprobadas: {rechargeRequests.filter(r => r.status === "approved").length}</div>
+                      <div>• Solicitudes rechazadas: {rechargeRequests.filter(r => r.status === "rejected").length}</div>
+                      <div>• Total de solicitudes: {rechargeRequests.length}</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
 
-{activeTab === "users" && (
-  <div>
-    <h3 className="text-2xl font-bold text-white mb-6">👥 Gestión de Usuarios</h3>
-    <div className="overflow-x-auto">
-      <table className="min-w-full bg-white/10 rounded-xl text-white">
-        <thead>
-          <tr>
-            <th className="px-4 py-2">Usuario</th>
-            <th className="px-4 py-2">Correo</th>
-            <th className="px-4 py-2">Teléfono</th>
-            <th className="px-4 py-2">Saldo</th>
-            <th className="px-4 py-2">Estado</th>
-            <th className="px-4 py-2">Acciones</th>
-          </tr>
-        </thead>
-        <tbody>
-          {users.map(user => (
-            <tr key={user.id} className="border-b border-white/10">
-              <td className="px-4 py-2">{user.username}</td>
-              <td className="px-4 py-2">{user.email}</td>
-              <td className="px-4 py-2">{user.phone}</td>
-              <td className="px-4 py-2">
-                <input
-                  type="number"
-                  value={user.balance}
-                  onChange={e => {
-                    const newBalance = Number(e.target.value);
-                    setUsers(users.map(u => u.id === user.id ? { ...u, balance: newBalance } : u));
-                  }}
-                  className="w-24 p-1 rounded bg-white/20 text-white"
-                />
-                <button
-                  onClick={async () => {
-                    const ok = await setUserBalance(user.id, user.balance);
-                    if (ok) alert("Saldo actualizado");
-                    else alert("Error actualizando saldo");
-                  }}
-                  className="ml-2 px-2 py-1 bg-green-600 rounded text-xs"
-                >
-                  Guardar
-                </button>
-              </td>
-              <td className="px-4 py-2">
-                {user.suspended ? (
-                  <span className="text-red-400">Suspendido</span>
-                ) : (
-                  <span className="text-green-400">Activo</span>
-                )}
-              </td>
-              <td className="px-4 py-2 space-x-2">
-                <button
-                  onClick={async () => {
-                    const ok = await suspendUser(user.id, !user.suspended);
-                    if (ok) {
-                      setUsers(users.map(u => u.id === user.id ? { ...u, suspended: !user.suspended } : u));
-                      alert(user.suspended ? "Usuario reactivado" : "Usuario suspendido");
-                    } else {
-                      alert("Error actualizando estado");
-                    }
-                  }}
-                  className={`px-2 py-1 rounded text-xs ${user.suspended ? "bg-green-600" : "bg-yellow-600"}`}
-                >
-                  {user.suspended ? "Reactivar" : "Suspender"}
-                </button>
-                <button
-                  onClick={async () => {
-                    if (window.confirm("¿Seguro que deseas eliminar este usuario? Esta acción es irreversible.")) {
-                      const ok = await deleteUserFromFirestore(user.id);
-                      if (ok) setUsers(users.filter(u => u.id !== user.id));
-                      else alert("Error eliminando usuario");
-                    }
-                  }}
-                  className="px-2 py-1 bg-red-600 rounded text-xs"
-                >
-                  Eliminar
-                </button>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  </div>
-)}
+            {activeTab === "users" && (
+              <div>
+                <h3 className="text-2xl font-bold text-white mb-6">👥 Gestión de Usuarios</h3>
+                <div className="overflow-x-auto">
+                  <table className="min-w-full bg-white/10 rounded-xl text-white">
+                    <thead>
+                      <tr>
+                        <th className="px-4 py-2">Usuario</th>
+                        <th className="px-4 py-2">Correo</th>
+                        <th className="px-4 py-2">Teléfono</th>
+                        <th className="px-4 py-2">Saldo</th>
+                        <th className="px-4 py-2">Estado</th>
+                        <th className="px-4 py-2">Acciones</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {users.map(user => (
+                        <tr key={user.id} className="border-b border-white/10">
+                          <td className="px-4 py-2">{user.username}</td>
+                          <td className="px-4 py-2">{user.email}</td>
+                          <td className="px-4 py-2">{user.phone}</td>
+                          <td className="px-4 py-2">
+                            <input
+                              type="number"
+                              value={user.balance}
+                              onChange={e => {
+                                const newBalance = Number(e.target.value);
+                                setUsers(users.map(u => u.id === user.id ? { ...u, balance: newBalance } : u));
+                              }}
+                              className="w-24 p-1 rounded bg-white/20 text-white"
+                            />
+                            <button
+                              onClick={async () => {
+                                const ok = await setUserBalance(user.id, user.balance);
+                                if (ok) alert("Saldo actualizado");
+                                else alert("Error actualizando saldo");
+                              }}
+                              className="ml-2 px-2 py-1 bg-green-600 rounded text-xs"
+                            >
+                              Guardar
+                            </button>
+                          </td>
+                          <td className="px-4 py-2">
+                            {user.suspended ? (
+                              <span className="text-red-400">Suspendido</span>
+                            ) : (
+                              <span className="text-green-400">Activo</span>
+                            )}
+                          </td>
+                          <td className="px-4 py-2 space-x-2">
+                            <button
+                              onClick={async () => {
+                                const ok = await suspendUser(user.id, !user.suspended);
+                                if (ok) {
+                                  setUsers(users.map(u => u.id === user.id ? { ...u, suspended: !user.suspended } : u));
+                                  alert(user.suspended ? "Usuario reactivado" : "Usuario suspendido");
+                                } else {
+                                  alert("Error actualizando estado");
+                                }
+                              }}
+                              className={`px-2 py-1 rounded text-xs ${user.suspended ? "bg-green-600" : "bg-yellow-600"}`}
+                            >
+                              {user.suspended ? "Reactivar" : "Suspender"}
+                            </button>
+                            <button
+                              onClick={async () => {
+                                if (window.confirm("¿Seguro que deseas eliminar este usuario? Esta acción es irreversible.")) {
+                                  const ok = await deleteUserFromFirestore(user.id);
+                                  if (ok) setUsers(users.filter(u => u.id !== user.id));
+                                  else alert("Error eliminando usuario");
+                                }
+                              }}
+                              className="px-2 py-1 bg-red-600 rounded text-xs"
+                            >
+                              Eliminar
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            {activeTab === "support" && (
+              <div className="bg-gradient-to-br from-green-900/20 to-emerald-800/20 rounded-2xl p-8 backdrop-blur-lg border border-green-500/30">
+                <div className="text-center py-8">
+                  <div className="text-6xl mb-6">🎫</div>
+                  <h3 className="text-3xl font-bold text-white mb-4">Panel de Soporte Administrativo</h3>
+                  <p className="text-white/80 text-lg mb-6 max-w-2xl mx-auto">
+                    Gestiona todos los tickets de soporte de los usuarios. Revisa, responde y resuelve 
+                    consultas técnicas, problemas de pagos y solicitudes de asistencia.
+                  </p>
+                  
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+                    <div className="bg-white/10 rounded-xl p-4 border border-white/20">
+                      <div className="text-2xl mb-2">📊</div>
+                      <h4 className="font-bold text-white mb-2">Estadísticas en Tiempo Real</h4>
+                      <p className="text-white/70 text-sm">Monitorea tickets abiertos, pendientes y resueltos</p>
+                    </div>
+                    
+                    <div className="bg-white/10 rounded-xl p-4 border border-white/20">
+                      <div className="text-2xl mb-2">💬</div>
+                      <h4 className="font-bold text-white mb-2">Chat en Directo</h4>
+                      <p className="text-white/70 text-sm">Comunícate directamente con los usuarios</p>
+                    </div>
+                    
+                    <div className="bg-white/10 rounded-xl p-4 border border-white/20">
+                      <div className="text-2xl mb-2">⚡</div>
+                      <h4 className="font-bold text-white mb-2">Respuesta Rápida</h4>
+                      <p className="text-white/70 text-sm">Plantillas y respuestas predefinidas</p>
+                    </div>
+                  </div>
+                  
+                  <button
+                    onClick={() => navigate("/admin/support")}
+                    className="bg-gradient-to-r from-green-600 to-emerald-500 hover:from-green-500 hover:to-emerald-400 text-white font-bold py-4 px-8 rounded-xl transition-all duration-300 transform hover:scale-105 text-lg shadow-lg"
+                  >
+                    🚀 Ir al Panel Completo de Soporte
+                  </button>
+                  
+                  <div className="mt-6 text-white/60 text-sm">
+                    <p>Acceso completo al sistema de gestión de tickets de soporte</p>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </main>
