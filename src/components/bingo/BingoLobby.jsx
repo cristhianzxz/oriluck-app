@@ -38,12 +38,15 @@ const BingoLobby = () => {
   const [selectedCards, setSelectedCards] = useState([]);
   const [loading, setLoading] = useState(true);
   const [purchasing, setPurchasing] = useState(false);
+  // Estado para manejar el mensaje de éxito de compra
+  const [purchaseSuccessMsg, setPurchaseSuccessMsg] = useState("");
 
   // --- Estados para el Historial ---
   const [showHistory, setShowHistory] = useState(false);
   const [finishedTournaments, setFinishedTournaments] = useState([]);
   const [selectedHistoryTournament, setSelectedHistoryTournament] = useState(null);
 
+  // 1. useEffect principal: Carga inicial, usuario, balance y lista de torneos.
   useEffect(() => {
     if (!currentUser) return;
 
@@ -60,7 +63,7 @@ const BingoLobby = () => {
       if (snap.exists()) setUserBalance(snap.data().balance || 0);
     });
 
-    // Query para torneos activos/en espera
+    // Query para torneos activos/en espera (Lista del Lobby)
     const activeQuery = query(
       collection(db, 'bingoTournaments'),
       where('status', 'in', ['waiting', 'active']),
@@ -72,6 +75,7 @@ const BingoLobby = () => {
         allowPurchases: d.data().status === 'waiting' && d.data().allowPurchases !== false
       }));
       setTournaments(data);
+      // Mantiene el torneo seleccionado actualizado en la lista
       if (selectedTournament) {
         const updated = data.find(t => t.id === selectedTournament.id);
         setSelectedTournament(updated || null);
@@ -96,7 +100,22 @@ const BingoLobby = () => {
       unsubActive();
       unsubFinished();
     };
-  }, [currentUser, selectedTournament?.id]);
+  }, [currentUser]); // <-- Dependencias OK
+
+  // 2. NUEVO useEffect: Listener para el torneo seleccionado (detalles).
+  // Esto asegura que si el administrador cierra la compra, se actualice la vista de cartones
+  // sin tener que esperar la actualización de la lista principal.
+  useEffect(() => {
+    if (!selectedTournament) return;
+    const tournamentRef = doc(db, 'bingoTournaments', selectedTournament.id);
+    const unsub = onSnapshot(tournamentRef, (snap) => {
+      if (snap.exists()) {
+        // Combina los datos previos con los nuevos del snapshot
+        setSelectedTournament(prev => ({ ...prev, ...snap.data() }));
+      }
+    });
+    return () => unsub();
+  }, [selectedTournament?.id]); // Se dispara cuando se selecciona un nuevo torneo.
 
   const generateBingoCardNumbers = () => {
     const ranges = [
@@ -121,6 +140,7 @@ const BingoLobby = () => {
   };
 
   const handleCardSelection = (cardNumber) => {
+    // Se utiliza 'selectedTournament?.allowPurchases' para la validación más actual
     if (!selectedTournament?.allowPurchases) { alert('Compra cerrada'); }
     else { setSelectedCards(prev => prev.includes(cardNumber) ? prev.filter(c => c !== cardNumber) : [...prev, cardNumber]); }
   };
@@ -134,6 +154,7 @@ const BingoLobby = () => {
     const totalCost = calculateTotal();
     setPurchasing(true);
     try {
+      // --- INICIO DE TRANSACCIÓN CRÍTICA ---
       await runTransaction(db, async (tx) => {
         const tournamentRef = doc(db, 'bingoTournaments', selectedTournament.id);
         const userRef = doc(db, 'users', currentUser.uid);
@@ -141,21 +162,33 @@ const BingoLobby = () => {
         if (!tournamentSnap.exists()) throw new Error('Torneo no existe');
         if (!userSnap.exists()) throw new Error('Perfil no encontrado');
         const tournamentData = tournamentSnap.data();
+        
+        // VALIDACIONES DENTRO DE LA TRANSACCIÓN
         if (tournamentData.status !== 'waiting' || tournamentData.allowPurchases === false) throw new Error('Compra cerrada');
+        
         const sold = tournamentData.soldCards || {};
         const unavailable = selectedCards.filter(n => sold[`carton_${n}`]);
         if (unavailable.length) throw new Error(`Cartones vendidos: ${unavailable.join(', ')}`);
+        
         const userProfile = userSnap.data();
         const balance = userProfile.balance || 0;
         if (balance < totalCost) throw new Error('Saldo insuficiente');
+        
+        // DATOS A REGISTRAR
         const userEmail = userProfile.email || currentUser.email || null;
         const userPhone = userProfile.phoneNumber || userProfile.phone || null;
+        
+        // GENERACIÓN DE CARTONES
         const cardNumbersMap = {};
         selectedCards.forEach(n => {
           const matrix = generateBingoCardNumbers();
-          cardNumbersMap[n] = matrix.flat();
+          cardNumbersMap[n] = matrix.flat(); // Almacenamos los 25 números planos
         });
+        
+        // 1. ACTUALIZAR SALDO DEL USUARIO
         tx.update(userRef, { balance: increment(-totalCost) });
+        
+        // 2. CREAR REGISTRO DE TRANSACCIÓN
         const bingoTxRef = doc(collection(db, 'bingoTransactions'));
         tx.set(bingoTxRef, {
           userId: currentUser.uid,
@@ -169,6 +202,8 @@ const BingoLobby = () => {
           purchaseTime: serverTimestamp(),
           status: 'completed'
         });
+        
+        // 3. ACTUALIZAR TORNEO (Agregar cartones vendidos)
         const updates = {};
         selectedCards.forEach(n => {
           updates[`soldCards.carton_${n}`] = {
@@ -176,14 +211,23 @@ const BingoLobby = () => {
             userName: userProfile.userName || userProfile.username || userProfile.displayName || userEmail,
             userEmail, userPhone,
             purchaseTime: serverTimestamp(),
-            cardNumbers: cardNumbersMap[n]
+            cardNumbers: cardNumbersMap[n] // Números del cartón
           };
         });
+        
+        // También actualiza el array de 'availableCards' para asegurar el control de inventario
         tx.update(tournamentRef, { ...updates, availableCards: arrayRemove(...selectedCards) });
       });
-      alert(`✅ Compra realizada. Total Bs. ${totalCost.toLocaleString()}`);
-      setSelectedCards([]);
-    } catch (e) { console.error('Error comprando cartones:', e); alert(`❌ ${e.message}`); }
+      // --- FIN DE TRANSACCIÓN CRÍTICA ---
+      
+      // Reemplazo de alert() por mensaje temporal 
+      setPurchaseSuccessMsg(`✅ Compra realizada. Total Bs. ${totalCost.toLocaleString()}`);
+      setTimeout(() => setPurchaseSuccessMsg(""), 3000); // Oculta después de 3 segundos
+      setSelectedCards([]); // Limpiar selección al finalizar
+    } catch (e) { 
+      console.error('Error comprando cartones:', e); 
+      alert(`❌ ${e.message}`); // Mantiene el alert para errores críticos
+    }
     finally { setPurchasing(false); }
   };
 
@@ -205,7 +249,7 @@ const BingoLobby = () => {
         <div className="max-w-7xl mx-auto">
           <div className="flex justify-between items-center mb-6">
             <h1 className="text-3xl font-bold">📜 Historial de Torneos</h1>
-            <button onClick={() => setShowHistory(false)} className="bg-gray-600 hover:bg-gray-500 px-4 py-2 rounded-lg">
+            <button onClick={() => { setShowHistory(false); setSelectedHistoryTournament(null); }} className="bg-gray-600 hover:bg-gray-500 px-4 py-2 rounded-lg">
               ← Volver al Lobby
             </button>
           </div>
@@ -218,15 +262,15 @@ const BingoLobby = () => {
                 {finishedTournaments
                   .sort((a, b) => (b.finishedAt?.toDate() || 0) - (a.finishedAt?.toDate() || 0))
                   .map(tourney => (
-                  <button
-                    key={tourney.id}
-                    onClick={() => setSelectedHistoryTournament(tourney)}
-                    className={`w-full text-left p-3 rounded-lg transition-colors ${selectedHistoryTournament?.id === tourney.id ? 'bg-purple-600' : 'bg-white/10 hover:bg-white/20'}`}
-                  >
-                    <p className="font-bold">{tourney.name}</p>
-                    <p className="text-xs text-white/70">{tourney.finishedAt?.toDate().toLocaleString('es-VE')}</p>
-                  </button>
-                ))}
+                    <button
+                      key={tourney.id}
+                      onClick={() => setSelectedHistoryTournament(tourney)}
+                      className={`w-full text-left p-3 rounded-lg transition-colors ${selectedHistoryTournament?.id === tourney.id ? 'bg-purple-600' : 'bg-white/10 hover:bg-white/20'}`}
+                    >
+                      <p className="font-bold">{tourney.name}</p>
+                      <p className="text-xs text-white/70">{tourney.finishedAt?.toDate().toLocaleString('es-VE')}</p>
+                    </button>
+                  ))}
               </div>
             </div>
 
@@ -296,6 +340,14 @@ const BingoLobby = () => {
   // --- RENDERIZADO DEL LOBBY PRINCIPAL ---
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-900 via-purple-900 to-gray-900 p-6">
+      
+      {/* MENSAJE DE ÉXITO FLOTANTE */}
+      {purchaseSuccessMsg && (
+        <div className="fixed top-8 left-1/2 transform -translate-x-1/2 bg-green-600 text-white px-6 py-3 rounded-xl shadow-lg z-50 text-lg font-bold transition-all">
+          {purchaseSuccessMsg}
+        </div>
+      )}
+      
       <div className="max-w-7xl mx-auto mb-8">
         <div className="flex justify-between items-center mb-4">
           <div className="flex items-center gap-4">
@@ -307,7 +359,7 @@ const BingoLobby = () => {
           </div>
           <div className="flex items-center gap-4">
             <button onClick={() => setShowHistory(true)} className="bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 px-6 rounded-lg">
-              📜 Historial de Juegos
+              📜 Historial de Torneos
             </button>
             <div className="text-right">
               <div className="text-2xl font-bold text-white">Bs. {userBalance.toLocaleString()}</div>

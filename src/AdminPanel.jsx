@@ -14,8 +14,26 @@ import {
   getAllUsers,
   setUserBalance,
   deleteUserFromFirestore,
-  suspendUser
+  suspendUser,
+  updateUserRole // <-- añadido
 } from "./firestoreService";
+
+// ================== NUEVO: Definición de roles y lista de administradores ==================
+const ROLES = [
+  { id: 'user', name: 'Usuario' },
+  { id: 'support_agent', name: 'Agente de Soporte' },
+  { id: 'moderator', name: 'Moderador' },
+  { id: 'supervisor', name: 'Supervisor' },
+  { id: 'admin', name: 'Administrador' }
+];
+
+const adminEmails = [
+  "cristhianzxz@hotmail.com",
+  "admin@oriluck.com",
+  "correo.nuevo.admin1@example.com",
+  "correo.nuevo.admin2@example.com"
+];
+// ===========================================================================================
 
 const AdminPanel = () => {
   const navigate = useNavigate();
@@ -27,9 +45,11 @@ const AdminPanel = () => {
   const [loading, setLoading] = useState(true);
   const [allRequests, setAllRequests] = useState([]);
   const [historyFilter, setHistoryFilter] = useState("all");
+  const [isUsersSectionUnlocked, setIsUsersSectionUnlocked] = useState(false);
+  const [userSearch, setUserSearch] = useState(""); // <-- NUEVO estado búsqueda
 
-  // Verificar si es admin
-  const isAdmin = currentUser?.email === "cristhianzxz@hotmail.com" || currentUser?.email === "admin@oriluck.com";
+  // Reemplazado: ahora se valida contra lista de correos
+  const isAdmin = adminEmails.includes(currentUser?.email);
 
   useEffect(() => {
     console.log("🔍 useEffect ejecutándose. isAdmin:", isAdmin);
@@ -48,38 +68,33 @@ const AdminPanel = () => {
   const loadData = async () => {
     setLoading(true);
     try {
-      // Cargar solicitudes pendientes
       console.log("🔍 Llamando a getPendingRechargeRequests...");
       const requests = await getPendingRechargeRequests();
       console.log("🔍 Solicitudes obtenidas:", requests);
       console.log("🔍 Número de solicitudes:", requests.length);
       
-      // Verificar cada solicitud
       requests.forEach((req, index) => {
         console.log(`🔍 Solicitud ${index + 1}:`, {
           id: req.id,
-          status: req.status,
-          username: req.username,
-          amountUSD: req.amountUSD
+            status: req.status,
+            username: req.username,
+            amountUSD: req.amountUSD
         });
       });
       
       setRechargeRequests(requests);
       
-      // Cargar TODAS las solicitudes para el historial
       const allRechargeRequests = await getAllRechargeRequests();
       setAllRequests(allRechargeRequests);
       
-      // Cargar tasa de cambio
       console.log("🔍 Llamando a getExchangeRate...");
       const rate = await getExchangeRate();
       console.log("🔍 Tasa de cambio obtenida:", rate);
-      
       setExchangeRate(rate);
 
-      // Cargar usuarios
+      // Asignar rol por defecto si no existe
       const usersList = await getAllUsers();
-      setUsers(usersList);
+      setUsers(usersList.map(u => ({ ...u, role: u.role || 'user' })));
 
     } catch (error) {
       console.error("❌ Error cargando datos:", error);
@@ -101,11 +116,9 @@ const AdminPanel = () => {
         return;
       }
 
-      // Buscar transacción existente por requestId
       const existingTransaction = await findTransactionByRequestId(request.id);
 
       if (action === "approved") {
-        // Actualizar transacción existente o crear si no existe
         if (existingTransaction) {
           await updateTransactionStatus(existingTransaction.id, "approved", currentUser.email);
           console.log("✅ Transacción existente actualizada:", existingTransaction.id);
@@ -125,25 +138,22 @@ const AdminPanel = () => {
           });
         }
 
-        // Actualizar saldo del usuario
         const success = await updateUserBalance(request.userId, request.amountBS);
         if (!success) {
           alert("❌ Error al actualizar el saldo");
           return;
         }
 
-        // Marcar solicitud como aprobada
         await updateRechargeRequest(request.id, "approved", currentUser.email);
         alert(`✅ Recarga de $${request.amountUSD} USD aprobada para ${request.username}`);
 
       } else {
-        // Acción: rechazado
         if (existingTransaction) {
           await updateTransactionStatus(existingTransaction.id, "rejected", currentUser.email);
           console.log("✅ Transacción existente actualizada:", existingTransaction.id);
         } else {
           console.log("⚠️ No se encontró transacción existente, creando nueva...");
-          await createTransaction({
+            await createTransaction({
             userId: request.userId,
             username: request.username,
             type: "recharge",
@@ -157,12 +167,10 @@ const AdminPanel = () => {
           });
         }
 
-        // Marcar solicitud como rechazada
         await updateRechargeRequest(request.id, "rejected", currentUser.email);
         alert(`❌ Solicitud de recarga rechazada`);
       }
 
-      // Recargar datos
       await loadData();
       
     } catch (error) {
@@ -182,9 +190,33 @@ const AdminPanel = () => {
     }
   };
 
+  // ================== NUEVO: cambiar rol de usuario ==================
+  const handleUserRoleChange = async (userId, newRole) => {
+    const userToChange = users.find(u => u.id === userId);
+    if (!userToChange) return;
+    const roleName = ROLES.find(r => r.id === newRole)?.name || newRole;
+    if (!window.confirm(`¿Cambiar rol de "${userToChange.username}" a "${roleName}"?`)) return;
+    try {
+      await updateUserRole(userId, newRole);
+      setUsers(users.map(u => u.id === userId ? { ...u, role: newRole } : u));
+      alert("Rol actualizado");
+    } catch (e) {
+      console.error("Error actualizando rol", e);
+      alert("Error actualizando rol");
+    }
+  };
+  // ===================================================================
+
   const handleBackToLobby = () => {
     navigate('/lobby');
   };
+
+  // ================== NUEVO: filtrado de usuarios ==================
+  const filteredUsers = users.filter(u =>
+    (u.username || "").toLowerCase().includes(userSearch.toLowerCase()) ||
+    (u.email || "").toLowerCase().includes(userSearch.toLowerCase())
+  );
+  // =================================================================
 
   if (!isAdmin) {
     console.log("🔍 No es admin, renderizando null");
@@ -203,14 +235,12 @@ const AdminPanel = () => {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-900 via-purple-900 to-gray-900 relative overflow-hidden">
-      {/* Efectos de fondo */}
       <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-transparent via-black/20 to-black/60"></div>
       
       <header className="relative z-10 bg-black/40 backdrop-blur-lg border-b border-red-500/30 shadow-2xl">
         <div className="container mx-auto px-6 py-4">
           <div className="flex justify-between items-center">
             <div className="flex items-center space-x-4">
-              {/* Botón volver al lobby */}
               <button 
                 onClick={handleBackToLobby}
                 className="bg-gray-600 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded-xl transition-all duration-300 mr-4"
@@ -221,8 +251,17 @@ const AdminPanel = () => {
                 ⚙️ PANEL DE ADMINISTRACIÓN
               </div>
               <div className="text-white/80">
-                <div className="text-sm opacity-60">Administrador: {currentUser?.email}</div>
-                <div className="font-light text-red-200">Solicitudes pendientes: {rechargeRequests.filter(r => r.status === "pending").length}</div>
+                <div className="text-sm opacity-60">
+                  Administrador: {currentUser?.email}
+                  {users.find(u => u.email === currentUser?.email)?.role && (
+                    <span className="ml-2 px-2 py-0.5 rounded bg-white/10 text-xs">
+                      {ROLES.find(r => r.id === users.find(u => u.email === currentUser?.email)?.role)?.name}
+                    </span>
+                  )}
+                </div>
+                <div className="font-light text-red-200">
+                  Solicitudes pendientes: {rechargeRequests.filter(r => r.status === "pending").length}
+                </div>
               </div>
             </div>
           </div>
@@ -231,28 +270,47 @@ const AdminPanel = () => {
 
       <main className="relative z-10 container mx-auto px-6 py-8">
         <div className="max-w-7xl mx-auto">
-          {/* Tabs de navegación */}
           <div className="flex space-x-4 mb-8">
-            {["recharges", "history", "settings", "users", "support"].map((tab) => (
-              <button
-                key={tab}
-                onClick={() => setActiveTab(tab)}
-                className={`px-8 py-4 rounded-xl font-semibold text-lg transition-all duration-300 transform hover:scale-105 ${
-                  activeTab === tab
-                    ? "bg-red-500 text-white shadow-lg shadow-red-500/30"
-                    : "bg-white/10 text-white hover:bg-white/20 border border-white/20"
-                }`}
-              >
-                {tab === "recharges" && "💳 Solicitudes de Recarga"}
-                {tab === "history" && "📊 Historial"}
-                {tab === "settings" && "⚙️ Configuración General"}
-                {tab === "users" && "👥 Usuarios"}
-                {tab === "support" && "🎫 Soporte"}
-              </button>
-            ))}
+            {["recharges", "history", "settings", "users", "support"].map((tab) => {
+              const handleTabClick = () => {
+                if (tab === 'users') {
+                  if (isUsersSectionUnlocked) {
+                    setActiveTab('users');
+                  } else {
+                    const password = prompt("Para acceder a la sección de usuarios, ingresa la contraseña:");
+                    if (password === "casino3127") {
+                      alert("✅ Acceso concedido.");
+                      setIsUsersSectionUnlocked(true);
+                      setActiveTab('users');
+                    } else if (password !== null) {
+                      alert("❌ Contraseña incorrecta.");
+                    }
+                  }
+                } else {
+                  setActiveTab(tab);
+                }
+              };
+
+              return (
+                <button
+                  key={tab}
+                  onClick={handleTabClick}
+                  className={`px-8 py-4 rounded-xl font-semibold text-lg transition-all duration-300 transform hover:scale-105 ${
+                    activeTab === tab
+                      ? "bg-red-500 text-white shadow-lg shadow-red-500/30"
+                      : "bg-white/10 text-white hover:bg-white/20 border border-white/20"
+                  }`}
+                >
+                  {tab === "recharges" && "💳 Solicitudes de Recarga"}
+                  {tab === "history" && "📊 Historial"}
+                  {tab === "settings" && "⚙️ Configuración General"}
+                  {tab === "users" && "👥 Usuarios"}
+                  {tab === "support" && "🎫 Soporte"}
+                </button>
+              );
+            })}
           </div>
 
-          {/* Contenido de las tabs */}
           <div className="bg-white/10 rounded-2xl p-8 backdrop-blur-lg border border-white/20">
             {activeTab === "recharges" && (
               <div>
@@ -260,15 +318,14 @@ const AdminPanel = () => {
                   📋 Solicitudes Pendientes ({rechargeRequests.filter(r => r.status === "pending").length})
                 </h3>
                 
-                {rechargeRequests.length === 0 ? (
+                {rechargeRequests.filter(r => r.status === "pending").length === 0 ? (
                   <div className="text-center py-12">
                     <div className="text-6xl mb-4">📭</div>
                     <p className="text-white/70 text-lg">No hay solicitudes de recarga pendientes</p>
-                    <p className="text-white/50 text-sm mt-2">Total de solicitudes en sistema: {rechargeRequests.length}</p>
                   </div>
                 ) : (
                   <div className="space-y-6">
-                    {rechargeRequests.map((request) => (
+                    {rechargeRequests.filter(r => r.status === "pending").map((request) => (
                       <div key={request.id} className="bg-white/5 rounded-xl p-6 border border-white/10">
                         <div className="grid grid-cols-1 lg:grid-cols-5 gap-6 items-center">
                           <div>
@@ -340,7 +397,6 @@ const AdminPanel = () => {
               <div>
                 <h3 className="text-2xl font-bold text-white mb-6">📊 Historial Completo de Solicitudes</h3>
                 
-                {/* Estadísticas */}
                 <div className="grid grid-cols-4 gap-4 mb-6">
                   <div className="bg-white/10 rounded-lg p-4 text-center">
                     <div className="text-2xl font-bold text-white">{allRequests.length}</div>
@@ -360,7 +416,6 @@ const AdminPanel = () => {
                   </div>
                 </div>
 
-                {/* Filtros */}
                 <div className="mb-6 flex space-x-4">
                   {["all", "pending", "approved", "rejected"].map((filter) => (
                     <button
@@ -382,7 +437,6 @@ const AdminPanel = () => {
                   ))}
                 </div>
                 
-                {/* Lista de solicitudes */}
                 {allRequests.filter(request => historyFilter === "all" || request.status === historyFilter).length === 0 ? (
                   <div className="text-center py-12">
                     <div className="text-6xl mb-4">📭</div>
@@ -482,62 +536,78 @@ const AdminPanel = () => {
             {activeTab === "users" && (
               <div>
                 <h3 className="text-2xl font-bold text-white mb-6">👥 Gestión de Usuarios</h3>
+
+                {/* Buscador */}
+                <div className="mb-6">
+                  <input
+                    type="text"
+                    placeholder="🔍 Buscar por nombre o correo..."
+                    value={userSearch}
+                    onChange={(e) => setUserSearch(e.target.value)}
+                    className="w-full p-4 rounded-xl bg-white/10 border-2 border-white/20 text-white text-lg focus:outline-none focus:border-purple-500 transition-all"
+                  />
+                </div>
+
                 <div className="overflow-x-auto">
-                  <table className="min-w-full bg-white/10 rounded-xl text-white">
-                    <thead>
+                  <table className="min-w-full bg-transparent text-white">
+                    <thead className="bg-white/10">
                       <tr>
-                        <th className="px-4 py-2">Usuario</th>
-                        <th className="px-4 py-2">Correo</th>
-                        <th className="px-4 py-2">Teléfono</th>
-                        <th className="px-4 py-2">Saldo</th>
-                        <th className="px-4 py-2">Estado</th>
-                        <th className="px-4 py-2">Acciones</th>
+                        <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider">Usuario</th>
+                        <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider">Correo / Teléfono</th>
+                        <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider">Rol</th>
+                        <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider">Saldo</th>
+                        <th className="px-4 py-3 text-center text-xs font-semibold uppercase tracking-wider">Estado</th>
+                        <th className="px-4 py-3 text-center text-xs font-semibold uppercase tracking-wider">Acciones</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {users.map(user => (
-                        <tr key={user.id} className="border-b border-white/10">
-                          <td className="px-4 py-2">{user.username}</td>
-                          <td className="px-4 py-2">{user.email}</td>
-                          <td className="px-4 py-2">{user.phone}</td>
-                          <td className="px-4 py-2">
+                      {filteredUsers.map(user => (
+                        <tr key={user.id} className="border-b border-white/10 hover:bg-white/5 transition">
+                          <td className="px-4 py-3 font-medium">{user.username}</td>
+                          <td className="px-4 py-3 text-white/80">
+                            <div>{user.email}</div>
+                            <div className="text-xs text-white/50">{user.phone}</div>
+                          </td>
+                          <td className="px-4 py-3">
+                            <select
+                              value={user.role || 'user'}
+                              onChange={(e) => handleUserRoleChange(user.id, e.target.value)}
+                              className="bg-white/20 border border-white/30 rounded px-2 py-1 text-sm"
+                            >
+                              {ROLES.map(r => (
+                                <option key={r.id} value={r.id} className="bg-gray-800">
+                                  {r.name}
+                                </option>
+                              ))}
+                            </select>
+                          </td>
+                          <td className="px-4 py-3">
                             <input
                               type="number"
-                              value={user.balance}
-                              onChange={e => {
+                              defaultValue={user.balance}
+                              onBlur={async (e) => {
                                 const newBalance = Number(e.target.value);
-                                setUsers(users.map(u => u.id === user.id ? { ...u, balance: newBalance } : u));
+                                const ok = await setUserBalance(user.id, newBalance);
+                                if (ok) {
+                                  setUsers(users.map(u => u.id === user.id ? { ...u, balance: newBalance } : u));
+                                  alert("Saldo actualizado");
+                                } else {
+                                  alert("Error");
+                                }
                               }}
-                              className="w-24 p-1 rounded bg-white/20 text-white"
+                              className="w-24 p-1 rounded bg-white/20 text-sm"
                             />
-                            <button
-                              onClick={async () => {
-                                const ok = await setUserBalance(user.id, user.balance);
-                                if (ok) alert("Saldo actualizado");
-                                else alert("Error actualizando saldo");
-                              }}
-                              className="ml-2 px-2 py-1 bg-green-600 rounded text-xs"
-                            >
-                              Guardar
-                            </button>
                           </td>
-                          <td className="px-4 py-2">
-                            {user.suspended ? (
-                              <span className="text-red-400">Suspendido</span>
-                            ) : (
-                              <span className="text-green-400">Activo</span>
-                            )}
+                          <td className="px-4 py-3 text-center">
+                            <span className={`px-3 py-1 rounded-full text-xs font-semibold ${user.suspended ? "bg-red-500/30 text-red-300" : "bg-green-500/30 text-green-300"}`}>
+                              {user.suspended ? "Suspendido" : "Activo"}
+                            </span>
                           </td>
-                          <td className="px-4 py-2 space-x-2">
+                          <td className="px-4 py-3 text-center space-x-2">
                             <button
                               onClick={async () => {
                                 const ok = await suspendUser(user.id, !user.suspended);
-                                if (ok) {
-                                  setUsers(users.map(u => u.id === user.id ? { ...u, suspended: !user.suspended } : u));
-                                  alert(user.suspended ? "Usuario reactivado" : "Usuario suspendido");
-                                } else {
-                                  alert("Error actualizando estado");
-                                }
+                                if (ok) setUsers(users.map(u => u.id === user.id ? { ...u, suspended: !user.suspended } : u));
                               }}
                               className={`px-2 py-1 rounded text-xs ${user.suspended ? "bg-green-600" : "bg-yellow-600"}`}
                             >
@@ -545,10 +615,9 @@ const AdminPanel = () => {
                             </button>
                             <button
                               onClick={async () => {
-                                if (window.confirm("¿Seguro que deseas eliminar este usuario? Esta acción es irreversible.")) {
+                                if (window.confirm("¿Eliminar usuario permanentemente?")) {
                                   const ok = await deleteUserFromFirestore(user.id);
                                   if (ok) setUsers(users.filter(u => u.id !== user.id));
-                                  else alert("Error eliminando usuario");
                                 }
                               }}
                               className="px-2 py-1 bg-red-600 rounded text-xs"
@@ -558,6 +627,13 @@ const AdminPanel = () => {
                           </td>
                         </tr>
                       ))}
+                      {filteredUsers.length === 0 && (
+                        <tr>
+                          <td colSpan="6" className="px-4 py-6 text-center text-white/60 text-sm">
+                            No hay usuarios que coincidan con la búsqueda
+                          </td>
+                        </tr>
+                      )}
                     </tbody>
                   </table>
                 </div>
@@ -611,7 +687,6 @@ const AdminPanel = () => {
         </div>
       </main>
 
-      {/* Efectos decorativos */}
       <div className="absolute top-20 left-10 w-32 h-32 bg-red-500/10 rounded-full blur-xl"></div>
       <div className="absolute bottom-20 right-10 w-48 h-48 bg-purple-500/10 rounded-full blur-2xl"></div>
     </div>

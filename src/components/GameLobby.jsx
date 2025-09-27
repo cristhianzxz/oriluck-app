@@ -1,6 +1,8 @@
 import React, { useContext, useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { auth } from '../firebase';
+// 🔥 1. Importar 'db' y las funciones de firestore
+import { auth, db } from '../firebase';
+import { collection, query, where, onSnapshot } from 'firebase/firestore';
 import { signOut } from 'firebase/auth';
 import { AuthContext } from '../App';
 import { getUserData } from "../firestoreService";
@@ -10,6 +12,8 @@ const GameLobby = () => {
   const { currentUser } = useContext(AuthContext);
   const [userData, setUserData] = useState(null);
   const [loading, setLoading] = useState(true);
+  // 🔥 2. Añadir estado para la notificación
+  const [hasUnreadSupport, setHasUnreadSupport] = useState(false);
 
   useEffect(() => {
     const loadUserData = async () => {
@@ -49,6 +53,24 @@ const GameLobby = () => {
 
     loadUserData();
   }, [currentUser]);
+
+  // 🔥 3. Añadir useEffect para escuchar notificaciones de soporte
+  useEffect(() => {
+    if (!currentUser) return;
+
+    const ticketsQuery = query(
+      collection(db, 'supportTickets'),
+      where('userId', '==', currentUser.uid),
+      where('hasUnreadForUser', '==', true)
+    );
+
+    const unsubscribe = onSnapshot(ticketsQuery, (snapshot) => {
+      setHasUnreadSupport(!snapshot.empty);
+    });
+
+    return () => unsubscribe();
+  }, [currentUser]);
+
 
   const handleLogout = async () => {
     try {
@@ -123,10 +145,8 @@ const GameLobby = () => {
     }
   ];
 
-  // 🔥 CORRECCIÓN: Función actualizada para manejar clics en juegos
   const handleGameClick = (game) => {
     if (game.status === "active" && game.name === "BINGO") {
-      // ✅ Navegar directamente a /bingo sin alert
       navigate('/bingo');
     } else if (game.status === "construction") {
       alert("🚧 Este juego premium estará disponible próximamente");
@@ -181,11 +201,18 @@ const GameLobby = () => {
 
               {/* Botones de acción */}
               <div className="flex space-x-3">
+                {/* 🔥 4. Botón de Soporte modificado */}
                 <button 
                   onClick={() => navigate('/support')}
-                  className="bg-blue-600 hover:bg-blue-500 text-white font-semibold px-6 py-3 rounded-xl transition-all duration-300 transform hover:scale-105 shadow-lg shadow-blue-500/25"
+                  className="relative bg-blue-600 hover:bg-blue-500 text-white font-semibold px-6 py-3 rounded-xl transition-all duration-300 transform hover:scale-105 shadow-lg shadow-blue-500/25"
                 >
                   🆘 Soporte
+                  {hasUnreadSupport && (
+                    <span className="absolute -top-1 -right-1 flex h-4 w-4">
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-sky-400 opacity-75"></span>
+                      <span className="relative inline-flex rounded-full h-4 w-4 bg-sky-500 justify-center items-center text-xs">!</span>
+                    </span>
+                  )}
                 </button>
                 
                 <button 
