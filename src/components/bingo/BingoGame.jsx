@@ -1,293 +1,276 @@
-import React, { useState, useEffect, useContext } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
+import React, { useEffect, useState, useContext, useMemo } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { AuthContext } from '../../App';
 import { doc, onSnapshot } from 'firebase/firestore';
 import { db } from '../../firebase';
 
 const BingoGame = () => {
-  const navigate = useNavigate();
-  const location = useLocation();
   const { currentUser } = useContext(AuthContext);
+  const location = useLocation();
+  const navigate = useNavigate();
+  const initialTournament = location.state?.tournament || null;
 
-  const [tournament, setTournament] = useState(null);
-  const [calledNumbers, setCalledNumbers] = useState([]);
-  const [currentNumber, setCurrentNumber] = useState(null);
-  const [gameStatus, setGameStatus] = useState('waiting');
-  const [winners, setWinners] = useState([]);
+  const [tournament, setTournament] = useState(initialTournament);
+  const [loading, setLoading] = useState(!initialTournament);
   const [userCards, setUserCards] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [isWinnerModalClosed, setIsWinnerModalClosed] = useState(false);
+  const [showWinners, setShowWinners] = useState(false);
 
   useEffect(() => {
-    if (!location.state?.tournament) {
-      navigate('/bingo');
+    if (!initialTournament) {
+      navigate('/bingo', { replace: true }); // Si no hay torneo, volver al lobby de bingo
       return;
     }
-    const t = location.state.tournament;
-    const unsub = onSnapshot(doc(db, 'bingoTournaments', t.id), (snap) => {
-      if (!snap.exists()) {
-        setLoading(false);
-        return;
+    const ref = doc(db, 'bingoTournaments', initialTournament.id);
+    const unsub = onSnapshot(ref, snap => {
+      if (snap.exists()) {
+        const data = { id: snap.id, ...snap.data() };
+        setTournament(data);
+      } else {
+        navigate('/bingo', { replace: true });
       }
-      const data = { id: snap.id, ...snap.data() };
-      setTournament(data);
-      setCalledNumbers(data.calledNumbers || []);
-      setCurrentNumber(data.currentNumber || null);
-      setGameStatus(data.status || 'waiting');
-      setWinners(data.winners || []);
-      setUserCards(extractUserCards(data, currentUser?.uid));
       setLoading(false);
-
-      if (data.winners && data.winners.length > 0) {
-        setIsWinnerModalClosed(false);
-      }
+    }, e => {
+      console.error('Error listening tournament:', e);
+      setLoading(false);
+      navigate('/bingo', { replace: true });
     });
     return () => unsub();
-  }, [location, navigate, currentUser?.uid]);
+  }, [initialTournament, navigate]);
 
-  // *** FUNCIÓN CORREGIDA ***
-  // Reconstruye la matriz 5x5 a partir del array plano guardado en Firestore.
-  function normalizeToColumnMatrix(flatArray) {
-    if (!Array.isArray(flatArray) || flatArray.length !== 25) {
-      // Devuelve una matriz vacía si los datos son incorrectos
-      return Array(5).fill(Array(5).fill(null));
+  useEffect(() => {
+    if (!tournament || !currentUser) return;
+    const sold = tournament.soldCards || {};
+    const mine = Object.keys(sold)
+      .filter(k => sold[k].userId === currentUser.uid)
+      .map(k => ({
+        cardNumber: parseInt(k.replace('carton_', ''), 10),
+        cardNumbers: sold[k].cardNumbers || []
+      }))
+      .sort((a, b) => a.cardNumber - b.cardNumber);
+    setUserCards(mine);
+  }, [tournament, currentUser]);
+
+  useEffect(() => {
+    if (tournament?.status === 'finished' && (tournament.winners?.length || 0) > 0) {
+      setShowWinners(true);
     }
-    const columns = [];
+  }, [tournament?.status, tournament?.winners]);
+
+  const calledNumbers = tournament?.calledNumbers || [];
+  const currentNumber = tournament?.currentNumber || null;
+
+  const soldCount = useMemo(
+    () => Object.keys(tournament?.soldCards || {}).length,
+    [tournament?.soldCards]
+  );
+  const pricePerCard = tournament?.pricePerCard || 0;
+  const computedPrizeTotal = soldCount * pricePerCard * 0.7;
+  const prizeTotal = tournament?.prizeTotal && tournament.prizeTotal > 0
+    ? tournament.prizeTotal
+    : computedPrizeTotal;
+
+  const safeWinners = useMemo(() => {
+    const winners = tournament?.winners || [];
+    if (!winners.length) return [];
+    const perWinnerFallback = winners.length ? (prizeTotal / winners.length) : 0;
+    return winners.map(w => ({
+      ...w,
+      prizeAmount: (w.prizeAmount && w.prizeAmount > 0) ? w.prizeAmount : perWinnerFallback
+    }));
+  }, [tournament?.winners, prizeTotal]);
+
+  const buildMatrix = (flat) => {
+    if (!Array.isArray(flat) || flat.length !== 25) return Array.from({ length: 5 }, () => Array(5).fill(null));
+    const m = [];
     for (let c = 0; c < 5; c++) {
-      // Corta el array plano en 5 trozos de 5 elementos cada uno (las columnas)
-      columns.push(flatArray.slice(c * 5, c * 5 + 5));
-    }
-    return columns;
-  }
-
-  function extractUserCards(tData, uid) {
-    if (!uid || !tData?.soldCards) return [];
-    const cards = [];
-    Object.keys(tData.soldCards).forEach((key) => {
-      const cd = tData.soldCards[key];
-      if (cd.userId === uid) {
-        const cardNumber = parseInt(key.replace('carton_', ''), 10);
-        // Usamos la nueva función para reconstruir la matriz
-        const numbers = normalizeToColumnMatrix(cd.cardNumbers);
-        cards.push({ cardNumber, cardData: cd, numbers });
+      m[c] = [];
+      for (let r = 0; r < 5; r++) {
+        m[c][r] = flat[c * 5 + r];
       }
-    });
-    return cards.sort((a, b) => a.cardNumber - b.cardNumber);
-  }
-
-  const getNumberColor = (number) => {
-    if (number === 'FREE') return 'bg-purple-500 text-white';
-    if (!calledNumbers.includes(number)) return 'bg-white/10 text-white';
-    if (number === currentNumber) return 'bg-yellow-500 text-white animate-pulse';
-    return 'bg-green-500 text-white';
+    }
+    return m;
   };
 
-  if (loading) {
+  const isMarked = (value) => {
+    if (value === 'FREE') return true;
+    return calledNumbers.includes(value);
+  };
+
+  if (loading || !tournament) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-gray-900 via-purple-900 to-gray-900 flex items-center justify-center">
-        <div className="text-white text-xl">Cargando juego de Bingo...</div>
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-gray-900 via-purple-900 to-gray-900 text-white">
+        Cargando juego...
       </div>
     );
   }
-
-  if (!tournament) {
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-gray-900 via-purple-900 to-gray-900 flex items-center justify-center">
-        <div className="text-white text-xl">Error cargando el torneo</div>
-        <button onClick={() => navigate('/bingo')} className="ml-4 bg-blue-600 text-white px-4 py-2 rounded">
-          Volver al Lobby
-        </button>
-      </div>
-    );
-  }
-
-  const pricePerCard = tournament.pricePerCard || 100;
-  const totalPrize = (Object.keys(tournament.soldCards || {}).length * pricePerCard) * 0.7;
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-900 via-purple-900 to-gray-900 p-4">
-      <div className="max-w-7xl mx-auto mb-6">
-        <div className="flex justify-between items-center bg-black/40 rounded-xl p-4">
+    <div className="min-h-screen p-4 md:p-8 bg-gradient-to-br from-gray-900 via-purple-900 to-gray-900 text-white">
+      <div className="max-w-7xl mx-auto">
+        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 bg-white/5 rounded-xl p-4 md:p-6">
           <div>
-            <h1 className="text-3xl font-bold text-white">🎰 BINGO EN VIVO</h1>
-            <p className="text-white/70">{tournament.name}</p>
-            <p className="text-white/60 text-sm">
-              {tournament.startedAt?.toDate().toLocaleString('es-VE')}
-            </p>
+            <h1 className="text-3xl font-extrabold">🎰 BINGO EN VIVO</h1>
+            <div className="text-white/60 text-sm mt-1">
+              {tournament.name} <br />
+              {tournament.startTime?.toDate
+                ? tournament.startTime.toDate().toLocaleString('es-VE')
+                : ''}
+            </div>
           </div>
-          <div className="flex items-center space-x-4">
+          <div className="flex gap-3">
             <button
               onClick={() => navigate('/bingo')}
-              className="bg-gray-600 hover:bg-gray-700 text-white px-4 py-2 rounded-lg"
+              className="bg-gray-600 hover:bg-gray-500 px-4 py-2 rounded-lg text-sm"
             >
-              ← Volver al Lobby
+              ← Volver al Bingo
             </button>
             <button
               onClick={() => navigate('/lobby')}
-              className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-lg"
+              className="bg-blue-600 hover:bg-blue-500 px-4 py-2 rounded-lg text-sm"
             >
-              🎮 Sala de Juegos
+              🎮 Sala de Juegos Principal
             </button>
           </div>
         </div>
-      </div>
 
-      <div className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-1 space-y-4">
-          <div className="bg-white/10 rounded-xl p-6 text-center border-2 border-yellow-500/50">
-            <div className="text-white/70 text-sm mb-2">NÚMERO ACTUAL</div>
-            <div className="text-6xl font-bold text-yellow-400 mb-2">
-              {currentNumber || '--'}
-            </div>
-            <div className="text-white/60">
-              {calledNumbers.length}/75 números cantados
-            </div>
-          </div>
-
-          <div
-            className={`rounded-xl p-4 text-center border-2 ${
-              gameStatus === 'active'
-                ? 'bg-green-500/20 border-green-500/50'
-                : gameStatus === 'finished'
-                ? 'bg-red-500/20 border-red-500/50'
-                : 'bg-yellow-500/20 border-yellow-500/50'
-            }`}
-          >
-            <div className="text-white font-bold text-lg mb-1">
-              {gameStatus === 'active'
-                ? '🎮 JUGANDO'
-                : gameStatus === 'finished'
-                ? '🏆 TERMINADO'
-                : '⏳ ESPERANDO'}
-            </div>
-            <div className="text-white/70 text-sm">
-              {gameStatus === 'active'
-                ? 'El sorteo es automático...'
-                : gameStatus === 'finished'
-                ? `Ganadore${(winners?.length || 0) === 1 ? '' : 's'}: ${winners?.length || 0}`
-                : 'El torneo comenzará pronto'}
-            </div>
-          </div>
-
-          <div className="bg-white/10 rounded-xl p-4">
-            <h3 className="text-white font-bold mb-3">Últimos Números</h3>
-            <div className="grid grid-cols-5 gap-2">
-              {calledNumbers.slice(-15).reverse().map((num, index) => (
-                <div
-                  key={index}
-                  className={`text-center py-2 rounded ${
-                    num === currentNumber ? 'bg-yellow-500/30 text-yellow-300' : 'bg-white/10 text-white'
-                  }`}
-                >
-                  {num}
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <div className="bg-white/10 rounded-xl p-4">
-            <h3 className="text-white font-bold mb-3">📊 Información</h3>
-            <div className="space-y-2 text-sm">
-              <div className="flex justify-between">
-                <span className="text-white/70">Cartones vendidos:</span>
-                <span className="text-white">{Object.keys(tournament.soldCards || {}).length}/100</span>
+        <div className="mt-6 grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div className="lg:col-span-1 space-y-6">
+            <div className="border border-yellow-400/40 rounded-xl p-6 bg-gradient-to-b from-purple-800/20 to-purple-900/20">
+              <div className="text-center text-sm tracking-widest text-yellow-300 mb-3">
+                NÚMERO ACTUAL
               </div>
-              <div className="flex justify-between">
-                <span className="text-white/70">Premio total:</span>
-                <span className="text-green-400">
-                  Bs. {totalPrize.toLocaleString()}
-                </span>
+              <div className="text-center text-6xl font-black text-yellow-300 drop-shadow">
+                {currentNumber ?? '--'}
               </div>
-              <div className="flex justify-between">
-                <span className="text-white/70">Tus cartones:</span>
-                <span className="text-yellow-400">{userCards.length}</span>
+              <div className="mt-4 text-center text-white/60 text-sm">
+                {calledNumbers.length}/75 números cantados
+              </div>
+            </div>
+
+            <div className="border border-teal-500/40 rounded-xl p-5 bg-teal-900/20">
+              <div className="text-center font-semibold text-teal-300 mb-1">
+                {tournament.status === 'finished'
+                  ? '🏁 FINALIZADO'
+                  : tournament.status === 'active'
+                    ? '🎲 JUGANDO'
+                    : '⏳ ESPERA'}
+              </div>
+              <div className="text-center text-white/60 text-sm">
+                {tournament.status === 'active'
+                  ? 'La bolita está girando...'
+                  : tournament.status === 'finished'
+                    ? 'Revisa los ganadores.'
+                    : 'Esperando inicio.'}
+              </div>
+            </div>
+
+            <div className="border border-purple-500/40 rounded-xl p-5 bg-purple-900/30">
+              <div className="font-semibold mb-2">Información</div>
+              <div className="text-sm space-y-1 text-white/70">
+                <div>Cartones vendidos: <span className="text-white">{soldCount}/100</span></div>
+                <div>Premio total (70%): <span className="text-green-400 font-semibold">Bs. {prizeTotal.toLocaleString()}</span></div>
+                <div>Tus cartones: <span className="text-yellow-300">{userCards.length}</span></div>
+              </div>
+            </div>
+
+            <div className="border border-purple-500/30 rounded-xl p-5 bg-purple-800/20 max-h-72 overflow-y-auto">
+              <div className="font-semibold mb-2">Últimos Números</div>
+              <div className="flex flex-wrap gap-2">
+                {calledNumbers.slice().reverse().map(n => (
+                  <div key={n} className="w-10 h-10 flex items-center justify-center rounded-full bg-purple-600/40 text-sm font-bold">
+                    {n}
+                  </div>
+                ))}
+                {calledNumbers.length === 0 && (
+                  <div className="text-white/50 text-sm">Aún no hay números.</div>
+                )}
               </div>
             </div>
           </div>
-        </div>
 
-        <div className="lg:col-span-2">
-          <h2 className="text-2xl font-bold text-white mb-4">
-            Tus Cartones ({userCards.length})
-          </h2>
+          <div className="lg:col-span-2 space-y-6">
+            <h2 className="text-2xl font-bold">
+              Tus Cartones ({userCards.length})
+            </h2>
 
-          {userCards.length === 0 ? (
-            <div className="text-center py-12 bg-white/5 rounded-xl">
-              <div className="text-6xl mb-4">📭</div>
-              <p className="text-white/70 text-lg">No tienes cartones en este torneo</p>
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {userCards.map((card) => (
-                <div key={card.cardNumber} className="bg-white/5 rounded-xl p-4 border border-white/10">
-                  <div className="text-center mb-3">
-                    <span className="bg-purple-500/20 text-purple-300 px-3 py-1 rounded-full text-sm">
+            {userCards.length === 0 && (
+              <div className="p-6 border border-white/10 rounded-xl bg-white/5 text-white/60">
+                No tienes cartones en este torneo.
+              </div>
+            )}
+
+            <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-6">
+              {userCards.map(card => {
+                const matrix = buildMatrix(card.cardNumbers);
+                return (
+                  <div
+                    key={card.cardNumber}
+                    className="bg-purple-800/30 border border-purple-500/30 rounded-xl p-4"
+                  >
+                    <div className="text-center mb-2 text-sm text-white/70">
                       Cartón #{card.cardNumber}
-                    </span>
-                  </div>
-
-                  <div className="grid grid-cols-5 gap-1">
-                    {['B', 'I', 'N', 'G', 'O'].map((letter, colIndex) => (
-                      <div key={letter} className="text-center">
-                        <div className="font-bold text-red-400 text-sm mb-1">{letter}</div>
-                        {(card.numbers[colIndex] || []).map((number, rowIndex) => (
+                    </div>
+                    <div className="grid grid-cols-5 gap-1 text-xs font-bold">
+                      {['B', 'I', 'N', 'G', 'O'].map(l => (
+                        <div key={l} className="text-center text-pink-300">
+                          {l}
+                        </div>
+                      ))}
+                      {matrix.flat().map((val, idx) => {
+                        const marked = isMarked(val);
+                        return (
                           <div
-                            key={`${colIndex}-${rowIndex}`}
-                            className={`p-2 m-1 rounded text-sm font-bold transition-all ${getNumberColor(number)}`}
+                            key={idx}
+                            className={`h-8 flex items-center justify-center rounded ${
+                              val === 'FREE'
+                                ? 'bg-green-600/60 text-white text-[10px]'
+                                : marked
+                                  ? 'bg-green-500 text-white'
+                                  : 'bg-white/10 text-white/80'
+                            } text-[11px]`}
                           >
-                            {number}
+                            {val === 'FREE' ? 'FREE' : val}
                           </div>
-                        ))}
-                      </div>
-                    ))}
+                        );
+                      })}
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
-          )}
+          </div>
         </div>
-      </div>
 
-      {winners.length > 0 && !isWinnerModalClosed && (
-        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50">
-          <div className="bg-gradient-to-br from-green-500 to-emerald-600 rounded-2xl p-8 max-w-2xl w-full mx-4 text-center relative">
-            <button 
-              onClick={() => setIsWinnerModalClosed(true)}
-              className="absolute top-2 right-2 bg-white/20 text-white rounded-full w-8 h-8 flex items-center justify-center hover:bg-white/40 transition-colors"
-            >
-              X
-            </button>
-            <div className="text-6xl mb-4">🎉</div>
-            <h2 className="text-4xl font-bold text-white mb-4">¡BINGO!</h2>
-            <div className="text-white text-lg mb-6">
-              {winners.length === 1 ? '¡Tenemos un ganador!' : `¡Tenemos ${winners.length} ganadores!`}
-            </div>
-
-            <div className="space-y-3 mb-6 max-h-60 overflow-y-auto">
-              {winners.map((winner, index) => (
-                <div key={index} className="bg-white/20 rounded-lg p-3">
-                  <div className="font-bold text-white text-lg">{winner.userName}</div>
-                  <div className="text-white/80">
-                    Carton{winner.cards?.length > 1 ? 'es' : ''}: #{winner.cards?.join(', ')}
+        {showWinners && safeWinners.length > 0 && (
+          <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+            <div className="bg-gradient-to-br from-purple-900 to-gray-900 border border-purple-500/40 rounded-2xl max-w-xl w-full p-6 space-y-4">
+              <h3 className="text-2xl font-bold text-center">🏆 Ganadores</h3>
+              <div className="text-center text-white/70 text-sm">
+                Premio total repartido: Bs. {prizeTotal.toLocaleString()}
+              </div>
+              <div className="space-y-3">
+                {safeWinners.map((w, i) => (
+                  <div key={i} className="bg-white/10 p-4 rounded-xl">
+                    <div className="font-semibold">{w.userName}</div>
+                    <div className="text-white/70 text-sm">
+                      Cartón(es): #{w.cards.join(', ')}
+                    </div>
+                    <div className="text-yellow-300 font-bold text-lg">
+                      Premio: Bs. {w.prizeAmount.toLocaleString()}
+                    </div>
                   </div>
-                  <div className="text-yellow-300 font-bold text-xl">
-                    Premio: Bs. {winner.prizeAmount?.toLocaleString('es-VE', { minimumFractionDigits: 2 })}
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            <div className="flex space-x-4 justify-center">
+                ))}
+              </div>
               <button
-                onClick={() => navigate('/bingo')}
-                className="bg-white text-green-600 font-bold py-3 px-8 rounded-lg text-lg hover:bg-gray-100 transition-all"
+                onClick={() => setShowWinners(false)}
+                className="w-full mt-2 bg-green-600 hover:bg-green-500 py-3 rounded-lg font-semibold"
               >
-                Volver al Lobby
+                Cerrar
               </button>
             </div>
           </div>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 };
