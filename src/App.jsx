@@ -6,6 +6,7 @@ import { createUserDocument, checkUsernameAvailability, getUserData } from "./fi
 import fondo from "./assets/fondo.png";
 import GameLobby from "./components/GameLobby";
 import Recharge from "./Recharge";
+import Withdraw from "./Withdraw";
 import AdminPanel from "./AdminPanel";
 import TransactionHistory from "./components/TransactionHistory";
 import BingoLobby from './components/bingo/BingoLobby';
@@ -589,9 +590,11 @@ function App() {
       <Routes>
         <Route path="/" element={<AuthPage />} />
         <Route path="/lobby" element={<ProtectedRoute><GameLobby /></ProtectedRoute>} />
+        <Route path="/withdraw" element={<ProtectedRoute><Withdraw /></ProtectedRoute>} />
         <Route path="/recharge" element={<ProtectedRoute><Recharge /></ProtectedRoute>} />
         <Route path="/admin" element={<ProtectedRoute><AdminPanel /></ProtectedRoute>} />
         <Route path="/history" element={<ProtectedRoute><TransactionHistory /></ProtectedRoute>} />
+        
         
         {/* 🔥 NUEVAS RUTAS DE SOPORTE */}
         <Route path="/support" element={<ProtectedRoute><SupportPage /></ProtectedRoute>} />
@@ -601,6 +604,7 @@ function App() {
         <Route path="/bingo" element={<ProtectedRoute><BingoLobby /></ProtectedRoute>} />
         <Route path="/bingo/game" element={<ProtectedRoute><BingoGame /></ProtectedRoute>} />
         <Route path="/admin/bingo" element={<ProtectedRoute><BingoAdmin /></ProtectedRoute>} />
+        
       </Routes>
     </AuthProvider>
   );
