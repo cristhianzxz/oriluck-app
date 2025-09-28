@@ -12,6 +12,8 @@ import TransactionHistory from "./components/TransactionHistory";
 import BingoLobby from './components/bingo/BingoLobby';
 import BingoGame from './components/bingo/BingoGame';
 import BingoAdmin from './components/bingo/BingoAdmin';
+import { updateDoc, doc, serverTimestamp } from "firebase/firestore";
+import { db } from "./firebase";
 
 // 🔥 NUEVAS IMPORTACIONES - Agregar estas líneas
 import SupportPage from "./SupportPage";
@@ -27,14 +29,18 @@ const AuthProvider = ({ children }) => {
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       if (user) {
-        try {
-          const userDoc = await getUserData(user.uid);
-          setUserData(userDoc);
-          setCurrentUser(user);
-        } catch (error) {
-          console.error("Error cargando datos del usuario:", error);
-          setCurrentUser(user);
-        }
+try {
+  const userDoc = await getUserData(user.uid);
+  setUserData(userDoc);
+  setCurrentUser(user);
+
+  // ← ACTUALIZA USUARIO ACTIVO EN FIRESTORE
+  await updateDoc(doc(db, "users", user.uid), { active: true, lastActive: serverTimestamp() });
+
+} catch (error) {
+  console.error("Error cargando datos del usuario:", error);
+  setCurrentUser(user);
+}
       } else {
         setCurrentUser(null);
         setUserData(null);
@@ -296,8 +302,9 @@ const AuthPage = () => {
           
           <button 
             onClick={async () => {
-              await signOut(auth);
-              window.location.reload();
+              await updateDoc(doc(db, "users", currentUser.uid), { active: false });
+await signOut(auth);
+window.location.reload();
             }}
             className="w-full mt-4 bg-gray-600 text-white py-3 rounded-xl font-semibold hover:bg-gray-700 transition-all"
           >

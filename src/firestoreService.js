@@ -593,3 +593,12 @@ export const buyTicket = async (poolId, userId) => {
         throw error;
     }
 };
+export async function logAudit(action, details, adminEmail, role) {
+    await addDoc(collection(db, "auditLogs"), {
+        action,
+        details,
+        adminEmail,
+        role,
+        timestamp: serverTimestamp()
+    });
+}

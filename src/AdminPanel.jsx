@@ -20,7 +20,7 @@ import {
     suspendUser,
     updateUserRole
 } from "./firestoreService";
-import { doc, onSnapshot, updateDoc, getDocs, collection, deleteDoc } from "firebase/firestore";
+import { doc, onSnapshot, updateDoc, getDocs, collection, deleteDoc, query, where } from "firebase/firestore";
 import { db } from "./firebase";
 
 const ROLES = [
@@ -54,6 +54,7 @@ const AdminPanel = () => {
     const [isUsersSectionUnlocked, setIsUsersSectionUnlocked] = useState(false);
     const [userSearch, setUserSearch] = useState("");
     const [selectedRequest, setSelectedRequest] = useState(null);
+    const [newRequestNotification, setNewRequestNotification] = useState(false);
 
     // Nuevos estados para búsqueda en historial
     const [rechargeSearch, setRechargeSearch] = useState("");
@@ -94,6 +95,74 @@ const AdminPanel = () => {
         }
         loadData();
     }, [isAdmin, navigate, currentUserData]);
+
+    useEffect(() => {
+    if (activeTab !== "recharges") return; // Solo cuando está en el panel de solicitudes
+    const qRecharge = query(collection(db, "rechargeRequests"), where("status", "==", "pending"));
+    const unsubRecharge = onSnapshot(qRecharge, (snap) => {
+        if (snap.docChanges().some(change => change.type === "added")) {
+            setNewRequestNotification(true);
+            // Sonido
+            const audio = new window.Audio("/notification.mp3");
+            audio.play().catch(() => {});
+            setTimeout(() => setNewRequestNotification(false), 3000);
+        }
+    });
+    const qWithdraw = query(collection(db, "withdrawRequests"), where("status", "==", "pending"));
+    const unsubWithdraw = onSnapshot(qWithdraw, (snap) => {
+        if (snap.docChanges().some(change => change.type === "added")) {
+            setNewRequestNotification(true);
+            const audio = new window.Audio("/notification.mp3");
+            audio.play().catch(() => {});
+            setTimeout(() => setNewRequestNotification(false), 3000);
+        }
+    });
+    return () => {
+        unsubRecharge();
+        unsubWithdraw();
+    };
+}, [activeTab]);
+
+useEffect(() => {
+    if (!isAdmin) return;
+    if (activeTab !== "recharges") return;
+
+    const qRecharge = query(collection(db, "rechargeRequests"), where("status", "==", "pending"));
+    const qWithdraw = query(collection(db, "withdrawRequests"), where("status", "==", "pending"));
+
+    const unsubRecharge = onSnapshot(qRecharge, (snap) => {
+        const rechargeReqs = snap.docs.map(doc => ({ id: doc.id, ...doc.data(), requestType: "recharge" }));
+        setRequests(prev => {
+            const withdraws = prev.filter(r => r.requestType === "withdraw");
+            return [...rechargeReqs, ...withdraws];
+        });
+    });
+
+    const unsubWithdraw = onSnapshot(qWithdraw, (snap) => {
+        const withdrawReqs = snap.docs.map(doc => ({ id: doc.id, ...doc.data(), requestType: "withdraw" }));
+        setRequests(prev => {
+            const recharges = prev.filter(r => r.requestType === "recharge");
+            return [...recharges, ...withdrawReqs];
+        });
+    });
+
+    return () => {
+        unsubRecharge();
+        unsubWithdraw();
+    };
+}, [activeTab, isAdmin]);
+
+useEffect(() => {
+    const unsub = onSnapshot(collection(db, "users"), (snap) => {
+        setUsers(snap.docs.map(doc => ({
+            ...doc.data(),
+            id: doc.id,
+            role: doc.data().role || 'user',
+            suspended: !!doc.data().suspended
+        })));
+    });
+    return () => unsub();
+}, []);
 
     const loadData = async () => {
         setLoadingData(true);
@@ -349,17 +418,31 @@ const AdminPanel = () => {
                     ⚙️ PANEL DE ADMINISTRACIÓN
                 </div>
             </div>
-            <div className="text-white/80 w-full sm:w-auto text-left sm:text-right">
-                <div className="text-sm opacity-60 break-words">
-                    Administrador: {currentUser?.email}
-                    {currentUserData?.role && (
-                        <span className="ml-2 px-2 py-0.5 rounded bg-white/10 text-xs">
-                            {ROLES.find(r => r.id === currentUserData?.role)?.name || currentUserData?.role}
-                        </span>
-                    )}
+            {/* Agrupa la info y los usuarios activos en un solo flex */}
+            <div className="flex flex-row items-center gap-4 w-full sm:w-auto justify-end">
+                <div className="text-white/80 text-left sm:text-right">
+                    <div className="text-sm opacity-60 break-words">
+                        Administrador: {currentUser?.email}
+                        {currentUserData?.role && (
+                            <span className="ml-2 px-2 py-0.5 rounded bg-white/10 text-xs">
+                                {ROLES.find(r => r.id === currentUserData?.role)?.name || currentUserData?.role}
+                            </span>
+                        )}
+                    </div>
+                    <div className="font-light text-red-200">
+                        Solicitudes pendientes: {requests.filter(r => r.status === "pending").length}
+                    </div>
                 </div>
-                <div className="font-light text-red-200">
-                    Solicitudes pendientes: {requests.filter(r => r.status === "pending").length}
+                {/* Usuarios activos alineados a la derecha de la info */}
+                <div className="flex flex-col items-end">
+                    <div className="bg-green-700/80 text-white px-3 py-1 rounded-xl text-xs shadow-lg mb-1">
+                        Usuarios activos: {users.filter(u => u.active).length}
+                    </div>
+                    <div className="flex flex-wrap gap-1 max-w-[200px] sm:max-w-none">
+                        {users.filter(u => u.active).map(u => (
+                            <span key={u.id} className="bg-green-500/40 text-white px-2 py-0.5 rounded text-xs truncate">{u.username || u.email}</span>
+                        ))}
+                    </div>
                 </div>
             </div>
         </div>
@@ -478,6 +561,12 @@ const AdminPanel = () => {
                     </div>
                 </div>
             )}
+
+{activeTab === "recharges" && newRequestNotification && (
+    <div className="fixed top-25 right-4 bg-green-600 text-white px-4 py-2 rounded-xl shadow-lg z-50">
+        ¡Nueva solicitud recibida!
+    </div>
+)}
 
 <main className="relative z-10 container mx-auto px-2 sm:px-6 py-8">
     <div className="max-w-7xl mx-auto">
