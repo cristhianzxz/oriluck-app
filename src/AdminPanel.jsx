@@ -435,15 +435,10 @@ useEffect(() => {
                 </div>
                 {/* Usuarios activos alineados a la derecha de la info */}
                 <div className="flex flex-col items-end">
-                    <div className="bg-green-700/80 text-white px-3 py-1 rounded-xl text-xs shadow-lg mb-1">
-                        Usuarios activos: {users.filter(u => u.active).length}
-                    </div>
-                    <div className="flex flex-wrap gap-1 max-w-[200px] sm:max-w-none">
-                        {users.filter(u => u.active).map(u => (
-                            <span key={u.id} className="bg-green-500/40 text-white px-2 py-0.5 rounded text-xs truncate">{u.username || u.email}</span>
-                        ))}
-                    </div>
-                </div>
+    <div className="bg-green-700/80 text-white px-3 py-1 rounded-xl text-xs shadow-lg">
+        Usuarios activos: {users.filter(u => u.active).length}
+    </div>
+</div>
             </div>
         </div>
     </div>
@@ -570,7 +565,8 @@ useEffect(() => {
 
 <main className="relative z-10 container mx-auto px-2 sm:px-6 py-8">
     <div className="max-w-7xl mx-auto">
-        <div className="bg-white/10 rounded-2xl p-2 sm:p-8 backdrop-blur-lg border border-white/20">
+        <div className="bg-white/10 rounded-2xl p-2 sm:p-8 backdrop-blur-lg border border-white/20 panel-content">
+
             {/* PESTAÑA: RECARGAS Y RETIROS PENDIENTES */}
             {activeTab === "recharges" && (
                 <div>
@@ -939,7 +935,118 @@ useEffect(() => {
                         )}
                     </div>
                 </div>
+                
+                {activeTab === "users" && (
+                    
+                            <div>
+                                <h3 className="text-2xl font-bold text-white mb-6">👥 Gestión de Usuarios</h3>
+                                <div className="mb-6 flex flex-col gap-4">
+                                    <input
+                                        type="text"
+                                        placeholder="🔍 Buscar por nombre, correo o teléfono..."
+                                        value={userSearch}
+                                        onChange={(e) => setUserSearch(e.target.value)}
+                                        className="w-full p-4 rounded-xl bg-white/10 border-2 border-white/20 text-white text-lg focus:outline-none focus:border-purple-500 transition-all"
+                                    />
+                                    {/* Botón para eliminar todos los transactions */}
+                                    <button
+                                        onClick={() => setShowDeleteModal(true)}
+                                        className="bg-red-600 hover:bg-red-500 text-white font-bold py-3 px-6 rounded-xl transition-all duration-300 w-full"
+                                    >
+                                        🗑️ Eliminar TODOS los registros de transactions
+                                    </button>
+                                </div>
+                                <div className="overflow-x-auto max-h-96">
+                                    <table className="min-w-full bg-transparent text-white">
+                                        <thead className="bg-white/10 sticky top-0">
+                                            <tr>
+                                                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider">Usuario</th>
+                                                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider">Correo / Teléfono</th>
+                                                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider">Rol</th>
+                                                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider">Saldo (Bs)</th>
+                                                <th className="px-4 py-3 text-center text-xs font-semibold uppercase tracking-wider">Estado</th>
+                                                <th className="px-4 py-3 text-center text-xs font-semibold uppercase tracking-wider">Acciones</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {filteredUsers.map(user => (
+                                                <tr key={user.id} className="border-b border-white/10 hover:bg-white/5 transition">
+                                                    <td className="px-4 py-3 font-medium">{user.username}</td>
+                                                    <td className="px-4 py-3 text-white/80">
+                                                        <div>{user.email}</div>
+                                                        <div className="text-xs text-white/50">{user.phone}</div>
+                                                    </td>
+                                                    <td className="px-4 py-3">
+                                                        <select
+                                                            value={user.role || 'user'}
+                                                            onChange={(e) => handleUserRoleChange(user.id, e.target.value)}
+                                                            className="bg-white/20 border border-white/30 rounded px-2 py-1 text-sm focus:outline-none"
+                                                        >
+                                                            {ROLES.map(r => (
+                                                                <option key={r.id} value={r.id} className="bg-gray-800">
+                                                                    {r.name}
+                                                                </option>
+                                                            ))}
+                                                        </select>
+                                                    </td>
+                                                    <td className="px-4 py-3">
+                                                        <input
+                                                            type="number"
+                                                            defaultValue={user.balance || 0}
+                                                            onBlur={async (e) => {
+                                                                const newBalance = Number(e.target.value);
+                                                                const ok = await setUserBalance(user.id, newBalance);
+                                                                if (ok) {
+                                                                    setUsers(users.map(u => u.id === user.id ? { ...u, balance: newBalance } : u));
+                                                                    alert("Saldo actualizado");
+                                                                } else {
+                                                                    alert("Error al actualizar saldo");
+                                                                }
+                                                            }}
+                                                            className="w-24 p-1 rounded bg-white/20 text-sm focus:outline-none focus:ring-1 ring-purple-500"
+                                                        />
+                                                    </td>
+                                                    <td className="px-4 py-3 text-center">
+                                                        <span className={`px-3 py-1 rounded-full text-xs font-semibold ${user.suspended ? "bg-red-500/30 text-red-300" : "bg-green-500/30 text-green-300"}`}>
+                                                            {user.suspended ? "Suspendido" : "Activo"}
+                                                        </span>
+                                                    </td>
+                                                    <td className="px-4 py-3 text-center space-x-2">
+                                                        <button
+                                                            onClick={() => handleToggleSuspension(user.id, user.suspended)}
+                                                            className={`px-2 py-1 rounded text-xs font-semibold transition ${user.suspended ? "bg-green-600 hover:bg-green-500" : "bg-yellow-600 hover:bg-yellow-500"}`}
+                                                        >
+                                                            {user.suspended ? "Reactivar" : "Suspender"}
+                                                        </button>
+                                                        <button
+                                                            onClick={() => handleDeleteUser(user.id)}
+                                                            className="px-2 py-1 bg-red-600 hover:bg-red-500 rounded text-xs font-semibold transition"
+                                                        >
+                                                            Eliminar
+                                                        </button>
+                                                    </td>
+                                                </tr>
+                                            ))}
+                                            {filteredUsers.length === 0 && (
+                                                <tr>
+                                                    <td colSpan="6" className="px-4 py-6 text-center text-white/60 text-sm">
+                                                        No hay usuarios que coincidan con la búsqueda
+                                                    </td>
+                                                </tr>
+                                            )}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        )}
             </main>
+
+<style>{`
+    .panel-content:empty {
+        display: none !important;
+    }
+`}</style>
+
             <div className="absolute top-20 left-10 w-32 h-32 bg-red-500/10 rounded-full blur-xl"></div>
             <div className="absolute bottom-20 right-10 w-48 h-48 bg-purple-500/10 rounded-full blur-2xl"></div>
             <style>{`
