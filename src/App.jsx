@@ -1,5 +1,5 @@
 import React, { useState, useEffect, createContext, useContext } from "react";
-import { Routes, Route, useNavigate, Navigate } from "react-router-dom";
+import { Routes, Route, useNavigate, Navigate, useLocation } from "react-router-dom";
 import { auth } from "./firebase";
 import { onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut } from "firebase/auth";
 import { createUserDocument, checkUsernameAvailability, getUserData } from "./firestoreService";
@@ -14,55 +14,135 @@ import BingoGame from './components/bingo/BingoGame';
 import BingoAdmin from './components/bingo/BingoAdmin';
 import { updateDoc, doc, serverTimestamp } from "firebase/firestore";
 import { db } from "./firebase";
-
-// 🔥 NUEVAS IMPORTACIONES - Agregar estas líneas
 import SupportPage from "./SupportPage";
 import AdminSupportPage from "./AdminSupportPage";
 
+// Contexto de autenticación
 export const AuthContext = createContext(null);
 
+// Modal de inactividad global
+const InactivityModal = () => {
+  const { inactiveWarning, setInactiveWarning } = useContext(AuthContext);
+  const location = useLocation();
+  const isAuthPage = location.pathname === "/";
+
+  if (!inactiveWarning || isAuthPage) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+      <div className="bg-white rounded-2xl p-8 max-w-md w-full shadow-2xl text-center">
+        <h3 className="text-xl font-bold mb-4 text-red-600">⏳ Inactividad detectada</h3>
+        <p className="text-black mb-4">
+          Tu cuenta ha estado inactiva por más de 5 minutos.<br />
+          Serás desconectado en 15 segundos.
+        </p>
+        <button
+          className="bg-green-600 hover:bg-green-500 text-white font-bold py-2 px-6 rounded-xl"
+          onClick={() => setInactiveWarning(false)}
+        >
+          Sigo aquí
+        </button>
+      </div>
+    </div>
+  );
+};
+
+// Proveedor de autenticación con lógica de inactividad
 const AuthProvider = ({ children }) => {
   const [currentUser, setCurrentUser] = useState(null);
   const [userData, setUserData] = useState(null);
   const [loading, setLoading] = useState(true);
 
+  // Inactividad global
+  const [inactiveWarning, setInactiveWarning] = useState(false);
+  const [inactiveTimeout, setInactiveTimeout] = useState(null);
+
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       if (user) {
-try {
-  const userDoc = await getUserData(user.uid);
-  setUserData(userDoc);
-  setCurrentUser(user);
-
-  // ← ACTUALIZA USUARIO ACTIVO EN FIRESTORE
-  await updateDoc(doc(db, "users", user.uid), { active: true, lastActive: serverTimestamp() });
-
-} catch (error) {
-  console.error("Error cargando datos del usuario:", error);
-  setCurrentUser(user);
-}
+        try {
+          const userDoc = await getUserData(user.uid);
+          setUserData(userDoc);
+          setCurrentUser(user);
+          await updateDoc(doc(db, "users", user.uid), { active: true, lastActive: serverTimestamp() });
+        } catch (error) {
+          console.error("Error cargando datos del usuario:", error);
+          setCurrentUser(user);
+        }
       } else {
         setCurrentUser(null);
         setUserData(null);
       }
       setLoading(false);
     });
-    
+
     return unsubscribe;
   }, []);
+
+  // Mantén registro de la última actividad en Firestore (cada 1 min)
+  useEffect(() => {
+    if (!currentUser) return;
+    const interval = setInterval(() => {
+      updateDoc(doc(db, "users", currentUser.uid), { lastActive: serverTimestamp() });
+    }, 60000);
+    return () => clearInterval(interval);
+  }, [currentUser]);
+
+  // Lógica de inactividad (solo logueado)
+  useEffect(() => {
+    if (!currentUser) return;
+    let lastActivity = Date.now();
+
+    const resetTimer = () => {
+      lastActivity = Date.now();
+      if (inactiveWarning) setInactiveWarning(false);
+      if (inactiveTimeout) clearTimeout(inactiveTimeout);
+    };
+
+    const events = ["mousemove", "keydown", "click", "scroll"];
+    events.forEach(event => window.addEventListener(event, resetTimer));
+
+    const checkInactivity = () => {
+      if (Date.now() - lastActivity > 5 * 60 * 1000) {
+        setInactiveWarning(true);
+        const timeout = setTimeout(async () => {
+          // Marcar usuario como inactivo antes de desconectar
+          await updateDoc(doc(db, "users", currentUser.uid), { active: false });
+          await signOut(auth);
+          window.location.href = "/";
+        }, 15000);
+        setInactiveTimeout(timeout);
+      }
+    };
+
+    const interval = setInterval(checkInactivity, 10000);
+
+    return () => {
+      events.forEach(event => window.removeEventListener(event, resetTimer));
+      clearInterval(interval);
+      if (inactiveTimeout) clearTimeout(inactiveTimeout);
+    };
+  }, [currentUser, inactiveWarning, inactiveTimeout]);
 
   const value = { 
     currentUser, 
     userData,
-    loading 
+    loading,
+    inactiveWarning,
+    setInactiveWarning
   };
   
-  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+  return (
+    <AuthContext.Provider value={value}>
+      <InactivityModal />
+      {children}
+    </AuthContext.Provider>
+  );
 };
 
+// Rutas protegidas
 const ProtectedRoute = ({ children }) => {
   const { currentUser, userData, loading } = useContext(AuthContext);
-  
   if (loading) {
     return (
       <div className="flex flex-col items-center justify-center min-h-screen">
@@ -70,19 +150,16 @@ const ProtectedRoute = ({ children }) => {
       </div>
     );
   }
-  
   if (!currentUser || userData?.suspended) {
     return <Navigate to="/" replace />;
   }
-  
   return children;
 };
 
+// Pantalla de login/register
 const AuthPage = () => {
   const navigate = useNavigate();
   const { currentUser, userData, loading } = useContext(AuthContext);
-  
-  // ✅ TODOS LOS HOOKS PRIMERO - SIN INTERRUPCIONES
   const [initialScreen, setInitialScreen] = useState(true);
   const [showLogin, setShowLogin] = useState(true);
   const [email, setEmail] = useState("");
@@ -101,7 +178,7 @@ const AuthPage = () => {
   const [justRegistered, setJustRegistered] = useState(false);
   const [registering, setRegistering] = useState(false);
 
-  // ✅ CONSTANTES Y FUNCIONES AUXILIARES DESPUÉS DE LOS HOOKS
+  // Países
   const countryCodes = [
     { value: "+58", label: "+58 Venezuela", maxLength: 10, example: "4123456789" },
     { value: "+57", label: "+57 Colombia", maxLength: 10, example: "3001234567" },
@@ -113,11 +190,9 @@ const AuthPage = () => {
     { value: "+34", label: "+34 España", maxLength: 9, example: "612345678" },
     { value: "+1", label: "+1 USA/Canadá", maxLength: 10, example: "2015550123" }
   ];
-
   const getCurrentCountryConfig = () => {
     return countryCodes.find(country => country.value === countryCode) || countryCodes[0];
   };
-
   const currentCountry = getCurrentCountryConfig();
 
   const handlePhoneChange = (e) => {
@@ -128,10 +203,8 @@ const AuthPage = () => {
     }
   };
 
-  // ✅ USEEFFECT DESPUÉS DE LAS FUNCIONES QUE USA
   useEffect(() => {
     if (loading) return;
-    
     if (currentUser && userData && !userData.suspended && !justRegistered && !registering) {
       navigate('/lobby', { replace: true });
     }
@@ -144,8 +217,7 @@ const AuthPage = () => {
         try {
           const isAvailable = await checkUsernameAvailability(username);
           setUsernameAvailable(isAvailable);
-        } catch (error) {
-          console.error("Error verificando username:", error);
+        } catch {
           setUsernameAvailable(true);
         }
         setCheckingUsername(false);
@@ -153,7 +225,6 @@ const AuthPage = () => {
         setUsernameAvailable(null);
       }
     };
-
     const timeoutId = setTimeout(verifyUsername, 500);
     return () => clearTimeout(timeoutId);
   }, [username]);
@@ -161,86 +232,69 @@ const AuthPage = () => {
   useEffect(() => {
     if (password.length > 0) {
       let strength = "";
-      if (password.length < 6) {
-        strength = "❌ Muy débil";
-      } else if (password.length < 8) {
-        strength = "⚠️ Débil";
-      } else if (password.length < 10) {
-        strength = "✅ Buena";
-      } else {
-        strength = "💪 Excelente";
-      }
+      if (password.length < 6) strength = "❌ Muy débil";
+      else if (password.length < 8) strength = "⚠️ Débil";
+      else if (password.length < 10) strength = "✅ Buena";
+      else strength = "💪 Excelente";
       setPasswordStrength(strength);
-    } else {
-      setPasswordStrength("");
-    }
+    } else setPasswordStrength("");
   }, [password]);
 
-  // ✅ FUNCIONES DE MANEJO DE EVENTOS
+  // Login
   const handleLogin = async (e) => {
     e.preventDefault();
     setFormLoading(true);
     setMessage("");
     try {
       await signInWithEmailAndPassword(auth, email, password);
-    } catch (error) {
+    } catch {
       setFormLoading(false);
       setMessage("❌ Usuario o contraseña incorrectos");
     }
   };
 
+  // Register
   const handleRegister = async (e) => {
     e.preventDefault();
-    
     if (!acceptedTerms) {
       setMessage("❌ Debes aceptar los Términos y Condiciones");
       return;
     }
-
     if (usernameAvailable === false) {
       setMessage("❌ Este nombre de usuario ya está en uso");
       return;
     }
-
     if (password !== confirmPassword) {
       setMessage("❌ Las contraseñas no coinciden");
       return;
     }
-
     if (password.length < 6) {
       setMessage("❌ La contraseña debe tener al menos 6 caracteres");
       return;
     }
-
     const countryConfig = getCurrentCountryConfig();
     if (!/^\d+$/.test(phone)) {
       setMessage("❌ El número de teléfono debe contener solo números");
       return;
     }
-
     if (phone.length !== countryConfig.maxLength) {
       setMessage(`❌ El número debe tener ${countryConfig.maxLength} dígitos para ${countryConfig.label}`);
       return;
     }
-
     setFormLoading(true);
     setRegistering(true);
     setMessage("");
     try {
       const userCredential = await createUserWithEmailAndPassword(auth, email, password);
       const user = userCredential.user;
-      
       const userCreated = await createUserDocument(user, {
         username: username,
         phone: countryCode + phone
       });
-      
       if (userCreated) {
         await signOut(auth);
-
         setJustRegistered(true);
         setMessage("✅ ¡Cuenta creada exitosamente! Serás redirigido al login...");
-
         setTimeout(() => {
           setJustRegistered(false);
           setRegistering(false);
@@ -254,7 +308,6 @@ const AuthPage = () => {
           setInitialScreen(true);
           setMessage("");
         }, 3000);
-
         return;
       } else {
         setMessage("❌ Error al crear perfil de usuario");
@@ -262,7 +315,6 @@ const AuthPage = () => {
         setRegistering(false);
         return;
       }
-      
     } catch (error) {
       setFormLoading(false);
       setRegistering(false);
@@ -276,7 +328,7 @@ const AuthPage = () => {
     }
   };
 
-  // ✅ RETURN CONDICIONALES SOLO AL FINAL
+  // Suspensión
   if (loading) {
     return (
       <div className="flex flex-col items-center justify-center min-h-screen">
@@ -284,7 +336,6 @@ const AuthPage = () => {
       </div>
     );
   }
-
   if (currentUser && userData?.suspended) {
     return (
       <div className="flex flex-col items-center justify-center min-h-screen relative bg-cover bg-no-repeat"
@@ -299,19 +350,17 @@ const AuthPage = () => {
               Si deseas apelar, comunícate con soporte.
             </div>
           </div>
-          
           <button 
             onClick={async () => {
               await updateDoc(doc(db, "users", currentUser.uid), { active: false });
-await signOut(auth);
-window.location.reload();
+              await signOut(auth);
+              window.location.reload();
             }}
             className="w-full mt-4 bg-gray-600 text-white py-3 rounded-xl font-semibold hover:bg-gray-700 transition-all"
           >
             Volver al Login
           </button>
         </div>
-        
         <style>{`
           .glass-effect {
             background: rgba(255, 255, 255, 0.95);
@@ -323,7 +372,7 @@ window.location.reload();
     );
   }
 
-  // ✅ RETURN PRINCIPAL AL FINAL
+  // Pantalla principal Auth
   return (
     <div
       className="flex flex-col items-center justify-center min-h-screen relative bg-cover bg-no-repeat"
@@ -333,7 +382,6 @@ window.location.reload();
         <span className="text-yellow-400 neon-gold">ORI</span>
         <span className="text-green-400 neon-green">LUCK</span>
       </h1>
-      
       <style>{`
         .neon-gold {
           text-shadow: 0 0 10px #ffd700, 0 0 20px #ffd700, 0 0 30px #ff6b00, 0 0 40px #ff6b00;
@@ -347,13 +395,11 @@ window.location.reload();
           border: 1px solid rgba(255, 255, 255, 0.2);
         }
       `}</style>
-
       <img
         src="https://upload.wikimedia.org/wikipedia/commons/0/06/Flag_of_Venezuela.svg"
         alt="Bandera de Venezuela"
         className="absolute bottom-4 right-4 w-30 h-38 object-contain"
       />
-
       <div className="glass-effect p-8 rounded-2xl shadow-2xl w-full max-w-md z-10 border border-white/30">
         {initialScreen ? (
           <div className="flex flex-col space-y-4">
@@ -384,7 +430,6 @@ window.location.reload();
                   className="w-full p-4 border-2 border-gray-200 rounded-xl focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200 bg-white text-black transition-all"
                 />
               </div>
-              
               <div>
                 <input
                   type="password"
@@ -395,7 +440,6 @@ window.location.reload();
                   className="w-full p-4 border-2 border-gray-200 rounded-xl focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200 bg-white text-black transition-all"
                 />
               </div>
-              
               <button
                 type="submit"
                 disabled={formLoading}
@@ -436,7 +480,6 @@ window.location.reload();
                   </p>
                 )}
               </div>
-
               <div>
                 <input
                   type="email"
@@ -447,7 +490,6 @@ window.location.reload();
                   className="w-full p-4 border-2 border-gray-200 rounded-xl focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200 bg-white text-black transition-all"
                 />
               </div>
-
               <div className="space-y-2">
                 <div className="flex space-x-2">
                   <select
@@ -481,7 +523,6 @@ window.location.reload();
                   <p className="text-red-600 text-xs">❌ Debe tener {currentCountry.maxLength} dígitos</p>
                 )}
               </div>
-
               <div>
                 <input
                   type="password"
@@ -501,7 +542,6 @@ window.location.reload();
                   </p>
                 )}
               </div>
-
               <div>
                 <input
                   type="password"
@@ -515,7 +555,6 @@ window.location.reload();
                   <p className="text-red-600 text-sm mt-1">❌ Las contraseñas no coinciden</p>
                 )}
               </div>
-
               <div className="flex items-center space-x-3 p-3 bg-gray-50 rounded-lg">
                 <input
                   type="checkbox"
@@ -535,7 +574,6 @@ window.location.reload();
                   </button>
                 </span>
               </div>
-
               <button
                 type="submit"
                 disabled={formLoading || !acceptedTerms || usernameAvailable === false}
@@ -555,7 +593,6 @@ window.location.reload();
             </p>
           </>
         )}
-
         {message && (
           <div className={`mt-4 p-3 rounded-lg text-center font-semibold ${
             message.includes("✅") ? 'bg-green-100 text-green-800 border border-green-200' : 
@@ -565,7 +602,6 @@ window.location.reload();
           </div>
         )}
       </div>
-
       {showTermsModal && (
         <div className="fixed inset-0 flex items-center justify-center bg-black bg-opacity-50 z-50">
           <div className="bg-white p-6 rounded-2xl w-11/12 max-w-2xl max-h-[80vh] overflow-y-auto">
@@ -590,7 +626,7 @@ window.location.reload();
   );
 };
 
-// En App.jsx - Agregar después de las rutas existentes
+// App principal
 function App() {
   return (
     <AuthProvider>
@@ -601,17 +637,11 @@ function App() {
         <Route path="/recharge" element={<ProtectedRoute><Recharge /></ProtectedRoute>} />
         <Route path="/admin" element={<ProtectedRoute><AdminPanel /></ProtectedRoute>} />
         <Route path="/history" element={<ProtectedRoute><TransactionHistory /></ProtectedRoute>} />
-        
-        
-        {/* 🔥 NUEVAS RUTAS DE SOPORTE */}
         <Route path="/support" element={<ProtectedRoute><SupportPage /></ProtectedRoute>} />
         <Route path="/admin/support" element={<ProtectedRoute><AdminSupportPage /></ProtectedRoute>} />
-        
-        {/* 🎯 NUEVAS RUTAS DE BINGO CON PROTECCIÓN */}
         <Route path="/bingo" element={<ProtectedRoute><BingoLobby /></ProtectedRoute>} />
         <Route path="/bingo/game" element={<ProtectedRoute><BingoGame /></ProtectedRoute>} />
         <Route path="/admin/bingo" element={<ProtectedRoute><BingoAdmin /></ProtectedRoute>} />
-        
       </Routes>
     </AuthProvider>
   );

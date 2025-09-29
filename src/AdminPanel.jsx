@@ -97,72 +97,73 @@ const AdminPanel = () => {
     }, [isAdmin, navigate, currentUserData]);
 
     useEffect(() => {
-    if (activeTab !== "recharges") return; // Solo cuando está en el panel de solicitudes
-    const qRecharge = query(collection(db, "rechargeRequests"), where("status", "==", "pending"));
-    const unsubRecharge = onSnapshot(qRecharge, (snap) => {
-        if (snap.docChanges().some(change => change.type === "added")) {
-            setNewRequestNotification(true);
-            // Sonido
-            const audio = new window.Audio("/notification.mp3");
-            audio.play().catch(() => {});
-            setTimeout(() => setNewRequestNotification(false), 3000);
-        }
-    });
-    const qWithdraw = query(collection(db, "withdrawRequests"), where("status", "==", "pending"));
-    const unsubWithdraw = onSnapshot(qWithdraw, (snap) => {
-        if (snap.docChanges().some(change => change.type === "added")) {
-            setNewRequestNotification(true);
-            const audio = new window.Audio("/notification.mp3");
-            audio.play().catch(() => {});
-            setTimeout(() => setNewRequestNotification(false), 3000);
-        }
-    });
-    return () => {
-        unsubRecharge();
-        unsubWithdraw();
-    };
-}, [activeTab]);
-
-useEffect(() => {
-    if (!isAdmin) return;
-    if (activeTab !== "recharges") return;
-
-    const qRecharge = query(collection(db, "rechargeRequests"), where("status", "==", "pending"));
-    const qWithdraw = query(collection(db, "withdrawRequests"), where("status", "==", "pending"));
-
-    const unsubRecharge = onSnapshot(qRecharge, (snap) => {
-        const rechargeReqs = snap.docs.map(doc => ({ id: doc.id, ...doc.data(), requestType: "recharge" }));
-        setRequests(prev => {
-            const withdraws = prev.filter(r => r.requestType === "withdraw");
-            return [...rechargeReqs, ...withdraws];
+        if (activeTab !== "recharges") return; // Solo cuando está en el panel de solicitudes
+        const qRecharge = query(collection(db, "rechargeRequests"), where("status", "==", "pending"));
+        const unsubRecharge = onSnapshot(qRecharge, (snap) => {
+            if (snap.docChanges().some(change => change.type === "added")) {
+                setNewRequestNotification(true);
+                const audio = new window.Audio("/notification.mp3");
+                audio.play().catch(() => {});
+                setTimeout(() => setNewRequestNotification(false), 3000);
+            }
         });
-    });
-
-    const unsubWithdraw = onSnapshot(qWithdraw, (snap) => {
-        const withdrawReqs = snap.docs.map(doc => ({ id: doc.id, ...doc.data(), requestType: "withdraw" }));
-        setRequests(prev => {
-            const recharges = prev.filter(r => r.requestType === "recharge");
-            return [...recharges, ...withdrawReqs];
+        const qWithdraw = query(collection(db, "withdrawRequests"), where("status", "==", "pending"));
+        const unsubWithdraw = onSnapshot(qWithdraw, (snap) => {
+            if (snap.docChanges().some(change => change.type === "added")) {
+                setNewRequestNotification(true);
+                const audio = new window.Audio("/notification.mp3");
+                audio.play().catch(() => {});
+                setTimeout(() => setNewRequestNotification(false), 3000);
+            }
         });
-    });
+        return () => {
+            unsubRecharge();
+            unsubWithdraw();
+        };
+    }, [activeTab]);
 
-    return () => {
-        unsubRecharge();
-        unsubWithdraw();
-    };
-}, [activeTab, isAdmin]);
+    useEffect(() => {
+        if (!isAdmin) return;
+        if (activeTab !== "recharges") return;
 
-useEffect(() => {
-    const unsub = onSnapshot(collection(db, "users"), (snap) => {
-        setUsers(snap.docs.map(doc => ({
-            ...doc.data(),
-            id: doc.id,
-            role: doc.data().role || 'user',
-            suspended: !!doc.data().suspended
-        })));
-    });
-    return () => unsub();
-}, []);
+        const qRecharge = query(collection(db, "rechargeRequests"), where("status", "==", "pending"));
+        const qWithdraw = query(collection(db, "withdrawRequests"), where("status", "==", "pending"));
+
+        const unsubRecharge = onSnapshot(qRecharge, (snap) => {
+            const rechargeReqs = snap.docs.map(doc => ({ id: doc.id, ...doc.data(), requestType: "recharge" }));
+            setRequests(prev => {
+                const withdraws = prev.filter(r => r.requestType === "withdraw");
+                return [...rechargeReqs, ...withdraws];
+            });
+        });
+
+        const unsubWithdraw = onSnapshot(qWithdraw, (snap) => {
+            const withdrawReqs = snap.docs.map(doc => ({ id: doc.id, ...doc.data(), requestType: "withdraw" }));
+            setRequests(prev => {
+                const recharges = prev.filter(r => r.requestType === "recharge");
+                return [...recharges, ...withdrawReqs];
+            });
+        });
+
+        return () => {
+            unsubRecharge();
+            unsubWithdraw();
+        };
+    }, [activeTab, isAdmin]);
+
+    useEffect(() => {
+        const unsub = onSnapshot(collection(db, "users"), (snap) => {
+            setUsers(snap.docs.map(doc => ({
+                ...doc.data(),
+                id: doc.id,
+                role: doc.data().role || 'user',
+                suspended: !!doc.data().suspended,
+                active: !!doc.data().active, // ← importante para el filtro de usuarios activos
+                lastActive: doc.data().lastActive // ← para detectar timestamp si lo quieres usar
+            })));
+        });
+        return () => unsub();
+    }, []);
 
     const loadData = async () => {
         setLoadingData(true);
@@ -190,13 +191,27 @@ useEffect(() => {
             setUsers(usersList.map(u => ({
                 ...u,
                 role: u.role || 'user',
-                suspended: !!u.suspended
+                suspended: !!u.suspended,
+                active: !!u.active,
+                lastActive: u.lastActive
             })));
         } catch (error) {
             console.error("❌ Error cargando datos del panel:", error);
         }
         setLoadingData(false);
     };
+
+    // Usuarios activos: sólo los que tienen active=true y NO están suspendidos
+    // Opcional: solo si el último timestamp de lastActive es menor a 10 minutos
+    const usersActive = users.filter(u =>
+        !u.suspended &&
+        u.active &&
+        (
+            u.lastActive && typeof u.lastActive === "object" && typeof u.lastActive.toMillis === "function"
+                ? (Date.now() - u.lastActive.toMillis() < 10 * 60 * 1000)
+                : true // Si no tienes lastActive, sólo verifica active
+        )
+    );
 
     const handleRequestAction = async (requestId, action) => {
         try {
@@ -368,7 +383,11 @@ useEffect(() => {
                 (r.bank || "").toLowerCase().includes(rechargeSearch.toLowerCase())
             )
         )
-        .sort((a, b) => (b.createdAt?.toMillis?.() || 0) - (a.createdAt?.toMillis?.() || 0));
+        .sort((a, b) => {
+            const aMillis = a.createdAt?.toMillis?.() || 0;
+            const bMillis = b.createdAt?.toMillis?.() || 0;
+            return bMillis - aMillis;
+        });
 
     const withdrawHistory = allRequests
         .filter(r =>
@@ -382,7 +401,11 @@ useEffect(() => {
                 (r.cedula || "").toLowerCase().includes(withdrawSearch.toLowerCase())
             )
         )
-        .sort((a, b) => (b.createdAt?.toMillis?.() || 0) - (a.createdAt?.toMillis?.() || 0));
+        .sort((a, b) => {
+            const aMillis = a.createdAt?.toMillis?.() || 0;
+            const bMillis = b.createdAt?.toMillis?.() || 0;
+            return bMillis - aMillis;
+        });
 
     // Eliminar todos los registros de transactions
     const handleDeleteAllTransactions = async () => {
@@ -405,44 +428,42 @@ useEffect(() => {
     return (
         <div className="min-h-screen bg-gradient-to-br from-gray-900 via-purple-900 to-gray-900 relative overflow-hidden">
             <header className="relative z-10 bg-black/40 backdrop-blur-lg border-b border-red-500/30 shadow-2xl">
-    <div className="container mx-auto px-4 sm:px-6 py-4">
-        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 sm:gap-4">
-            <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2 sm:gap-4 w-full">
-                <button
-                    onClick={() => navigate('/lobby')}
-                    className="bg-gray-600 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded-xl transition-all duration-300 w-full sm:w-auto"
-                >
-                    ← Volver al Lobby
-                </button>
-                <div className="text-xl sm:text-3xl font-bold bg-gradient-to-r from-red-400 to-red-200 bg-clip-text text-transparent w-full sm:w-auto text-left sm:text-center">
-                    ⚙️ PANEL DE ADMINISTRACIÓN
-                </div>
-            </div>
-            {/* Agrupa la info y los usuarios activos en un solo flex */}
-            <div className="flex flex-row items-center gap-4 w-full sm:w-auto justify-end">
-                <div className="text-white/80 text-left sm:text-right">
-                    <div className="text-sm opacity-60 break-words">
-                        Administrador: {currentUser?.email}
-                        {currentUserData?.role && (
-                            <span className="ml-2 px-2 py-0.5 rounded bg-white/10 text-xs">
-                                {ROLES.find(r => r.id === currentUserData?.role)?.name || currentUserData?.role}
-                            </span>
-                        )}
+                <div className="container mx-auto px-4 sm:px-6 py-4">
+                    <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 sm:gap-4">
+                        <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2 sm:gap-4 w-full">
+                            <button
+                                onClick={() => navigate('/lobby')}
+                                className="bg-gray-600 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded-xl transition-all duration-300 w-full sm:w-auto"
+                            >
+                                ← Volver al Lobby
+                            </button>
+                            <div className="text-xl sm:text-3xl font-bold bg-gradient-to-r from-red-400 to-red-200 bg-clip-text text-transparent w-full sm:w-auto text-left sm:text-center">
+                                ⚙️ PANEL DE ADMINISTRACIÓN
+                            </div>
+                        </div>
+                        <div className="flex flex-row items-center gap-4 w-full sm:w-auto justify-end">
+                            <div className="text-white/80 text-left sm:text-right">
+                                <div className="text-sm opacity-60 break-words">
+                                    Administrador: {currentUser?.email}
+                                    {currentUserData?.role && (
+                                        <span className="ml-2 px-2 py-0.5 rounded bg-white/10 text-xs">
+                                            {ROLES.find(r => r.id === currentUserData?.role)?.name || currentUserData?.role}
+                                        </span>
+                                    )}
+                                </div>
+                                <div className="font-light text-red-200">
+                                    Solicitudes pendientes: {requests.filter(r => r.status === "pending").length}
+                                </div>
+                            </div>
+                            <div className="flex flex-col items-end">
+                                <div className="bg-green-700/80 text-white px-3 py-1 rounded-xl text-xs shadow-lg">
+                                    Usuarios activos: {usersActive.length}
+                                </div>
+                            </div>
+                        </div>
                     </div>
-                    <div className="font-light text-red-200">
-                        Solicitudes pendientes: {requests.filter(r => r.status === "pending").length}
-                    </div>
                 </div>
-                {/* Usuarios activos alineados a la derecha de la info */}
-                <div className="flex flex-col items-end">
-    <div className="bg-green-700/80 text-white px-3 py-1 rounded-xl text-xs shadow-lg">
-        Usuarios activos: {users.filter(u => u.active).length}
-    </div>
-</div>
-            </div>
-        </div>
-    </div>
-</header>
+            </header>
 
 {/* BOTONES DE PESTAÑAS */}
 <div className="flex flex-col sm:flex-row gap-2 sm:gap-4 mb-8 px-4 sm:px-6 pt-6">
