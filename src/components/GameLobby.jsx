@@ -1,7 +1,7 @@
 import React, { useContext, useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { auth, db } from '../firebase';
-import { collection, query, where, onSnapshot } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, updateDoc, doc } from 'firebase/firestore';
 import { signOut } from 'firebase/auth';
 import { AuthContext } from '../App';
 import { getUserData } from "../firestoreService";
@@ -55,13 +55,14 @@ const GameLobby = () => {
         return () => unsubscribe();
     }, [currentUser]);
 
+    // 👇 CORREGIDO: Usa updateDoc/doc para marcar el usuario como inactivo y redirige al login
     const handleLogout = async () => {
         try {
-            // Marcar usuario como inactivo en Firestore antes de logout
             if (currentUser) {
-                await db.collection("users").doc(currentUser.uid).update({ active: false });
+                await updateDoc(doc(db, "users", currentUser.uid), { active: false });
             }
             await signOut(auth);
+            navigate("/"); // 👈 Redirige al login después del logout
         } catch (error) {
             console.error("Error signing out: ", error);
         }
@@ -105,7 +106,6 @@ const GameLobby = () => {
         );
     }
 
-    // Array de botones de acción para renderizado dinámico (PC)
     const actionButtons = (
         <>
             <button onClick={handleWithdrawClick} className="bg-gradient-to-r from-yellow-600 to-yellow-500 hover:from-yellow-500 hover:to-yellow-400 text-white font-semibold px-4 py-2 rounded-xl transition-all duration-300 transform hover:scale-105 shadow-lg shadow-yellow-500/25 text-sm">💸 Retirar</button>
@@ -134,16 +134,13 @@ const GameLobby = () => {
             <div className="absolute top-20 left-10 w-32 h-32 bg-yellow-500/10 rounded-full blur-xl"></div>
             <div className="absolute bottom-20 right-10 w-48 h-48 bg-purple-500/10 rounded-full blur-2xl"></div>
             
-            {/* Header */}
             <header className="sticky top-0 z-50 bg-black/40 backdrop-blur-lg border-b border-gold-500/30 shadow-2xl">
                 <div className="container mx-auto px-4 sm:px-6 py-3">
                     <div className="flex justify-between items-center">
-                        {/* Logo y Info de Usuario */}
                         <div className="flex items-center space-x-2 sm:space-x-4">
                             <div className="text-2xl sm:text-3xl font-bold bg-gradient-to-r from-yellow-400 to-yellow-200 bg-clip-text text-transparent min-w-max">
                                 🎩 ORI<span className="text-green-400">LUCK</span>
                             </div>
-                            {/* Saldo - Solo en desktop */}
                             <div className="bg-gradient-to-r from-yellow-500/10 to-yellow-600/10 border border-yellow-500/30 rounded-xl px-3 py-2 sm:px-4 sm:py-2 backdrop-blur-sm hidden lg:block">
                                 <div className="text-xs text-yellow-300/80 font-medium">SALDO</div>
                                 <div className="text-lg sm:text-xl font-bold text-yellow-300 flex items-center">
@@ -152,14 +149,11 @@ const GameLobby = () => {
                             </div>
                         </div>
 
-                        {/* Botones de acción - PC */}
                         <div className="hidden lg:flex items-center space-x-3">
                             {actionButtons}
                         </div>
 
-                        {/* Menú Móvil - Botón de Hamburguesa */}
                         <div className="flex items-center lg:hidden">
-                            {/* Saldo Móvil - Solo en móvil */}
                             <div className="bg-gradient-to-r from-yellow-500/10 to-yellow-600/10 border border-yellow-500/30 rounded-xl px-3 py-1.5 backdrop-blur-sm mr-4 block lg:hidden">
                                 <div className="text-xs text-yellow-300/80 font-medium">SALDO</div>
                                 <div className="text-base font-bold text-yellow-300 flex items-center">
@@ -182,7 +176,6 @@ const GameLobby = () => {
                     </div>
                 </div>
 
-                {/* Menú de Botones Móvil (Dropdown) */}
                 <div className={`lg:hidden transition-all duration-300 ease-in-out ${isMenuOpen ? 'max-h-96 opacity-100 py-3' : 'max-h-0 opacity-0 overflow-hidden'}`}>
                     <div className="flex flex-col space-y-3 px-4 sm:px-6">
                         <button onClick={handleWithdrawClick} className="bg-gradient-to-r from-yellow-600 to-yellow-500 text-white font-semibold px-4 py-2 rounded-xl text-center shadow-lg shadow-yellow-500/25">💸 Retirar Saldo</button>
@@ -205,7 +198,6 @@ const GameLobby = () => {
                 </div>
             </header>
 
-            {/* Contenido principal */}
             <main className="relative z-10 container mx-auto px-4 sm:px-6 py-8 sm:py-12">
                 <div className="text-center mb-10 sm:mb-16">
                     <h1 className="text-4xl sm:text-6xl font-bold bg-gradient-to-r from-white to-gray-300 bg-clip-text text-transparent mb-2 sm:mb-4">
