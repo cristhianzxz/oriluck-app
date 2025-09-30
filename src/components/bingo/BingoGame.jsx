@@ -64,7 +64,10 @@ const BingoGame = () => {
     [tournament?.soldCards]
   );
   const pricePerCard = tournament?.pricePerCard || 0;
-  const computedPrizeTotal = soldCount * pricePerCard * 0.7;
+  // Cálculo dinámico del porcentaje del premio y de la casa
+  const percentHouse = typeof tournament?.percentageHouse === "number" ? tournament.percentageHouse : 30;
+  const percentPrize = 100 - percentHouse;
+  const computedPrizeTotal = soldCount * pricePerCard * (percentPrize / 100);
   const prizeTotal = tournament?.prizeTotal && tournament.prizeTotal > 0
     ? tournament.prizeTotal
     : computedPrizeTotal;
@@ -168,7 +171,8 @@ const BingoGame = () => {
               <div className="font-semibold mb-2">Información</div>
               <div className="text-sm space-y-1 text-white/70">
                 <div>Cartones vendidos: <span className="text-white">{soldCount}/100</span></div>
-                <div>Premio total (70%): <span className="text-green-400 font-semibold">Bs. {prizeTotal.toLocaleString()}</span></div>
+                {/* 👇 Muestra porcentaje y monto */}
+                <div>Premio total ({percentPrize}%): <span className="text-green-400 font-semibold">Bs. {prizeTotal.toLocaleString()}</span></div>
                 <div>Tus cartones: <span className="text-yellow-300">{userCards.length}</span></div>
               </div>
             </div>

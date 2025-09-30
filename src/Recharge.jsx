@@ -20,33 +20,17 @@ const Recharge = () => {
     const loadData = async () => {
       if (currentUser) {
         try {
-          console.log("🔍 Cargando datos del usuario y tasa...");
-          
           const [userDataFromFirestore, currentExchangeRate] = await Promise.all([
             getUserData(currentUser.uid),
             getExchangeRate()
           ]);
-          
-          if (userDataFromFirestore) {
-            setUserData({
-              username: userDataFromFirestore.username || currentUser.email?.split('@')[0] || "Usuario",
-              balance: userDataFromFirestore.balance || 0,
-              email: currentUser.email
-            });
-            console.log("✅ Datos del usuario cargados:", userDataFromFirestore.balance);
-          } else {
-            setUserData({
-              username: currentUser.email?.split('@')[0] || "Usuario",
-              balance: 0,
-              email: currentUser.email
-            });
-          }
-          
+          setUserData({
+            username: userDataFromFirestore?.username || currentUser.email?.split('@')[0] || "Usuario",
+            balance: userDataFromFirestore?.balance || 0,
+            email: currentUser.email
+          });
           setExchangeRate(currentExchangeRate);
-          console.log("✅ Tasa de cambio cargada:", currentExchangeRate);
-          
         } catch (error) {
-          console.error("❌ Error cargando datos:", error);
           setUserData({
             username: currentUser.email?.split('@')[0] || "Usuario",
             balance: 0,
@@ -57,7 +41,6 @@ const Recharge = () => {
       }
       setLoading(false);
     };
-
     loadData();
   }, [currentUser]);
 
@@ -111,7 +94,6 @@ const Recharge = () => {
   const handleMethodSelect = (methodId) => {
     setSelectedMethod(methodId);
     setShowPaymentDetails(true);
-    // Reset form when changing method
     setAmountUSD("");
     setReference("");
     setDate("");
@@ -127,7 +109,19 @@ const Recharge = () => {
     setIsSubmitting(true);
 
     try {
-      // Crear solicitud en Firestore
+      // Validación extra
+      if (!currentUser || !userData) {
+        alert("Error: Usuario no autenticado o datos no disponibles.");
+        setIsSubmitting(false);
+        return;
+      }
+      if (!selectedMethod || !amountUSD || !reference || !date) {
+        alert("Completa todos los campos.");
+        setIsSubmitting(false);
+        return;
+      }
+
+      // Crear solicitud en rechargeRequests
       const requestData = {
         userId: currentUser.uid,
         username: userData.username,
@@ -141,11 +135,9 @@ const Recharge = () => {
       };
 
       const requestId = await createRechargeRequest(requestData);
-      
+
       if (requestId) {
-        console.log("✅ Solicitud creada con ID:", requestId);
-        
-        // 🔥 CREAR TRANSACCIÓN PENDIENTE PARA EL USUARIO
+        // Crear transacción pendiente
         const transactionData = {
           userId: currentUser.uid,
           username: userData.username,
@@ -156,13 +148,18 @@ const Recharge = () => {
           requestId: requestId,
           admin: "Sistema",
           method: selectedMethod,
-          reference: reference
+          reference: reference,
+          createdAt: new Date()
         };
-        
-        console.log("💾 Creando transacción pendiente:", transactionData);
-        await createTransaction(transactionData);
-        
-        alert("✅ Solicitud de recarga enviada. Será verificada por administración.");
+
+        try {
+          await createTransaction(transactionData);
+          alert("✅ Solicitud de recarga enviada. Será verificada por administración.");
+        } catch (txError) {
+          console.error("❌ Error creando transacción:", txError);
+          alert("❌ Error al registrar la transacción, pero la solicitud se envió.");
+        }
+
         setAmountUSD("");
         setReference("");
         setDate("");
@@ -195,10 +192,7 @@ const Recharge = () => {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-900 via-purple-900 to-gray-900 relative overflow-hidden">
-      {/* Efectos de fondo */}
       <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-transparent via-black/20 to-black/60"></div>
-      
-      {/* Header */}
       <header className="relative z-10 bg-black/40 backdrop-blur-lg border-b border-green-500/30 shadow-2xl">
         <div className="container mx-auto px-6 py-4">
           <div className="flex justify-between items-center">
@@ -220,7 +214,6 @@ const Recharge = () => {
       <main className="relative z-10 container mx-auto px-6 py-8">
         <div className="max-w-4xl mx-auto">
           {!showPaymentDetails ? (
-            /* Selección de Métodos de Pago */
             <div className="mb-8">
               <h3 className="text-2xl font-bold text-white mb-6 text-center">Selecciona Método de Pago</h3>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -243,9 +236,7 @@ const Recharge = () => {
               </div>
             </div>
           ) : (
-            /* Detalles del Pago y Formulario */
             <div className="bg-white/10 rounded-2xl p-8 backdrop-blur-lg border border-white/20">
-              {/* Header del método seleccionado */}
               <div className="flex items-center justify-between mb-6">
                 <div className="flex items-center space-x-4">
                   <button
@@ -268,12 +259,10 @@ const Recharge = () => {
                 </div>
               </div>
 
-              {/* Instrucciones y Datos del Pago */}
               <div className="bg-yellow-500/20 rounded-xl p-6 border border-yellow-500/30 mb-6">
                 <h4 className="font-bold text-white mb-4 text-lg flex items-center">
                   💡 {paymentMethods.find(m => m.id === selectedMethod)?.instructions}
                 </h4>
-                
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
                   {Object.entries(paymentMethods.find(m => m.id === selectedMethod)?.details || {}).map(([key, value]) => (
                     <div key={key} className="bg-black/30 rounded-lg p-3">
@@ -284,7 +273,6 @@ const Recharge = () => {
                     </div>
                   ))}
                 </div>
-
                 <div className="mt-4 p-3 bg-green-500/20 rounded-lg border border-green-500/30">
                   <div className="text-green-300 text-sm font-semibold">💡 Importante:</div>
                   <div className="text-white/80 text-sm">
@@ -297,7 +285,6 @@ const Recharge = () => {
                 </div>
               </div>
 
-              {/* Formulario de Recarga */}
               <form onSubmit={handleSubmit} className="space-y-6">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div>
@@ -315,7 +302,6 @@ const Recharge = () => {
                       required
                     />
                   </div>
-
                   <div>
                     <label className="block text-white font-semibold mb-3 text-lg">
                       💰 Equivalente en Bolívares
@@ -327,7 +313,6 @@ const Recharge = () => {
                     </div>
                   </div>
                 </div>
-
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div>
                     <label className="block text-white font-semibold mb-3 text-lg">
@@ -342,7 +327,6 @@ const Recharge = () => {
                       required
                     />
                   </div>
-
                   <div>
                     <label className="block text-white font-semibold mb-3 text-lg">
                       📅 Fecha del Pago
@@ -356,7 +340,6 @@ const Recharge = () => {
                     />
                   </div>
                 </div>
-
                 <button
                   type="submit"
                   disabled={isSubmitting}

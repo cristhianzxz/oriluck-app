@@ -197,15 +197,18 @@ const Withdraw = () => {
         status: "pending"
       };
 
-      // Guarda la solicitud en la colección de recargas/retiros
-      await createWithdrawRequest(withdrawRequest);
+// Guarda la solicitud en la colección de retiros y obtén el ID
+const withdrawDocRef = await createWithdrawRequest(withdrawRequest);
+// Si tu función createWithdrawRequest no retorna el docRef, debes modificarla en firestoreService.js para que lo haga.
+// Ejemplo: return docRef.id; al final de la función.
 
-      // También crea la transacción pendiente
-      await createTransaction({
-        ...withdrawRequest,
-        description: `Solicitud de retiro - Bs. ${amountBs}`,
-        admin: "Sistema"
-      });
+// Crea la transacción pendiente usando ese ID como requestId
+await createTransaction({
+  ...withdrawRequest,
+  requestId: withdrawDocRef, // <<--- AQUÍ VA EL ID
+  description: `Solicitud de retiro - Bs. ${amountBs}`,
+  admin: "Sistema"
+});
 
       alert("✅ Solicitud de retiro enviada. Será verificada por administración.");
       setAmountBs("");

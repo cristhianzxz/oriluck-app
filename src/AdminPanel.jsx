@@ -18,10 +18,12 @@ import {
     setUserBalance,
     deleteUserFromFirestore,
     suspendUser,
-    updateUserRole
+    updateUserRole,
+    logAdminMovement
 } from "./firestoreService";
 import { doc, onSnapshot, updateDoc, getDocs, collection, deleteDoc, query, where } from "firebase/firestore";
 import { db } from "./firebase";
+import { writeBatch } from "firebase/firestore";
 
 const ROLES = [
     { id: 'user', name: 'Usuario' },
@@ -70,6 +72,25 @@ const AdminPanel = () => {
     const [deleteLoading, setDeleteLoading] = useState(false);
 
     const isAdmin = currentUserData?.role === "admin" || adminEmails.includes(currentUser?.email);
+
+const OWNER_PASSWORD = import.meta.env.VITE_OWNER_PASSWORD;
+
+const [showOwnerModal, setShowOwnerModal] = useState(false);
+const [ownerPasswordInput, setOwnerPasswordInput] = useState("");
+const [ownerPasswordError, setOwnerPasswordError] = useState("");
+
+const handleOwnerAccess = () => {
+  if (ownerPasswordInput === OWNER_PASSWORD) {
+    localStorage.setItem('ownerAccess', 'true');
+    setShowOwnerModal(false);
+    setOwnerPasswordInput("");
+    setOwnerPasswordError("");
+    window.location.href = '/owner-panel'; // <<--- este cambio!
+  } else {
+    setOwnerPasswordError("❌ Contraseña incorrecta.");
+  }
+};
+
 
     useEffect(() => {
         if (!currentUser?.uid) {
@@ -152,6 +173,17 @@ const AdminPanel = () => {
     }, [activeTab, isAdmin]);
 
     useEffect(() => {
+  // Escucha cambios en la tasa en tiempo real
+  const rateRef = doc(db, 'appSettings', 'exchangeRate');
+  const unsub = onSnapshot(rateRef, (snap) => {
+    if (snap.exists()) {
+      setExchangeRate(snap.data().rate || 100);
+    }
+  });
+  return () => unsub();
+}, []);
+
+    useEffect(() => {
         const unsub = onSnapshot(collection(db, "users"), (snap) => {
             setUsers(snap.docs.map(doc => ({
                 ...doc.data(),
@@ -213,92 +245,208 @@ const AdminPanel = () => {
         )
     );
 
-    const handleRequestAction = async (requestId, action) => {
-        try {
-            const request = requests.find(req => req.id === requestId);
-            if (!request) return;
-            const adminEmail = currentUser?.email || 'Admin Desconocido';
-            const existingTransaction = await findTransactionByRequestId(request.id);
+const handleRequestAction = async (requestId, action) => {
+    try {
+        const request = requests.find(req => req.id === requestId);
+        if (!request) return;
+        const adminEmail = currentUser?.email || 'Admin Desconocido';
 
-            if (request.requestType === "recharge") {
-                if (action === "approved") {
-                    if (existingTransaction) {
-                        await updateTransactionStatus(existingTransaction.id, "approved", adminEmail);
-                    } else {
-                        await createTransaction({
-                            userId: request.userId, username: request.username, type: "recharge", amount: request.amountBS,
-                            description: `Recarga aprobada - ${request.amountUSD} USD`, status: "approved",
-                            requestId: request.id, admin: adminEmail, method: request.method, reference: request.reference
-                        });
-                    }
-                    const success = await updateUserBalance(request.userId, request.amountBS);
-                    if (!success) { alert("❌ Error al actualizar el saldo"); return; }
-                    await updateRechargeRequest(request.id, "approved", adminEmail);
-                    alert(`✅ Recarga de $${request.amountUSD} USD aprobada para ${request.username}`);
-                } else {
-                    if (existingTransaction) {
-                        await updateTransactionStatus(existingTransaction.id, "rejected", adminEmail);
-                    } else {
-                        await createTransaction({
-                            userId: request.userId, username: request.username, type: "recharge", amount: request.amountBS,
-                            description: `Recarga rechazada - ${request.amountUSD} USD`, status: "rejected",
-                            requestId: request.id, admin: adminEmail, method: request.method, reference: request.reference
-                        });
-                    }
-                    await updateRechargeRequest(request.id, "rejected", adminEmail);
-                    alert(`❌ Solicitud de recarga rechazada`);
-                }
-            }
-
-            if (request.requestType === "withdraw") {
-                if (action === "approved") {
-                    if (existingTransaction) {
-                        await updateTransactionStatus(existingTransaction.id, "approved", adminEmail);
-                    } else {
-                        await createTransaction({
-                            userId: request.userId, username: request.username, type: "withdraw", amount: request.amountBS,
-                            description: `Retiro aprobado - ${request.amountUSD} USD`, status: "approved",
-                            requestId: request.id, admin: adminEmail, method: request.method
-                        });
-                    }
-                    const success = await updateUserBalance(request.userId, -Math.abs(request.amountBS));
-                    if (!success) {
-                        alert("❌ Error al descontar el saldo del usuario");
-                        return;
-                    }
-                    await updateWithdrawRequest(request.id, "approved", adminEmail);
-                    alert(`✅ Retiro de $${request.amountUSD} USD aprobado para ${request.username}`);
-                } else {
-                    if (existingTransaction) {
-                        await updateTransactionStatus(existingTransaction.id, "rejected", adminEmail);
-                    } else {
-                        await createTransaction({
-                            userId: request.userId, username: request.username, type: "withdraw", amount: request.amountBS,
-                            description: `Retiro rechazado - ${request.amountUSD} USD`, status: "rejected",
-                            requestId: request.id, admin: adminEmail, method: request.method
-                        });
-                    }
-                    await updateWithdrawRequest(request.id, "rejected", adminEmail);
-                    alert(`❌ Solicitud de retiro rechazada`);
-                }
-            }
-
-            await loadData();
-        } catch (error) {
-            console.error("❌ Error procesando solicitud:", error);
-            alert("❌ Error al procesar la solicitud");
+        // Eliminar cualquier transacción pendiente asociada a este requestId
+        const q = query(
+            collection(db, "transactions"),
+            where("requestId", "==", request.id),
+            where("status", "==", "pending")
+        );
+        const snapshot = await getDocs(q);
+        for (const pendingDoc of snapshot.docs) {
+            await deleteDoc(doc(db, "transactions", pendingDoc.id));
         }
-    };
 
-    const handleSaveExchangeRate = async () => {
-        try {
-            await updateExchangeRate(exchangeRate);
-            alert("✅ Tasa de cambio actualizada correctamente");
-        } catch (error) {
-            console.error("❌ Error actualizando tasa:", error);
-            alert("❌ Error al actualizar la tasa");
+        // RECARGAS
+        if (request.requestType === "recharge") {
+            if (action === "approved") {
+                await createTransaction({
+                    userId: request.userId,
+                    username: request.username,
+                    type: "recharge",
+                    amount: request.amountBS,
+                    description: `Recarga aprobada - ${request.amountUSD} USD`,
+                    status: "approved",
+                    requestId: request.id,
+                    admin: adminEmail,
+                    method: request.method,
+                    reference: request.reference
+                });
+                const success = await updateUserBalance(request.userId, request.amountBS);
+                if (!success) { alert("❌ Error al actualizar el saldo"); return; }
+                await updateRechargeRequest(request.id, "approved", adminEmail);
+
+                await logAdminMovement({
+                    actionType: "aprobar_recarga",
+                    adminData: {
+                        id: currentUser?.uid || '',
+                        name: currentUserData?.username || '',
+                        email: currentUser?.email || '',
+                        role: currentUserData?.role || ''
+                    },
+                    targetId: request.id,
+                    targetType: "solicitud_recarga",
+                    details: {
+                        usuario: request.username,
+                        userId: request.userId,
+                        monto: request.amountBS,
+                        ...(request.reference && { referencia: request.reference })
+                    },
+                    description: `Aprobó recarga de ${request.amountBS} Bs para ${request.username} (${request.email})`
+                });
+
+                alert(`✅ Recarga de $${request.amountUSD} USD aprobada para ${request.username}`);
+            } else { // "rejected"
+                await createTransaction({
+                    userId: request.userId,
+                    username: request.username,
+                    type: "recharge",
+                    amount: request.amountBS,
+                    description: `Recarga rechazada - ${request.amountUSD} USD`,
+                    status: "rejected",
+                    requestId: request.id,
+                    admin: adminEmail,
+                    method: request.method,
+                    reference: request.reference
+                });
+                await updateRechargeRequest(request.id, "rejected", adminEmail);
+
+                await logAdminMovement({
+                    actionType: "rechazar_recarga",
+                    adminData: {
+                        id: currentUser?.uid || '',
+                        name: currentUserData?.username || '',
+                        email: currentUser?.email || '',
+                        role: currentUserData?.role || ''
+                    },
+                    targetId: request.id,
+                    targetType: "solicitud_recarga",
+                    details: {
+                        usuario: request.username,
+                        userId: request.userId,
+                        monto: request.amountBS,
+                        ...(request.reference && { referencia: request.reference })
+                    },
+                    description: `Rechazó recarga de ${request.amountBS} Bs para ${request.username} (${request.email})`
+                });
+
+                alert(`❌ Solicitud de recarga rechazada`);
+            }
         }
-    };
+
+        // RETIROS
+        if (request.requestType === "withdraw") {
+            if (action === "approved") {
+                await createTransaction({
+                    userId: request.userId,
+                    username: request.username,
+                    type: "withdraw",
+                    amount: request.amountBS,
+                    description: `Retiro aprobado - ${request.amountUSD} USD`,
+                    status: "approved",
+                    requestId: request.id,
+                    admin: adminEmail,
+                    method: request.method
+                });
+
+                const success = await updateUserBalance(request.userId, -Math.abs(request.amountBS));
+                if (!success) {
+                    alert("❌ Error al descontar el saldo del usuario");
+                    return;
+                }
+                await updateWithdrawRequest(request.id, "approved", adminEmail);
+                alert(`✅ Retiro de $${request.amountUSD} USD aprobado para ${request.username}`);
+
+                await logAdminMovement({
+                    actionType: "aprobar_retiro",
+                    adminData: {
+                        id: currentUser?.uid || '',
+                        name: currentUserData?.username || '',
+                        email: currentUser?.email || '',
+                        role: currentUserData?.role || ''
+                    },
+                    targetId: request.id,
+                    targetType: "solicitud_retiro",
+                    details: {
+                        usuario: request.username,
+                        userId: request.userId,
+                        monto: request.amountBS,
+                        ...(request.reference && { referencia: request.reference })
+                    },
+                    description: `Aprobó retiro de ${request.amountBS} Bs para ${request.username} (${request.email})`
+                });
+
+            } else { // "rejected"
+                await createTransaction({
+                    userId: request.userId,
+                    username: request.username,
+                    type: "withdraw",
+                    amount: request.amountBS,
+                    description: `Retiro rechazado - ${request.amountUSD} USD`,
+                    status: "rejected",
+                    requestId: request.id,
+                    admin: adminEmail,
+                    method: request.method
+                });
+                await updateWithdrawRequest(request.id, "rejected", adminEmail);
+
+                await logAdminMovement({
+                    actionType: "rechazar_retiro",
+                    adminData: {
+                        id: currentUser?.uid || '',
+                        name: currentUserData?.username || '',
+                        email: currentUser?.email || '',
+                        role: currentUserData?.role || ''
+                    },
+                    targetId: request.id,
+                    targetType: "solicitud_retiro",
+                    details: {
+                        usuario: request.username,
+                        userId: request.userId,
+                        monto: request.amountBS,
+                        ...(request.reference && { referencia: request.reference })
+                    },
+                    description: `Rechazó retiro de ${request.amountBS} Bs para ${request.username} (${request.email})`
+                });
+
+                alert(`❌ Solicitud de retiro rechazada`);
+            }
+        }
+
+        await loadData();
+    } catch (error) {
+        console.error("❌ Error procesando solicitud:", error);
+        alert("❌ Error al procesar la solicitud");
+    }
+};
+
+const handleSaveExchangeRate = async () => {
+    try {
+        await updateExchangeRate(exchangeRate);
+        // 🚀 Nuevo: Actualiza la tasa en todos los torneos activos
+        const q = query(
+            collection(db, 'bingoTournaments'),
+            where('status', 'in', ['waiting', 'active'])
+        );
+        const snapshot = await getDocs(q);
+        const batch = writeBatch(db);
+        snapshot.forEach(docSnap => {
+            batch.update(doc(db, 'bingoTournaments', docSnap.id), {
+                pricePerCard: exchangeRate
+            });
+        });
+        await batch.commit();
+        alert("✅ Tasa de cambio actualizada correctamente (y aplicada a todos los torneos activos)");
+    } catch (error) {
+        console.error("❌ Error actualizando tasa:", error);
+        alert("❌ Error al actualizar la tasa");
+    }
+};
 
     const handleUserRoleChange = async (userId, newRole) => {
         const userToChange = users.find(u => u.id === userId);
@@ -467,7 +615,18 @@ const AdminPanel = () => {
 
 {/* BOTONES DE PESTAÑAS */}
 <div className="flex flex-col sm:flex-row gap-2 sm:gap-4 mb-8 px-4 sm:px-6 pt-6">
-    {["recharges", "history", "settings", "users", "support"].map((tab) => {
+  {["recharges", "history", "settings", "users", "support", "owner"].map((tab) => {
+    if (tab === "owner") {
+      return (
+        <button
+          key={tab}
+          onClick={() => setShowOwnerModal(true)}
+          className={`w-full sm:w-auto px-4 py-3 sm:px-8 sm:py-4 rounded-xl font-semibold text-base sm:text-lg transition-all duration-300 transform hover:scale-105 bg-black/60 text-yellow-300 border border-yellow-500/30`}
+        >
+          🦾 La Zona
+        </button>
+      );
+    }
         const handleTabClick = () => {
             if (tab === 'users') {
                 if (isUsersSectionUnlocked) {
@@ -577,6 +736,39 @@ const AdminPanel = () => {
                     </div>
                 </div>
             )}
+
+            {showOwnerModal && (
+  <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+    <div className="bg-gray-900 rounded-2xl p-8 max-w-xs w-full border-2 border-yellow-500 shadow-2xl relative">
+      <button
+        className="absolute top-4 right-4 text-white text-2xl hover:text-red-400"
+        onClick={() => {
+          setShowOwnerModal(false);
+          setOwnerPasswordInput("");
+          setOwnerPasswordError("");
+        }}
+      >×</button>
+      <h3 className="text-xl font-bold mb-4 text-yellow-300 text-center">🦾 Acceso a La Zona (Owner)</h3>
+      <label className="block text-white/80 mb-2 text-sm">Ingresa la contraseña:</label>
+      <input
+        type="password"
+        value={ownerPasswordInput}
+        onChange={e => setOwnerPasswordInput(e.target.value)}
+        className="w-full p-3 rounded-lg bg-white/20 border border-yellow-500/30 text-white text-lg focus:outline-none mb-2"
+        autoFocus
+      />
+      {ownerPasswordError && (
+        <div className="text-red-400 text-xs mb-2">{ownerPasswordError}</div>
+      )}
+      <button
+        className="bg-yellow-600 hover:bg-yellow-500 text-white font-bold py-2 px-6 rounded-xl transition-all duration-300 w-full"
+        onClick={handleOwnerAccess}
+      >
+        Acceder
+      </button>
+    </div>
+  </div>
+)}
 
 {activeTab === "recharges" && newRequestNotification && (
     <div className="fixed top-25 right-4 bg-green-600 text-white px-4 py-2 rounded-xl shadow-lg z-50">

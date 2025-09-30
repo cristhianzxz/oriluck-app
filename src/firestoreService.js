@@ -1,4 +1,4 @@
-import { doc, getDoc, setDoc, serverTimestamp, collection, query, where, getDocs, addDoc, updateDoc, orderBy, deleteDoc, arrayUnion, runTransaction, Timestamp, onSnapshot } from "firebase/firestore";
+import { doc, getDoc, setDoc, serverTimestamp, collection, query, where, getDocs, addDoc, updateDoc, orderBy, deleteDoc, arrayUnion, runTransaction, Timestamp, onSnapshot, increment, writeBatch } from "firebase/firestore";
 import { db } from "./firebase";
 
 // ======================================================================
@@ -593,12 +593,237 @@ export const buyTicket = async (poolId, userId) => {
         throw error;
     }
 };
-export async function logAudit(action, details, adminEmail, role) {
-    await addDoc(collection(db, "auditLogs"), {
-        action,
-        details,
-        adminEmail,
-        role,
+
+/**
+ * Función anterior de auditoría. Se mantiene para referencia pero la nueva 'logAdminMovement' es más completa.
+ */
+// export async function logAudit(action, details, adminEmail, role) {
+//     await addDoc(collection(db, "auditLogs"), {
+//         action,
+//         details,
+//         adminEmail,
+//         role,
+//         timestamp: serverTimestamp()
+//     });
+// }
+
+
+// ======================================================================
+// 📌 FONDOS DE LA CASA: BINGO
+// ======================================================================
+
+
+/** Obtiene la configuración de la bolsa de la casa para bingo */
+export async function getBingoHouseConfig() {
+    const ref = doc(db, "houseFunds", "bingo");
+    const snap = await getDoc(ref);
+    if (snap.exists()) {
+        return snap.data();
+    }
+    await updateDoc(ref, {
+        totalForHouse: 0,
+        percentageHouse: 30,
+        lastUpdated: serverTimestamp()
+    });
+    return {
+        totalForHouse: 0,
+        percentageHouse: 30,
+    };
+}
+
+/** Actualiza el porcentaje de la casa en Firestore (usado por OwnerPanel) */
+export async function setBingoHousePercent(percent) {
+    const ref = doc(db, "houseFunds", "bingo");
+    await updateDoc(ref, {
+        percentageHouse: percent,
+        lastUpdated: serverTimestamp()
+    });
+}
+
+/** Suma el porcentaje de la venta a la bolsa de la casa */
+export async function addToBingoHouseFund(totalCartonSale) {
+    const ref = doc(db, "houseFunds", "bingo");
+    await runTransaction(db, async (tx) => {
+        const snap = await tx.get(ref);
+        let percentHouse = 30;
+        if (snap.exists()) {
+            percentHouse = snap.data().percentageHouse || 30;
+        }
+        const amountToHouse = Math.round(totalCartonSale * percentHouse / 100);
+        if (!snap.exists()) {
+            tx.set(ref, {
+                totalForHouse: amountToHouse,
+                percentageHouse: percentHouse,
+                lastUpdated: serverTimestamp()
+            });
+        } else {
+            tx.update(ref, {
+                totalForHouse: increment(amountToHouse),
+                lastUpdated: serverTimestamp()
+            });
+        }
+    });
+}
+
+// ======================================================================
+// 📌 FUNCIONES DE ADMINISTRACIÓN PELIGROSAS
+// ======================================================================
+
+/**
+ * Función para eliminar TODAS las transacciones de Firestore.
+ * Esta acción es irreversible.
+ */
+export const deleteAllTransactionsFromFirestore = async () => {
+    try {
+        const transactionsRef = collection(db, "transactions");
+        const snapshot = await getDocs(transactionsRef);
+
+        if (snapshot.empty) {
+            console.log("No hay documentos en la colección de transacciones para eliminar.");
+            return true;
+        }
+
+        // Usa un batch para eliminar múltiples documentos de forma eficiente.
+        const batch = writeBatch(db);
+        snapshot.docs.forEach((doc) => {
+            // Usamos deleteDoc para eliminar un documento. En un batch, usamos batch.delete(doc.ref)
+            batch.delete(doc.ref);
+        });
+
+        await batch.commit();
+        console.log(`✅ ${snapshot.size} transacciones eliminadas con éxito.`);
+        return true;
+
+    } catch (error) {
+        console.error("❌ Error al eliminar todas las transacciones:", error);
+        throw error; // Propaga el error para que el AdminPanel pueda manejarlo y notificar al usuario.
+    }
+};
+
+
+// ======================================================================
+// 📌 FUNCIONES ADICIONALES (Faltantes)
+// ======================================================================
+
+/**
+ * Agregada para cumplir con el AdminPanel: Actualiza el estado 'active' del usuario.
+ */
+export const updateActiveUserStatus = async (userId, isActive) => {
+    try {
+        const userRef = doc(db, "users", userId);
+        await updateDoc(userRef, { active: isActive });
+        return true;
+    } catch {
+        return false;
+    }
+};
+
+/**
+ * Agregada para cumplir con el AdminPanel: Obtiene el conteo de usuarios sin un campo 'role' (asumiendo que son "nuevos").
+ * Esto usa un listener en tiempo real.
+ */
+export const getPendingUsersCount = (callback) => {
+    const usersRef = collection(db, "users");
+    // Buscamos usuarios que no tengan rol o cuyo campo de registro sea muy reciente (ejemplo).
+    // Para simplificar, asumiremos que un usuario sin campo 'role' es el pendiente.
+    const q = query(usersRef, where("role", "==", null)); 
+
+    return onSnapshot(q, (querySnapshot) => {
+        callback(querySnapshot.size);
+    });
+};
+
+/**
+ * Agregada para cumplir con el AdminPanel: Actualiza las tasas de cambio de los torneos.
+ * (Función dummy, debe ser implementada según tu lógica de torneos).
+ */
+export const updateTournamentExchangeRates = async (newRate) => {
+    console.log(`Simulando la actualización de las tasas de cambio de torneos a: ${newRate}`);
+    // Aquí iría la lógica real para iterar sobre la colección de torneos y actualizar su tasa.
+    return true;
+};
+
+// ======================================================================
+// 📌 REGISTRO DE MOVIMIENTOS ADMINISTRATIVOS
+// ======================================================================
+
+/**
+ * Registra cualquier movimiento administrativo relevante en Firestore.
+ * actionType: string ('crear_torneo', 'cambiar_tasa', 'suspender_usuario', etc.)
+ * adminData: {id, name, email, role}
+ * targetId: string (ID del elemento afectado, puede ser null)
+ * targetType: string ('usuario', 'torneo', 'bolsa', 'solicitud', etc.)
+ * details: objeto con info específica (antes/después, motivo, monto, etc.)
+ * description: string breve para mostrar en historial
+ */
+export async function logAdminMovement({
+    actionType,
+    adminData,      // {id, name, email, role}
+    targetId,       // string o null
+    targetType,     // string
+    details,        // object (personalizado según acción)
+    description     // string
+}) {
+    await addDoc(collection(db, "adminMovements"), {
+        actionType,
+        adminId: adminData?.id || "",
+        adminName: adminData?.name || "",
+        adminEmail: adminData?.email || "",
+        adminRole: adminData?.role || "",
+        targetId: targetId || "",
+        targetType: targetType || "",
+        details: details || {},
+        description: description || "",
         timestamp: serverTimestamp()
     });
 }
+
+// ======================================================================
+// 📌 EJEMPLOS DE USO PARA INTEGRAR EN TU LÓGICA DE NEGOCIO
+// ======================================================================
+
+// EJEMPLO: Cuando un admin suma/resta saldo a un usuario
+// (Llama esto después de hacer la operación real)
+export async function logUserBalanceChange({ adminData, userId, userEmail, saldoAntes, saldoDespues, monto, motivo }) {
+    await logAdminMovement({
+        actionType: "ajustar_saldo_usuario",
+        adminData,
+        targetId: userId,
+        targetType: "usuario",
+        details: { saldoAntes, saldoDespues, monto, motivo, userEmail },
+        description: `Ajustó saldo de usuario ${userEmail}: de ${saldoAntes} Bs a ${saldoDespues} Bs (${monto > 0 ? "+" : ""}${monto} Bs)`
+    });
+}
+
+// EJEMPLO: Cuando un admin crea un torneo
+export async function logCreateTournament({ adminData, torneoId, torneoNombre, torneoPrecio }) {
+    await logAdminMovement({
+        actionType: "crear_torneo",
+        adminData,
+        targetId: torneoId,
+        targetType: "torneo",
+        details: { nombre: torneoNombre, precioCarton: torneoPrecio },
+        description: `Creó el torneo "${torneoNombre}" con precio de cartón ${torneoPrecio} Bs`
+    });
+}
+
+// EJEMPLO: Cuando se suma/resta de la bolsa de la casa
+export async function logEditHouseFund({ adminData, monto, saldoAntes, saldoDespues, motivo }) {
+    await logAdminMovement({
+        actionType: "ajustar_bolsa",
+        adminData,
+        targetType: "bolsa",
+        details: { monto, saldoAntes, saldoDespues, motivo },
+        description: `Ajustó la bolsa de la casa: de ${saldoAntes} Bs a ${saldoDespues} Bs (${monto > 0 ? "+" : ""}${monto} Bs)`
+    });
+}
+
+export const listenUserTransactions = (userId, callback) => {
+  if (!userId) return;
+  const transactionsRef = collection(db, "transactions");
+  const q = query(transactionsRef, where("userId", "==", userId));
+  return onSnapshot(q, (querySnapshot) => {
+    const txs = querySnapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+    callback(txs);
+  });
+};

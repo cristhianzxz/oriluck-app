@@ -16,6 +16,7 @@ import { updateDoc, doc, serverTimestamp } from "firebase/firestore";
 import { db } from "./firebase";
 import SupportPage from "./SupportPage";
 import AdminSupportPage from "./AdminSupportPage";
+import OwnerPanel from './components/OwnerPanel.jsx';
 
 // Contexto de autenticación
 export const AuthContext = createContext(null);
@@ -642,6 +643,7 @@ function App() {
         <Route path="/bingo" element={<ProtectedRoute><BingoLobby /></ProtectedRoute>} />
         <Route path="/bingo/game" element={<ProtectedRoute><BingoGame /></ProtectedRoute>} />
         <Route path="/admin/bingo" element={<ProtectedRoute><BingoAdmin /></ProtectedRoute>} />
+        <Route path="/owner-panel" element={<ProtectedRoute><OwnerPanel /></ProtectedRoute>} />
       </Routes>
     </AuthProvider>
   );

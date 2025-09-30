@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useContext } from "react";
 import { useNavigate } from "react-router-dom";
 import { AuthContext } from "../App";
-import { getUserTransactions } from "../firestoreService";
+import { listenUserTransactions } from "../firestoreService";
 
 const TransactionHistory = () => {
   const navigate = useNavigate();
@@ -11,45 +11,19 @@ const TransactionHistory = () => {
   const [activeFilter, setActiveFilter] = useState("all");
 
   useEffect(() => {
-    loadTransactions();
-  }, [currentUser]);
-
-  const loadTransactions = async () => {
-    if (!currentUser) {
-      console.log("❌ No hay usuario autenticado");
-      return;
-    }
-    
+    if (!currentUser?.uid) return;
     setLoading(true);
-    try {
-      console.log("🔍 Cargando transacciones para usuario:", currentUser.uid);
-      const userTransactions = await getUserTransactions(currentUser.uid);
-      console.log("✅ Transacciones obtenidas:", userTransactions);
-      console.log("📊 Número de transacciones:", userTransactions.length);
-      
-      // Debug detallado de cada transacción
-      userTransactions.forEach((transaction, index) => {
-        console.log(`📄 Transacción ${index + 1}:`, {
-          id: transaction.id,
-          type: transaction.type,
-          status: transaction.status,
-          amount: transaction.amount,
-          description: transaction.description,
-          createdAt: transaction.createdAt
-        });
-      });
-      
+
+    // Escuchar en tiempo real las transacciones del usuario
+    const unsub = listenUserTransactions(currentUser.uid, (userTransactions) => {
       setTransactions(userTransactions);
-    } catch (error) {
-      console.error("❌ Error cargando transacciones:", error);
-      console.error("🔴 Detalles del error:", {
-        code: error.code,
-        message: error.message,
-        stack: error.stack
-      });
-    }
-    setLoading(false);
-  };
+      setLoading(false);
+    });
+
+    return () => {
+      if (unsub) unsub();
+    };
+  }, [currentUser]);
 
   const filteredTransactions = transactions.filter(transaction => {
     if (activeFilter === "all") return true;
@@ -123,30 +97,28 @@ const TransactionHistory = () => {
       {/* Efectos de fondo */}
       <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-transparent via-black/20 to-black/60"></div>
       
-      
-
       {/* Header */}
       <header className="relative z-10 bg-black/40 backdrop-blur-lg border-b border-blue-500/30 shadow-2xl">
-  <div className="container mx-auto px-6 py-4">
-    <div className="flex justify-between items-center">
-      <div className="flex items-center space-x-4">
-        {/* Botón volver al lobby */}
-        <button 
-          onClick={() => navigate('/lobby')}
-          className="bg-gray-600 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded-xl transition-all duration-300 mr-4"
-        >
-          ← Volver al Lobby
-        </button>
-        <div className="text-3xl font-bold bg-gradient-to-r from-blue-400 to-blue-200 bg-clip-text text-transparent">
-          📊 HISTORIAL DE TRANSACCIONES
+        <div className="container mx-auto px-6 py-4">
+          <div className="flex justify-between items-center">
+            <div className="flex items-center space-x-4">
+              {/* Botón volver al lobby */}
+              <button 
+                onClick={() => navigate('/lobby')}
+                className="bg-gray-600 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded-xl transition-all duration-300 mr-4"
+              >
+                ← Volver al Lobby
+              </button>
+              <div className="text-3xl font-bold bg-gradient-to-r from-blue-400 to-blue-200 bg-clip-text text-transparent">
+                📊 HISTORIAL DE TRANSACCIONES
+              </div>
+              <div className="text-white/60 text-sm">
+                {transactions.length} transacciones registradas
+              </div>
+            </div>
+          </div>
         </div>
-        <div className="text-white/60 text-sm">
-          {transactions.length} transacciones registradas
-        </div>
-      </div>
-    </div>
-  </div>
-</header>
+      </header>
 
       <main className="relative z-10 container mx-auto px-6 py-8">
         <div className="max-w-4xl mx-auto">
