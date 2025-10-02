@@ -50,6 +50,8 @@ const BingoGame = () => {
     setUserCards(mine);
   }, [tournament, currentUser]);
 
+  // ✅ ELIMINADO: El useEffect y registerPrize que causaban el registro duplicado
+
   useEffect(() => {
     if (tournament?.status === 'finished' && (tournament.winners?.length || 0) > 0) {
       setShowWinners(true);

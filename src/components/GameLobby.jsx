@@ -55,14 +55,13 @@ const GameLobby = () => {
         return () => unsubscribe();
     }, [currentUser]);
 
-    // 👇 CORREGIDO: Usa updateDoc/doc para marcar el usuario como inactivo y redirige al login
     const handleLogout = async () => {
         try {
             if (currentUser) {
                 await updateDoc(doc(db, "users", currentUser.uid), { active: false });
             }
             await signOut(auth);
-            navigate("/"); // 👈 Redirige al login después del logout
+            navigate("/");
         } catch (error) {
             console.error("Error signing out: ", error);
         }
@@ -77,18 +76,36 @@ const GameLobby = () => {
     };
 
     const games = [
-        { id: 1, name: "BINGO", icon: "🎯", status: "active", description: "Juega al clásico Bingo con premios millonarios", color: "from-red-500 to-pink-500", glow: "shadow-lg shadow-red-500/30" },
-        { id: 2, name: "TRAGAMONEDAS", icon: "🎰", status: "construction", description: "Próximamente - Máquinas exclusivas de alta gama", color: "from-blue-500 to-purple-500", glow: "shadow-lg shadow-blue-500/20" },
+        { id: 1, name: "BINGO", icon: "🎯", status: "active", description: "Juega al clásico Bingo con premios millonarios", color: "from-red-500 to-pink-500", glow: "shadow-lg shadow-red-500/30", path: "/bingo" },
+        { id: 2, name: "TRAGAMONEDAS", icon: "🎰", status: "active", description: "Máquinas exclusivas de alta gama con jackpots progresivos", color: "from-blue-500 to-purple-500", glow: "shadow-lg shadow-blue-500/20", path: "/slots" },
         { id: 3, name: "RULETA", icon: "🎡", status: "construction", description: "Próximamente - Ruleta europea premium", color: "from-green-500 to-teal-500", glow: "shadow-lg shadow-green-500/20" },
         { id: 4, name: "PÓKER", icon: "🎴", status: "construction", description: "Próximamente - Texas Hold'em VIP", color: "from-yellow-500 to-orange-500", glow: "shadow-lg shadow-yellow-500/20" },
         { id: 5, name: "BLACKJACK", icon: "🃏", status: "construction", description: "Próximamente - 21 contra crupieres expertos", color: "from-indigo-500 to-blue-500", glow: "shadow-lg shadow-indigo-500/20" },
         { id: 6, name: "LOTERÍA", icon: "🎫", status: "construction", description: "Próximamente - Sorteos millonarios exclusivos", color: "from-purple-500 to-pink-500", glow: "shadow-lg shadow-purple-500/20" }
     ];
 
+    // =======================================================================
+    // --- INICIO DE LA CORRECCIÓN ---
+    // =======================================================================
     const handleGameClick = (game) => {
-        if (game.status === "active" && game.name === "BINGO") navigate('/bingo');
-        else if (game.status === "construction") alert("🚧 Este juego premium estará disponible próximamente");
+        // Si el juego no está activo, muestra la alerta y detente.
+        if (game.status === 'construction') {
+            alert("🚧 Este juego premium estará disponible próximamente");
+            return; // Detiene la ejecución aquí
+        }
+
+        // Si el juego está activo, decide a dónde ir.
+        if (game.name === "BINGO") {
+            navigate('/bingo');
+        } else if (game.name === "TRAGAMONEDAS") {
+            navigate('/slots');
+        }
+        // Puedes añadir más 'else if' para futuros juegos aquí
     };
+    // =======================================================================
+    // --- FIN DE LA CORRECCIÓN ---
+    // =======================================================================
+
 
     if (loading) {
         return (
@@ -129,7 +146,6 @@ const GameLobby = () => {
 
     return (
         <div className="min-h-screen bg-gradient-to-br from-gray-900 via-purple-900 to-gray-900 relative overflow-hidden">
-            {/* Efectos de fondo */}
             <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-transparent via-black/20 to-black/60"></div>
             <div className="absolute top-20 left-10 w-32 h-32 bg-yellow-500/10 rounded-full blur-xl"></div>
             <div className="absolute bottom-20 right-10 w-48 h-48 bg-purple-500/10 rounded-full blur-2xl"></div>

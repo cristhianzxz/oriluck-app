@@ -6,7 +6,9 @@ import {
     onSnapshot, serverTimestamp, arrayRemove, writeBatch, increment,
     query, orderBy, runTransaction
 } from 'firebase/firestore';
-import { db } from '../../firebase';
+// 🚨 CAMBIO DE RNG: Importación de funciones para el llamado seguro al backend
+import { httpsCallable } from 'firebase/functions';
+import { db, functions } from '../../firebase'; // Asegúrate de que 'functions' está exportado desde tu archivo firebase.js
 
 const BingoAdmin = () => {
     const navigate = useNavigate();
@@ -87,34 +89,40 @@ const BingoAdmin = () => {
         }
     };
 
+    // 🚨 CAMBIO DE RNG: La función de inicio llama al Cloud Function para generar la secuencia auditable.
     const startTournament = async (tournamentId) => {
         try {
-            await updateDoc(doc(db, 'bingoTournaments', tournamentId), {
-                status: 'active',
-                allowPurchases: false,
-                startedAt: serverTimestamp(),
-                startedBy: currentUser.uid
-            });
-            alert('🎮 Torneo iniciado!');
+            const callStartAuditable = httpsCallable(functions, 'startAuditableBingo');
+            
+            // Enviamos el ID del torneo para que el backend genere la semilla única basada en él
+            const result = await callStartAuditable({ tournamentId });
+
+            if (result.data && result.data.success) {
+                alert('✅ Sorteo generado y Torneo iniciado de forma auditable!');
+            } else {
+                // Manejo de errores de la Cloud Function
+                alert(`❌ Error al iniciar el torneo: ${result.data?.message || 'Error desconocido del servidor.'}`);
+            }
         } catch (error) {
-            console.error('Error iniciando torneo:', error);
-            alert('❌ Error al iniciar el torneo');
+            console.error('Error iniciando torneo (via Cloud Function):', error);
+            alert('❌ Error al iniciar el torneo: ' + error.message);
         }
     };
 
     const finishTournament = async (tournamentId) => {
-        try {
-            await updateDoc(doc(db, 'bingoTournaments', tournamentId), {
-                status: 'finished',
-                manualStop: true,
-                finishedAt: serverTimestamp()
-            });
-            alert('🏆 Torneo finalizado manualmente!');
-        } catch (error) {
-            console.error('Error finalizando torneo:', error);
-            alert('❌ Error al finalizar el torneo');
-        }
-    };
+    try {
+        await updateDoc(doc(db, 'bingoTournaments', tournamentId), {
+            status: 'finished',
+            manualStop: true,
+            finishedAt: serverTimestamp()
+        });
+
+        alert('🏆 Torneo finalizado manualmente!');
+    } catch (error) {
+        console.error('Error finalizando torneo:', error);
+        alert('❌ Error al finalizar el torneo');
+    }
+};
 
     const callNumberManually = async () => {
         alert("El llamado de números ahora es 100% automático desde el servidor.");
@@ -335,8 +343,6 @@ const BingoAdmin = () => {
 
     if (!isAdmin) {
         // La redirección se maneja principalmente en el useEffect, pero esta es una capa de seguridad en el render.
-        // Si no es admin y el user ya cargó, retornamos null o podríamos redirigir aquí también si la redirección de useEffect no es instantánea.
-        // Dejamos que useEffect maneje el navigate para evitar un error de "demasiados renders"
         return null;
     }
 
@@ -485,3 +491,4 @@ const BingoAdmin = () => {
 };
 
 export default BingoAdmin;
+// Total de líneas corregidas: 487 (incluyendo las correcciones de importación y la lógica de startTournament)

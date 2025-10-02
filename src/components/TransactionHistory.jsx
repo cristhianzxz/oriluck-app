@@ -73,6 +73,9 @@ const TransactionHistory = () => {
       case "recharge_request": return "💳";
       case "recharge": return "💰";
       case "withdrawal": return "🏧";
+      case "bingo_purchase": return "🎰";
+      case "bingo_prize": return "🏆";
+      case "admin_adjustment": return "⚙️";
       case "transfer": return "🔄";
       default: return "📊";
     }
@@ -80,8 +83,21 @@ const TransactionHistory = () => {
 
   const getAmountColor = (type, status) => {
     if (status === "rejected") return "text-red-400";
-    if (type === "recharge" || type === "recharge_request") return "text-green-400";
+    if (type === "recharge" || type === "recharge_request" || type === "bingo_prize") return "text-green-400";
     return "text-white";
+  };
+
+  const getTransactionDetails = (transaction) => {
+    switch (transaction.type) {
+      case "bingo_purchase":
+        return `Compra de ${transaction.quantity || 1} cartón(es) a ${transaction.pricePerCard} Bs c/u`;
+      case "bingo_prize":
+        return `Premio ganado en torneo "${transaction.tournamentName || 'Desconocido'}"`;
+      case "admin_adjustment":
+        return `Ajuste administrativo: ${transaction.reason || 'Sin motivo'}`;
+      default:
+        return transaction.description;
+    }
   };
 
   if (loading) {
@@ -195,7 +211,7 @@ const TransactionHistory = () => {
                 <p className="text-white/50 text-sm mt-2">
                   {activeFilter !== "all" 
                     ? `No hay transacciones ${activeFilter === "pending" ? "pendientes" : activeFilter === "approved" ? "completadas" : "rechazadas"}`
-                    : "Tus transacciones aparecerán aquí después de realizar recargas"}
+                    : "Tus transacciones aparecerán aquí después de realizar movimientos"}
                 </p>
               </div>
             ) : (
@@ -207,8 +223,14 @@ const TransactionHistory = () => {
                         <div className="flex items-center space-x-3 mb-2">
                           <span className="text-2xl">{getTypeIcon(transaction.type)}</span>
                           <div>
-                            <div className="text-white font-semibold">{transaction.description}</div>
+                            <div className="text-white font-semibold">{getTransactionDetails(transaction)}</div>
                             <div className="text-white/70 text-sm">{formatDate(transaction.createdAt)}</div>
+                            {/* Mostrar saldo antes y después si está disponible */}
+                            {transaction.balanceBefore !== undefined && transaction.balanceAfter !== undefined && (
+                              <div className="text-white/50 text-xs mt-1">
+                                Saldo: {transaction.balanceBefore} Bs → {transaction.balanceAfter} Bs
+                              </div>
+                            )}
                             {transaction.admin && (
                               <div className="text-white/50 text-xs mt-1">
                                 Procesado por: {transaction.admin}
@@ -224,7 +246,7 @@ const TransactionHistory = () => {
                       </div>
                       <div className="text-right">
                         <div className={`text-lg font-bold ${getAmountColor(transaction.type, transaction.status)}`}>
-                          Bs. {transaction.amount?.toLocaleString()}
+                          {transaction.amount > 0 ? '+' : ''}{transaction.amount?.toLocaleString()} Bs
                         </div>
                         <div className={`text-sm px-3 py-1 rounded-full border ${getStatusColor(transaction.status)} mt-2`}>
                           {getStatusText(transaction.status)}
@@ -239,7 +261,7 @@ const TransactionHistory = () => {
 
           {/* Información adicional */}
           <div className="mt-6 text-center text-white/60 text-sm">
-            <p>💡 Las transacciones incluyen solicitudes de recarga y movimientos de saldo</p>
+            <p>💡 Las transacciones incluyen recargas, retiros, compras de cartones, premios y ajustes administrativos</p>
           </div>
         </div>
       </main>

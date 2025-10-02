@@ -304,6 +304,201 @@ export const createTransaction = async (transactionData) => {
     }
 };
 
+// 📌 NUEVAS TRANSACCIONES DE BINGO
+// ======================================================================
+
+/**
+ * Registra una transacción de compra de cartones de bingo.
+ * @param {string} userId - ID del usuario.
+ * @param {string} username - Nombre del usuario.
+ * @param {number} amount - Monto total gastado.
+ * @param {number} quantity - Cantidad de cartones comprados.
+ * @param {number} pricePerCard - Precio por cartón.
+ * @param {string} tournamentId - ID del torneo.
+ * @param {string} tournamentName - Nombre del torneo.
+ * @param {number} balanceBefore - Saldo antes de la operación.
+ * @param {number} balanceAfter - Saldo después de la operación.
+ */
+export const createBingoPurchaseTransaction = async ({
+    userId,
+    username,
+    amount,
+    quantity,
+    pricePerCard,
+    tournamentId,
+    tournamentName,
+    balanceBefore,
+    balanceAfter
+}) => {
+    try {
+        const transactionsRef = collection(db, "transactions");
+        const docRef = await addDoc(transactionsRef, {
+            userId,
+            username,
+            type: "bingo_purchase",
+            amount: -Math.abs(amount), // Negativo porque es un gasto
+            description: `Compra de ${quantity} cartón(es) a ${pricePerCard} Bs c/u en "${tournamentName}"`,
+            status: "completed",
+            createdAt: serverTimestamp(),
+            // Nuevos campos
+            quantity,
+            pricePerCard,
+            tournamentId,
+            tournamentName,
+            balanceBefore,
+            balanceAfter
+        });
+        return docRef.id;
+    } catch (e) {
+        console.error("Error al crear transacción de bingo:", e);
+        return null;
+    }
+};
+
+/**
+ * Registra una transacción de premio ganado en bingo.
+ * @param {string} userId - ID del usuario.
+ * @param {string} username - Nombre del usuario.
+ * @param {number} amount - Monto del premio.
+ * @param {string} tournamentId - ID del torneo.
+ * @param {string} tournamentName - Nombre del torneo.
+ * @param {number} balanceBefore - Saldo antes de la operación.
+ * @param {number} balanceAfter - Saldo después de la operación.
+ */
+export const createBingoPrizeTransaction = async ({
+    userId,
+    username,
+    amount,
+    tournamentId,
+    tournamentName,
+    balanceBefore,
+    balanceAfter
+}) => {
+    try {
+        const transactionsRef = collection(db, "transactions");
+        const docRef = await addDoc(transactionsRef, {
+            userId,
+            username,
+            type: "bingo_prize",
+            amount: Math.abs(amount), // Positivo porque es un ingreso
+            description: `Premio ganado en "${tournamentName}"`,
+            status: "completed",
+            createdAt: serverTimestamp(),
+            // Nuevos campos
+            tournamentId,
+            tournamentName,
+            balanceBefore,
+            balanceAfter
+        });
+        return docRef.id;
+    } catch (e) {
+        console.error("Error al crear transacción de premio de bingo:", e);
+        return null;
+    }
+};
+
+// ======================================================================
+// 📌 TRANSACCIONES DE TRAGAMONEDAS
+// ======================================================================
+
+/**
+ * Registra una transacción de apuesta en tragamonedas.
+ * @param {string} userId - ID del usuario.
+ * @param {string} username - Nombre del usuario.
+ * @param {number} betAmount - Monto de la apuesta.
+ * @param {number} balanceBefore - Saldo antes de la operación.
+ * @param {number} balanceAfter - Saldo después de la operación.
+ * @param {string} gameResult - Resultado del juego (ej. "win", "loss").
+ * @param {number} winAmount - Monto ganado (0 si perdió).
+ */
+export const createSlotsBetTransaction = async ({
+    userId,
+    username,
+    betAmount,
+    balanceBefore,
+    balanceAfter,
+    gameResult,
+    winAmount = 0
+}) => {
+    try {
+        const transactionsRef = collection(db, "transactions");
+        const docRef = await addDoc(transactionsRef, {
+            userId,
+            username,
+            type: "slots_bet",
+            amount: -Math.abs(betAmount), // Negativo porque es una apuesta
+            description: `Apuesta en tragamonedas: ${gameResult === 'win' ? 'ganaste' : 'perdiste'} ${winAmount} Bs`,
+            status: "completed",
+            createdAt: serverTimestamp(),
+            // Nuevos campos
+            gameResult,
+            winAmount,
+            betAmount,
+            balanceBefore,
+            balanceAfter
+        });
+        return docRef.id;
+    } catch (e) {
+        console.error("Error al crear transacción de tragamonedas:", e);
+        return null;
+    }
+};
+
+/**
+ * Registra una transacción de premio en tragamonedas.
+ * @param {string} userId - ID del usuario.
+ * @param {string} username - Nombre del usuario.
+ * @param {number} amount - Monto del premio.
+ * @param {string} jackpotType - Tipo de premio (ej. "jackpot", "bonus", "regular").
+ * @param {string} slotMachine - Nombre de la máquina tragamonedas.
+ * @param {number} balanceBefore - Saldo antes de la operación.
+ * @param {number} balanceAfter - Saldo después de la operación.
+ */
+export const createSlotsPrizeTransaction = async ({
+    userId,
+    username,
+    amount,
+    jackpotType,
+    slotMachine,
+    balanceBefore,
+    balanceAfter
+}) => {
+    try {
+        const transactionsRef = collection(db, "transactions");
+        const docRef = await addDoc(transactionsRef, {
+            userId,
+            username,
+            type: "slots_prize",
+            amount: Math.abs(amount), // Positivo porque es un ingreso
+            description: `Premio ${jackpotType} en ${slotMachine}: ${amount} Bs`,
+            status: "completed",
+            createdAt: serverTimestamp(),
+            // Nuevos campos
+            jackpotType,
+            slotMachine,
+            balanceBefore,
+            balanceAfter
+        });
+        return docRef.id;
+    } catch (e) {
+        console.error("Error al crear transacción de premio de tragamonedas:", e);
+        return null;
+    }
+};
+
+/**
+ * Procesa la compra de fichas para tragamonedas.
+ * Descuenta el saldo del usuario y actualiza sus fichas/spins en userSlots.
+ * @param {string} userId - ID del usuario.
+ * @param {number} chipsToBuy - Número de fichas a comprar.
+ * @param {number} totalCostBs - Costo total en Bs.
+ * @param {number} exchangeRate - Tasa de cambio usada (para registro).
+ * @returns {Promise<boolean>} - Verdadero si la operación fue exitosa.
+ */
+
+
+// ======================================================================
+
 export const getUserTransactions = async (userId) => {
     try {
         const transactionsRef = collection(db, "transactions");
@@ -354,7 +549,6 @@ export const updateTransactionStatus = async (transactionId, newStatus, adminEma
         return false;
     }
 };
-
 // ======================================================================
 // 📌 SECCIÓN DE CONFIGURACIÓN Y TASAS
 // ======================================================================
@@ -381,6 +575,37 @@ export const updateExchangeRate = async (newRate) => {
     }
 };
 
+// 🚀 FUNCIÓN NUEVA: OBTENER TASA DE CAMBIO DE TRAGAMONEDAS
+export const getSlotsExchangeRate = async () => {
+    try {
+        const rateRef = doc(db, "appSettings", "slotsExchangeRate"); // Misma subcolección específica
+        const snapshot = await getDoc(rateRef);
+        if (snapshot.exists()) {
+            return snapshot.data().rate; // Devuelve el valor específico de slots
+        }
+        // Si no existe, inicialízala con el valor general o un valor por defecto
+        // Opcional: puedes inicializarla con el valor general
+        const generalRate = await getExchangeRate(); // Asumiendo que esta función devuelve un número
+        await setDoc(rateRef, { rate: generalRate }, { merge: true }); // Inicializa con el general
+        return generalRate; // Devuelve el valor general que acabamos de usar para inicializar
+    } catch (error) {
+        console.error("Error obteniendo tasa de slots:", error);
+        // En caso de error, podrías devolver la tasa general como fallback
+        return await getExchangeRate(); // Fallback a la tasa general
+    }
+};
+
+// 🚀 FUNCIÓN YA EXISTENTE: ACTUALIZAR TASA DE CAMBIO DE TRAGAMONEDAS
+export const updateSlotsExchangeRate = async (newRate) => {
+    try {
+        const rateRef = doc(db, "appSettings", "slotsExchangeRate"); // Misma subcolección específica
+        await setDoc(rateRef, { rate: newRate }, { merge: true }); // Usar set con merge
+        return true;
+    } catch (error) {
+        console.error("Error actualizando tasa de slots:", error);
+        return false;
+    }
+};
 
 // ======================================================================
 // 📌 SISTEMA DE SOPORTE - TICKETS (Listener Agregado)
@@ -478,7 +703,6 @@ export const listenSupportTickets = (callback) => {
         callback(tickets);
     });
 };
-
 
 // ======================================================================
 // 📌 SISTEMA DE JUEGO: POZOS DE ÚLTIMO SEGUNDO (LAST-MAN-STANDING)
@@ -607,11 +831,9 @@ export const buyTicket = async (poolId, userId) => {
 //     });
 // }
 
-
 // ======================================================================
 // 📌 FONDOS DE LA CASA: BINGO
 // ======================================================================
-
 
 /** Obtiene la configuración de la bolsa de la casa para bingo */
 export async function getBingoHouseConfig() {
@@ -699,7 +921,6 @@ export const deleteAllTransactionsFromFirestore = async () => {
         throw error; // Propaga el error para que el AdminPanel pueda manejarlo y notificar al usuario.
     }
 };
-
 
 // ======================================================================
 // 📌 FUNCIONES ADICIONALES (Faltantes)
@@ -827,3 +1048,59 @@ export const listenUserTransactions = (userId, callback) => {
     callback(txs);
   });
 };
+
+// ======================================================================
+// 📌 FONDOS DE LA CASA: TRAGAMONEDAS
+// ======================================================================
+
+/** Obtiene la configuración de la bolsa de la casa para tragamonedas */
+export async function getSlotsHouseConfig() {
+    const ref = doc(db, "houseFunds", "slots");
+    const snap = await getDoc(ref);
+    if (snap.exists()) {
+        return snap.data();
+    }
+    await updateDoc(ref, {
+        totalForHouse: 0,
+        percentageHouse: 30,
+        lastUpdated: serverTimestamp()
+    });
+    return {
+        totalForHouse: 0,
+        percentageHouse: 30,
+    };
+}
+
+/** Actualiza el porcentaje de la casa en Firestore para tragamonedas */
+export async function setSlotsHousePercent(percent) {
+    const ref = doc(db, "houseFunds", "slots");
+    await updateDoc(ref, {
+        percentageHouse: percent,
+        lastUpdated: serverTimestamp()
+    });
+}
+
+/** Suma el porcentaje de las apuestas a la bolsa de la casa */
+export async function addToSlotsHouseFund(totalBetAmount) {
+    const ref = doc(db, "houseFunds", "slots");
+    await runTransaction(db, async (tx) => {
+        const snap = await tx.get(ref);
+        let percentHouse = 30;
+        if (snap.exists()) {
+            percentHouse = snap.data().percentageHouse || 30;
+        }
+        const amountToHouse = Math.round(totalBetAmount * percentHouse / 100);
+        if (!snap.exists()) {
+            tx.set(ref, {
+                totalForHouse: amountToHouse,
+                percentageHouse: percentHouse,
+                lastUpdated: serverTimestamp()
+            });
+        } else {
+            tx.update(ref, {
+                totalForHouse: increment(amountToHouse),
+                lastUpdated: serverTimestamp()
+            });
+        }
+    });
+}

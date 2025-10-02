@@ -17,7 +17,7 @@ import {
     updateDoc,
 } from 'firebase/firestore';
 import { db } from '../../firebase';
-import { addToBingoHouseFund } from '../../firestoreService';
+import { addToBingoHouseFund, createBingoPurchaseTransaction } from '../../firestoreService';
 
 // Helper para construir la matriz del cartón
 const buildMatrix = (flatNumbers) => {
@@ -278,6 +278,9 @@ const BingoLobby = () => {
                 const balance = userProfile.balance || 0;
                 if (balance < totalCost) throw new Error('Saldo insuficiente');
 
+                // 🔐 Obtener saldo antes de la operación
+                const balanceBefore = balance;
+
                 const userEmail = userProfile.email || currentUser.email || null;
                 const userPhone = userProfile.phoneNumber || userProfile.phone || null;
 
@@ -288,8 +291,13 @@ const BingoLobby = () => {
                     cardNumbersMap[n] = numbers;
                 });
 
+                // Actualizar saldo
                 tx.update(userRef, { balance: increment(-totalCost) });
 
+                // 🔐 Obtener saldo después de la operación
+                const balanceAfter = balance - totalCost;
+
+                // Registrar en bingoTransactions (actual)
                 const bingoTxRef = doc(collection(db, 'bingoTransactions'));
                 tx.set(bingoTxRef, {
                     userId: currentUser.uid,
@@ -302,6 +310,24 @@ const BingoLobby = () => {
                     totalAmount: totalCost,
                     purchaseTime: serverTimestamp(),
                     status: 'completed'
+                });
+
+                // ✅ Registrar en transactions (nuevo)
+                const txRef = doc(collection(db, 'transactions'));
+                tx.set(txRef, {
+                    userId: currentUser.uid,
+                    username: userProfile.username || userProfile.displayName || userEmail,
+                    type: "bingo_purchase",
+                    amount: -Math.abs(totalCost), // Negativo porque es un gasto
+                    description: `Compra de ${selectedCards.length} cartón(es) a ${selectedTournament.pricePerCard} Bs c/u en "${tournamentData.name}"`,
+                    status: 'completed',
+                    createdAt: serverTimestamp(),
+                    quantity: selectedCards.length,
+                    pricePerCard: selectedTournament.pricePerCard,
+                    tournamentId: selectedTournament.id,
+                    tournamentName: tournamentData.name,
+                    balanceBefore,
+                    balanceAfter
                 });
 
                 const updates = {};
@@ -391,6 +417,7 @@ const BingoLobby = () => {
                                     <div className="font-semibold mb-2 text-green-400">
                                         Premio total ({percentPrize}%): Bs. {prizeTotal.toLocaleString()}
                                     </div>
+
                                     {winners.length > 0 ? (
                                         <div className="space-y-6">
                                             {winners.map((winner, index) => {
@@ -435,6 +462,21 @@ const BingoLobby = () => {
                                             {calledNumbers.map(n => <div key={n} className="w-8 h-8 flex items-center justify-center rounded-full bg-purple-500/50 text-sm">{n}</div>)}
                                         </div>
                                     </div>
+                                    {t?.bingoSeedFinalHash && (
+  <div className="bg-black/30 rounded-lg p-3 mb-2 border border-yellow-300/40">
+    <span className="font-bold text-yellow-200">Semilla de sorteo (RNG):</span>
+    <span className="ml-2 text-white font-mono break-all">{t.bingoSeedFinalHash}</span>
+    <button
+      className="ml-2 bg-yellow-400/20 hover:bg-yellow-400/40 px-2 py-1 rounded text-xs"
+      onClick={() => navigator.clipboard.writeText(t.bingoSeedFinalHash)}
+    >
+      Copiar
+    </button>
+    <div className="text-xs text-yellow-200/80 mt-1">
+      Esta es la semilla que garantiza la legalidad y transparencia del sorteo. Cualquier usuario puede verificar el orden de los números llamados.
+    </div>
+  </div>
+)}
                                 </div>
                             )}
                         </div>
