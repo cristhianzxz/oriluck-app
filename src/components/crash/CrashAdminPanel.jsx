@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { db, functions } from '../../firebase';
 import { collection, doc, onSnapshot, query, orderBy, limit } from 'firebase/firestore';
 import { httpsCallable } from 'firebase/functions';
@@ -130,7 +131,12 @@ const CrashAdminPanel = () => {
 
   return (
     <div className="p-6 bg-gray-900 text-white min-h-screen">
-      <h1 className="text-3xl font-bold mb-6 text-cyan-400">🚀 Panel de Administrador - Ascenso Estelar</h1>
+      <div className="flex justify-between items-center mb-6">
+        <h1 className="text-3xl font-bold text-cyan-400">🚀 Panel de Administrador - Ascenso Estelar</h1>
+        <Link to="/crash" className="bg-blue-500 hover:bg-blue-400 text-white font-bold py-2 px-4 rounded-lg transition-colors">
+          Volver al Juego
+        </Link>
+      </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
         <div className="md:col-span-2 bg-gray-800 p-6 rounded-lg border border-white/10">
