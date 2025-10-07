@@ -463,6 +463,9 @@ const CrashGame = () => {
               </div>
             </div>
             <p className="text-md text-blue-300 font-mono bg-blue-800/50 px-5 py-2 rounded-lg border border-blue-600/50">Ronda #{game.roundId ?? '...'}</p>
+            <Link to="/lobby" className="bg-yellow-500 hover:bg-yellow-400 text-gray-900 font-bold py-2 px-4 rounded-lg transition-colors">
+              Volver al Lobby
+            </Link>
           </div>
         </header>
         <HistoryBar rounds={recentRounds} />

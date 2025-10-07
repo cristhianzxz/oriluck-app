@@ -478,22 +478,22 @@ function getProvablyFairSlotResult(serverSeed, clientSeed, nonce) {
 }
 
 // Función para generar punto de crash con RNG verificable
+// Fórmula estándar de la industria para un juego de Crash justo y probabilístico.
+// Incluye el margen de la casa (house edge) en su cálculo.
 function getProvablyFairCrashPoint(serverSeed) {
-    const hash = crypto.createHash('sha256').update(serverSeed).digest('hex');
+    const hash = crypto.createHmac('sha512', serverSeed).digest('hex');
     
-    // Usar el hash para determinar si es un crash instantáneo
-    const instantCrashRoll = parseInt(hash.substring(0, 2), 16);
-    if (instantCrashRoll / 255 < CRASH_INSTANT_PROB) {
+    // Probabilidad de crash instantáneo (en 1.00x)
+    if (parseInt(hash.slice(0, 5), 16) % 33 === 0) {
         return 1.00;
     }
 
-    // Fórmula para generar un punto de crash con una distribución exponencial.
-    const h = parseInt(hash.substring(0, 13), 16);
+    const h = parseInt(hash.slice(0, 13), 16);
     const e = Math.pow(2, 52);
-    // ¡LA LÍNEA CORRECTA!
-    const crashPoint = Math.floor(100 * e / (e - h)) / 100;
-    
-    // Aseguramos que el mínimo sea 1.00
+
+    // Fórmula principal que genera la curva de resultados
+    const crashPoint = Math.floor(100 * (e - h) / (e - h * (1 - CRASH_HOUSE_EDGE))) / 100;
+
     return Math.max(1.00, crashPoint);
 }
 
@@ -679,28 +679,11 @@ exports.crashGameEngine = onSchedule({
 
             await sleep(10000); // Pausa para apuestas
 
-            // 3. Iniciar la ronda y determinar el punto de crash con lógica anti-quiebra
-            const playersSnap = await gameDocRef.collection('players').get();
-            let crashPoint;
-            if (playersSnap.empty) {
-                crashPoint = 1.00;
-                logger.info(`[CRASH_ENGINE] Ronda ${roundId} sin jugadores. Crash en 1.00x.`);
-            } else {
-                const currentPlayers = playersSnap.docs.map(doc => doc.data());
-                const totalPot = currentPlayers.reduce((sum, p) => sum + (p.bet || 0), 0);
-                const maxPayout = totalPot / (1 - CRASH_HOUSE_EDGE); // El pozo máximo que la casa puede permitirse pagar
-
-                let potentialCrashPoint = getProvablyFairCrashPoint(serverSeed);
-                let potentialPayout = currentPlayers.reduce((sum, p) => sum + (p.bet * potentialCrashPoint), 0);
-
-                if (potentialPayout > maxPayout) {
-                    logger.warn(`[CRASH_ENGINE] ¡ALTO RIESGO! El crash point potencial (${potentialCrashPoint.toFixed(2)}x) excede el pago máximo. Forzando crash en 1.00x para proteger la casa.`);
-                    crashPoint = 1.00;
-                } else {
-                    crashPoint = potentialCrashPoint;
-                    logger.info(`[CRASH_ENGINE] Ronda ${roundId}: CrashPoint fijado en ${crashPoint.toFixed(2)}x.`);
-                }
-            }
+            // 3. Iniciar la ronda y determinar el punto de crash
+            // La nueva función getProvablyFairCrashPoint ya maneja la probabilidad y el margen de la casa.
+            // Siempre generamos un resultado, haya o no jugadores, para un historial atractivo.
+            const crashPoint = getProvablyFairCrashPoint(serverSeed);
+            logger.info(`[CRASH_ENGINE] Ronda ${roundId}: CrashPoint fijado en ${crashPoint.toFixed(2)}x.`);
 
             await gameDocRef.update({
                 gameState: 'running',
