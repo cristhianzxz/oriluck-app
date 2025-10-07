@@ -719,16 +719,17 @@ exports.startCrashGameEngine = onCall({ region: REGION, timeoutSeconds: 60 }, as
 /**
  * [LLAMABLE] Permite a un usuario realizar una apuesta en la ronda actual.
  */
-exports.placeBet_crash = onCall({ region: REGION }, async (request, context) => {
-    logger.info('Invocación a placeBet_crash', { uid: context.auth?.uid, data: request.data });
+exports.placeBet_crash = onCall({ region: REGION }, async (request) => {
+    // La v2 de onCall usa request.auth, no un segundo argumento 'context'.
+    logger.info('Invocación a placeBet_crash', { uid: request.auth?.uid, data: request.data });
 
-    if (!context.auth) {
-        logger.error('Usuario no autenticado');
-        throw new HttpsError('unauthenticated', 'Debes iniciar sesión.');
+    if (!request.auth) {
+        logger.error('Usuario no autenticado. La solicitud no contenía un token de autenticación válido.');
+        throw new HttpsError('unauthenticated', 'Debes iniciar sesión para realizar una apuesta.');
     }
 
     const { amount } = request.data;
-    const uid = context.auth.uid;
+    const uid = request.auth.uid;
 
     if (typeof amount !== 'number' || amount <= 0) {
         logger.error('Monto de apuesta inválido', { amount });
@@ -781,10 +782,14 @@ exports.placeBet_crash = onCall({ region: REGION }, async (request, context) => 
 /**
  * [LLAMABLE] Permite a un usuario retirar su apuesta durante la fase "running".
  */
-exports.cashOut_crash = onCall({ region: REGION }, async (request, context) => {
-    if (!context.auth) throw new HttpsError('unauthenticated', 'Debes iniciar sesión.');
+exports.cashOut_crash = onCall({ region: REGION }, async (request) => {
+    // La v2 de onCall usa request.auth, no un segundo argumento 'context'.
+    if (!request.auth) {
+        logger.error('Usuario no autenticado intentando hacer cash out.');
+        throw new HttpsError('unauthenticated', 'Debes iniciar sesión para retirar.');
+    }
     
-    const uid = context.auth.uid;
+    const uid = request.auth.uid;
     const gameDocRef = db.doc('game_crash/live_game');
     const playerDocRef = gameDocRef.collection('players').doc(uid);
     const userRef = db.doc(`users/${uid}`);
