@@ -146,29 +146,22 @@ const CrashGame = () => {
 
   useEffect(() => {
     if (!currentUser) return;
-    const userRef = doc(db, 'users', currentUser.uid);
-    const unsubUser = onSnapshot(userRef, (snap) => {
+
+    const unsubUser = onSnapshot(doc(db, 'users', currentUser.uid), (snap) => {
       if (snap.exists()) setUserBalance(snap.data().balance || 0);
     });
 
-    const gameRef = doc(db, 'game_crash', 'live_game');
-    const unsubGame = onSnapshot(gameRef, (snap) => {
+    const unsubGame = onSnapshot(doc(db, 'game_crash', 'live_game'), (snap) => {
       if (snap.exists()) {
         const data = snap.data();
-        setGame({
-          state: data.gameState || 'waiting',
-          roundId: data.roundId || null,
-          crashPoint: data.crashPoint || null,
-          startedAt: data.started_at || null,
-          waitUntil: data.wait_until || data.next_round_at || null,
-        });
-        if (serverTimeOffset.current === 0 && data.server_time_now)
+        setGame(prevGame => ({ ...prevGame, ...data }));
+        if (data.server_time_now) {
           serverTimeOffset.current = Date.now() - toMillis(data.server_time_now);
+        }
       }
     });
 
-    const playersRef = collection(db, 'game_crash', 'live_game', 'players');
-    const unsubPlayers = onSnapshot(playersRef, (snap) => {
+    const unsubPlayers = onSnapshot(collection(db, 'game_crash', 'live_game', 'players'), (snap) => {
       const playersData = snap.docs.map(d => ({ id: d.id, ...d.data() }));
       setLivePlayers(playersData);
       const myBet = playersData.find(p => p.id === currentUser.uid);
@@ -180,33 +173,33 @@ const CrashGame = () => {
       setRecentRounds(snap.docs.map(d => ({ id: d.id, ...d.data() })));
     });
 
+    // --- Bucle de Animación Unificado ---
+    const animate = () => {
+      setGame(prevGame => {
+        if (prevGame.state === 'running' && prevGame.started_at) {
+          const elapsed = (Date.now() - serverTimeOffset.current) - toMillis(prevGame.started_at);
+          const newMultiplier = Math.max(1, Math.floor(100 * Math.exp(ROCKET_PATH_K * elapsed)) / 100);
+          setCurrentMultiplier(newMultiplier);
+        } else if (prevGame.state === 'crashed') {
+          setCurrentMultiplier(prevGame.crashPoint || 1.0);
+        } else {
+          setCurrentMultiplier(1.0);
+        }
+        return prevGame;
+      });
+      animationFrameId.current = requestAnimationFrame(animate);
+    };
+
+    animationFrameId.current = requestAnimationFrame(animate);
+
     return () => {
       unsubUser();
       unsubGame();
       unsubPlayers();
       unsubHistory();
+      cancelAnimationFrame(animationFrameId.current);
     };
   }, [currentUser]);
-
-  useEffect(() => {
-    const animate = () => {
-      const startedMs = toMillis(game.startedAt);
-      if (game.state === 'running' && startedMs) {
-        const elapsed = (Date.now() - serverTimeOffset.current) - startedMs;
-        const newMultiplier = Math.max(1, Math.floor(100 * Math.exp(ROCKET_PATH_K * elapsed)) / 100);
-        setCurrentMultiplier(newMultiplier);
-        animationFrameId.current = requestAnimationFrame(animate);
-      }
-    };
-    if (game.state === 'running') {
-      animationFrameId.current = requestAnimationFrame(animate);
-    } else {
-      cancelAnimationFrame(animationFrameId.current);
-      if (game.state === 'crashed') setCurrentMultiplier(game.crashPoint || 1.0);
-      else setCurrentMultiplier(1.0);
-    }
-    return () => cancelAnimationFrame(animationFrameId.current);
-  }, [game.state, game.startedAt, game.crashPoint]);
 
   // --- ACTION HANDLERS ---
   const handlePlaceBet = async () => {
@@ -469,8 +462,8 @@ const CrashGame = () => {
           </div>
         </header>
         <HistoryBar rounds={recentRounds} />
-        <div className="grid grid-cols-1 lg:grid-cols-10 gap-8 mt-7">
-          <div className="lg:col-span-7 order-1">
+        <div className="grid grid-cols-1 gap-8 mt-7">
+          <div className="order-1">
             <RocketDisplay
               gameState={game.state}
               multiplier={currentMultiplier}
@@ -479,7 +472,7 @@ const CrashGame = () => {
               crashPoint={game.crashPoint}
             />
           </div>
-          <div className="lg:col-span-3 order-2 space-y-7">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 order-2">
             <div className="bg-gradient-to-br from-[#212d3b] via-[#001e3c] to-[#090979] border-4 border-blue-700/20 rounded-2xl p-7 shadow-2xl space-y-5">
               <h3 className="text-3xl font-bold text-white mb-4 border-b-2 border-blue-700/30 pb-2">
                 PANEL DE CONTROL DE MISIÓN
