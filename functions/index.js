@@ -610,110 +610,134 @@ exports.executeSlotSpin = onCall({ region: REGION, timeoutSeconds: 20 }, async (
 // ===================================================================
 
 /**
- * [LLAMABLE] Inicia el motor del juego Crash.
- * Solo los administradores pueden llamarla. Una vez iniciada, se ejecuta en un bucle infinito.
+ * [PROGRAMADA] Procesa el ciclo de vida de una ronda del juego Crash.
+ * Se ejecuta cada 15 segundos para un funcionamiento 24/7.
  */
-exports.startCrashGameEngine = onCall({ region: REGION, timeoutSeconds: 60 }, async (request) => {
-    if (!request.auth) throw new HttpsError('unauthenticated', 'Autenticación requerida.');
-    
-    // Verificación de rol de administrador (¡IMPORTANTE!)
-    // >>>>> CORRECCIÓN DE SINTAXIS CRÍTICA: .exists() -> .exists <<<<<
-    const adminSnap = await db.doc(`users/${request.auth.uid}`).get();
-    if (!adminSnap.exists || !['admin', 'owner'].includes(adminSnap.data().role)) {
-        throw new HttpsError('permission-denied', 'No tienes permisos para iniciar el motor del juego.');
+exports.crashGameEngine = onSchedule({
+    schedule: "every 1 minutes", // Se ejecuta cada minuto y gestiona 4 rondas internas.
+    region: REGION,
+    timeoutSeconds: 59,
+    memory: "256MiB"
+}, async () => {
+    logger.info("[CRASH_ENGINE] Iniciando ciclo de procesamiento de rondas...");
+
+    const engineConfigRef = db.doc('game_crash/engine_config');
+    const configSnap = await engineConfigRef.get();
+
+    if (!configSnap.exists || configSnap.data().status !== 'enabled') {
+        logger.warn("[CRASH_ENGINE] El motor está desactivado. Omitiendo ciclo.");
+        return;
     }
 
-    logger.info("[CRASH_ENGINE] ¡Motor del juego Ascenso Estelar INICIADO por un administrador!");
+    for (let i = 0; i < 4; i++) { // Procesamos 4 rondas de 15 segundos cada una.
+        const roundStartTime = Date.now();
+        logger.info(`[CRASH_ENGINE] Procesando ronda #${i + 1}...`);
 
-    // Bucle infinito y seguro que controla el juego
-    (async function gameLoop() {
-        while (true) {
-            try {
-                // --- Aquí va EXACTAMENTE LA MISMA LÓGICA que tenía la función 'onSchedule' ---
-                
-                const gameDocRef = db.doc('game_crash/live_game');
-                const historyCollectionRef = db.collection('game_crash_history');
+        try {
+            const gameDocRef = db.doc('game_crash/live_game');
+            const historyCollectionRef = db.collection('game_crash_history');
 
-                // PASO 1: Finalizar y archivar la ronda anterior
-                const previousGameSnap = await gameDocRef.get();
-                // >>>>> CORRECCIÓN DE SINTAXIS CRÍTICA: .exists() -> .exists <<<<<
-                if (previousGameSnap.exists && previousGameSnap.data().gameState !== 'waiting') {
-                    const oldData = previousGameSnap.data();
-                    const playersSnap = await gameDocRef.collection('players').get();
-                    const oldPlayers = playersSnap.docs.map(doc => doc.data());
-                    
-                    const totalPot = oldPlayers.reduce((sum, p) => sum + (p.bet || 0), 0);
-                    const totalPayout = oldPlayers.filter(p => p.status === 'cashed_out').reduce((sum, p) => sum + ((p.bet || 0) * (p.cashOutMultiplier || 0)), 0);
-                    const netProfit = totalPot - totalPayout;
-
-                    if (oldData.roundId) {
-                        await historyCollectionRef.doc(oldData.roundId).set({
-                            crashPoint: oldData.crashPoint, totalPot, netProfit,
-                            timestamp: oldData.started_at || FieldValue.serverTimestamp(),
-                            serverSeed: oldData.serverSeed,
-                        });
-                    }
-                }
-
-                // PASO 2: Preparar la nueva ronda
-                logger.info("[CRASH_ENGINE] Preparando nueva ronda...");
-                const playersToDeleteSnap = await gameDocRef.collection('players').get();
-                const batch = db.batch();
-                playersToDeleteSnap.docs.forEach(doc => batch.delete(doc.ref));
-                await batch.commit();
-
-                const serverSeed = crypto.randomBytes(32).toString('hex');
-                const serverSeedHash = crypto.createHash('sha256').update(serverSeed).digest('hex');
-                const roundId = db.collection('dummy').doc().id;
-
-                await gameDocRef.set({
-                    gameState: 'waiting', roundId, serverSeedHash,
-                    wait_until: new Date(Date.now() + 10000), // Usamos Date object
-                    server_time_now: FieldValue.serverTimestamp(),
-                });
-                
-                await sleep(10000); // Pausa para apuestas
-
-                // PASO 3: Lógica Anti-Quiebra
+            // 1. Finalizar y archivar ronda anterior si es necesario
+            const previousGameSnap = await gameDocRef.get();
+            if (previousGameSnap.exists && previousGameSnap.data().gameState !== 'waiting') {
+                const oldData = previousGameSnap.data();
                 const playersSnap = await gameDocRef.collection('players').get();
-                if (playersSnap.empty) {
-                    await gameDocRef.update({ gameState: 'crashed', crashPoint: 1.00, serverSeed: serverSeed });
-                } else {
-                    const currentPlayers = playersSnap.docs.map(doc => doc.data());
-                    const totalPot = currentPlayers.reduce((sum, p) => sum + (p.bet || 0), 0);
-                    const maxPayout = totalPot * (1 - CRASH_HOUSE_EDGE);
-                    
-                    let crashPoint = getProvablyFairCrashPoint(serverSeed);
-                    const potentialPayout = totalPot * crashPoint;
+                const oldPlayers = playersSnap.docs.map(doc => doc.data());
 
-                    if (potentialPayout > maxPayout) {
-                        crashPoint = maxPayout / totalPot;
-                        logger.warn(`[CRASH_ENGINE] ¡RIESGO! CrashPoint ${crashPoint.toFixed(2)}x limitado a ${crashPoint.toFixed(2)}x.`);
-                    }
-                    
-                    logger.info(`[CRASH_ENGINE] Ronda ${roundId}: CrashPoint fijado en ${crashPoint.toFixed(2)}x`);
+                const totalPot = oldPlayers.reduce((sum, p) => sum + (p.bet || 0), 0);
+                const totalPayout = oldPlayers.filter(p => p.status === 'cashed_out').reduce((sum, p) => sum + p.winnings, 0);
+                const netProfit = totalPot - totalPayout;
 
-                    // PASO 4: Iniciar fase "running"
-                    await gameDocRef.update({
-                        gameState: 'running',
-                        started_at: FieldValue.serverTimestamp(),
-                        server_time_now: FieldValue.serverTimestamp(),
-                        crashPoint: crashPoint,
-                        serverSeed: serverSeed,
+                if (oldData.roundId) {
+                    await historyCollectionRef.doc(oldData.roundId).set({
+                        crashPoint: oldData.crashPoint,
+                        totalPot,
+                        netProfit,
+                        timestamp: oldData.started_at || FieldValue.serverTimestamp(),
+                        serverSeed: oldData.serverSeed,
                     });
                 }
-
-            } catch (error) {
-                logger.error("[CRASH_ENGINE] Error en el bucle principal:", error);
             }
-            
-            // Pausa antes de la siguiente ronda
-            await sleep(CRASH_ROUND_INTERVAL_SECONDS * 1000);
-        }
-    })(); // La función se auto-ejecuta para iniciar el bucle
 
-    // La función retorna una respuesta inmediata al administrador, mientras el bucle sigue corriendo en el servidor.
-    return { success: true, message: "El motor del juego Ascenso Estelar ha sido iniciado." };
+            // 2. Preparar nueva ronda
+            const playersToDeleteSnap = await gameDocRef.collection('players').get();
+            const batch = db.batch();
+            playersToDeleteSnap.forEach(doc => batch.delete(doc.ref));
+            await batch.commit();
+
+            const serverSeed = crypto.randomBytes(32).toString('hex');
+            const serverSeedHash = crypto.createHash('sha256').update(serverSeed).digest('hex');
+            const roundId = db.collection('dummy').doc().id;
+
+            await gameDocRef.set({
+                gameState: 'waiting',
+                roundId,
+                serverSeedHash,
+                wait_until: new Date(Date.now() + 10000),
+                server_time_now: FieldValue.serverTimestamp(),
+            });
+
+            await sleep(10000); // Pausa para apuestas
+
+            // 3. Iniciar la ronda y determinar el punto de crash
+            const playersSnap = await gameDocRef.collection('players').get();
+            let crashPoint;
+            if (playersSnap.empty) {
+                crashPoint = 1.00;
+                logger.info(`[CRASH_ENGINE] Ronda ${roundId} sin jugadores. Crash en 1.00x`);
+            } else {
+                crashPoint = getProvablyFairCrashPoint(serverSeed);
+                logger.info(`[CRASH_ENGINE] Ronda ${roundId}: CrashPoint fijado en ${crashPoint.toFixed(2)}x`);
+            }
+
+            await gameDocRef.update({
+                gameState: 'running',
+                started_at: FieldValue.serverTimestamp(),
+                crashPoint: crashPoint,
+                serverSeed: serverSeed, // Revelar la semilla
+            });
+
+            // 4. Simular la duración del crash (el tiempo que tarda en llegar al punto de crash)
+            const crashTimeMs = Math.log(crashPoint) / 0.00006;
+            await sleep(Math.min(crashTimeMs, 4000)); // Esperar el crash o un máximo de 4s
+
+            // 5. Marcar la ronda como "crashed"
+            await gameDocRef.update({ gameState: 'crashed' });
+
+        } catch (error) {
+            logger.error(`[CRASH_ENGINE] Error procesando ronda #${i + 1}:`, error);
+        }
+
+        const roundEndTime = Date.now();
+        const elapsed = roundEndTime - roundStartTime;
+        const delay = Math.max(0, 15000 - elapsed);
+        await sleep(delay); // Esperar el tiempo restante para completar los 15s
+    }
+
+    logger.info("[CRASH_ENGINE] Ciclo de procesamiento de rondas completado.");
+});
+
+/**
+ * [LLAMABLE] Permite a un administrador encender o apagar el motor del juego.
+ */
+exports.toggleCrashEngine = onCall({ region: REGION }, async (request) => {
+    if (!request.auth) throw new HttpsError('unauthenticated', 'Autenticación requerida.');
+
+    const adminSnap = await db.doc(`users/${request.auth.uid}`).get();
+    if (!adminSnap.exists || !['admin', 'owner'].includes(adminSnap.data().role)) {
+        throw new HttpsError('permission-denied', 'No tienes permisos para esta acción.');
+    }
+
+    const { status } = request.data;
+    if (status !== 'enabled' && status !== 'disabled') {
+        throw new HttpsError('invalid-argument', 'El estado debe ser "enabled" o "disabled".');
+    }
+
+    const engineConfigRef = db.doc('game_crash/engine_config');
+    await engineConfigRef.set({ status: status, last_updated_by: request.auth.uid }, { merge: true });
+
+    logger.info(`[CRASH_ENGINE] Motor cambiado a estado: ${status} por ${request.auth.uid}`);
+    return { success: true, message: `Motor del juego ${status === 'enabled' ? 'activado' : 'desactivado'}.` };
 });
 
 /**
