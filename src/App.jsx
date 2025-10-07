@@ -1,8 +1,8 @@
-import React, { useState, useEffect, useContext } from "react";
-import { Routes, Route, useNavigate, Navigate } from "react-router-dom";
-import { auth, db } from "./firebase";
-import { signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut } from "firebase/auth";
-import { createUserDocument, checkUsernameAvailability } from "./firestoreService";
+import React, { useState, useEffect, createContext, useContext } from "react";
+import { Routes, Route, useNavigate, Navigate, useLocation } from "react-router-dom";
+import { auth } from "./firebase";
+import { onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut } from "firebase/auth";
+import { createUserDocument, checkUsernameAvailability, getUserData } from "./firestoreService";
 import fondo from "./assets/fondo.png";
 import GameLobby from "./components/GameLobby";
 import Recharge from "./Recharge";
@@ -12,16 +12,141 @@ import TransactionHistory from "./components/TransactionHistory";
 import BingoLobby from './components/bingo/BingoLobby';
 import BingoGame from './components/bingo/BingoGame';
 import BingoAdmin from './components/bingo/BingoAdmin';
-import { updateDoc, doc } from "firebase/firestore";
+import { updateDoc, doc, serverTimestamp } from "firebase/firestore";
+import { db } from "./firebase";
 import SupportPage from "./SupportPage";
 import AdminSupportPage from "./AdminSupportPage";
 import OwnerPanel from './components/OwnerPanel.jsx';
 import SlotsLobby from './components/slots/SlotsLobby';
 import SlotsGame from './components/slots/SlotsGame';
 import SlotsAdmin from './components/slots/SlotsAdmin';
+
+// >>>>> IMPORTA LOS NUEVOS COMPONENTES <<<<<
 import CrashGame from './components/crash/CrashGame';
 import CrashAdminPanel from './components/crash/CrashAdminPanel';
-import { AuthContext, AuthProvider } from "./context/AuthContext";
+
+// Contexto de autenticación
+export const AuthContext = createContext(null);
+
+// Modal de inactividad global
+const InactivityModal = () => {
+  const { inactiveWarning, setInactiveWarning } = useContext(AuthContext);
+  const location = useLocation();
+  const isAuthPage = location.pathname === "/";
+
+  if (!inactiveWarning || isAuthPage) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+      <div className="bg-white rounded-2xl p-8 max-w-md w-full shadow-2xl text-center">
+        <h3 className="text-xl font-bold mb-4 text-red-600">⏳ Inactividad detectada</h3>
+        <p className="text-black mb-4">
+          Tu cuenta ha estado inactiva por más de 5 minutos.<br />
+          Serás desconectado en 15 segundos.
+        </p>
+        <button
+          className="bg-green-600 hover:bg-green-500 text-white font-bold py-2 px-6 rounded-xl"
+          onClick={() => setInactiveWarning(false)}
+        >
+          Sigo aquí
+        </button>
+      </div>
+    </div>
+  );
+};
+
+// Proveedor de autenticación con lógica de inactividad
+const AuthProvider = ({ children }) => {
+  const [currentUser, setCurrentUser] = useState(null);
+  const [userData, setUserData] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  // Inactividad global
+  const [inactiveWarning, setInactiveWarning] = useState(false);
+  const [inactiveTimeout, setInactiveTimeout] = useState(null);
+
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      if (user) {
+        try {
+          const userDoc = await getUserData(user.uid);
+          setUserData(userDoc);
+          setCurrentUser(user);
+          await updateDoc(doc(db, "users", user.uid), { active: true, lastActive: serverTimestamp() });
+        } catch (error) {
+          console.error("Error cargando datos del usuario:", error);
+          setCurrentUser(user);
+        }
+      } else {
+        setCurrentUser(null);
+        setUserData(null);
+      }
+      setLoading(false);
+    });
+
+    return unsubscribe;
+  }, []);
+
+  // Mantén registro de la última actividad en Firestore (cada 1 min)
+  useEffect(() => {
+    if (!currentUser) return;
+    const interval = setInterval(() => {
+      updateDoc(doc(db, "users", currentUser.uid), { lastActive: serverTimestamp() });
+    }, 60000);
+    return () => clearInterval(interval);
+  }, [currentUser]);
+
+  // Lógica de inactividad (solo logueado)
+  useEffect(() => {
+    if (!currentUser) return;
+    let lastActivity = Date.now();
+
+    const resetTimer = () => {
+      lastActivity = Date.now();
+      if (inactiveWarning) setInactiveWarning(false);
+      if (inactiveTimeout) clearTimeout(inactiveTimeout);
+    };
+
+    const events = ["mousemove", "keydown", "click", "scroll"];
+    events.forEach(event => window.addEventListener(event, resetTimer));
+
+    const checkInactivity = () => {
+      if (Date.now() - lastActivity > 5 * 60 * 1000) {
+        setInactiveWarning(true);
+        const timeout = setTimeout(async () => {
+          // Marcar usuario como inactivo antes de desconectar
+          await updateDoc(doc(db, "users", currentUser.uid), { active: false });
+          await signOut(auth);
+          window.location.href = "/";
+        }, 15000);
+        setInactiveTimeout(timeout);
+      }
+    };
+
+    const interval = setInterval(checkInactivity, 10000);
+
+    return () => {
+      events.forEach(event => window.removeEventListener(event, resetTimer));
+      clearInterval(interval);
+      if (inactiveTimeout) clearTimeout(inactiveTimeout);
+    };
+  }, [currentUser, inactiveWarning, inactiveTimeout]);
+
+  const value = {
+    currentUser,
+    userData,
+    loading,
+    inactiveWarning,
+    setInactiveWarning
+  };
+
+  return (
+    <AuthContext.Provider value={value}>
+      <InactivityModal />
+      {children}
+    </AuthContext.Provider>
+  );
+};
 
 // Rutas protegidas
 const ProtectedRoute = ({ children }) => {

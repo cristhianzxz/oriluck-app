@@ -720,12 +720,11 @@ exports.startCrashGameEngine = onCall({ region: REGION, timeoutSeconds: 60 }, as
  * [LLAMABLE] Permite a un usuario realizar una apuesta en la ronda actual.
  */
 exports.placeBet_crash = onCall({ region: REGION }, async (request) => {
-    // La v2 de onCall usa request.auth, no un segundo argumento 'context'.
     logger.info('Invocación a placeBet_crash', { uid: request.auth?.uid, data: request.data });
 
     if (!request.auth) {
-        logger.error('Usuario no autenticado. La solicitud no contenía un token de autenticación válido.');
-        throw new HttpsError('unauthenticated', 'Debes iniciar sesión para realizar una apuesta.');
+        logger.error('Usuario no autenticado');
+        throw new HttpsError('unauthenticated', 'Debes iniciar sesión.');
     }
 
     const { amount } = request.data;
@@ -783,11 +782,7 @@ exports.placeBet_crash = onCall({ region: REGION }, async (request) => {
  * [LLAMABLE] Permite a un usuario retirar su apuesta durante la fase "running".
  */
 exports.cashOut_crash = onCall({ region: REGION }, async (request) => {
-    // La v2 de onCall usa request.auth, no un segundo argumento 'context'.
-    if (!request.auth) {
-        logger.error('Usuario no autenticado intentando hacer cash out.');
-        throw new HttpsError('unauthenticated', 'Debes iniciar sesión para retirar.');
-    }
+    if (!request.auth) throw new HttpsError('unauthenticated', 'Debes iniciar sesión.');
     
     const uid = request.auth.uid;
     const gameDocRef = db.doc('game_crash/live_game');
