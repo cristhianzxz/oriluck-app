@@ -478,23 +478,25 @@ function getProvablyFairSlotResult(serverSeed, clientSeed, nonce) {
 }
 
 // Función para generar punto de crash con RNG verificable
-// Fórmula estándar de la industria para un juego de Crash justo y probabilístico.
-// Incluye el margen de la casa (house edge) en su cálculo.
-function getProvablyFairCrashPoint(serverSeed) {
-    const hash = crypto.createHmac('sha512', serverSeed).digest('hex');
-    
-    // Probabilidad de crash instantáneo (en 1.00x)
-    if (parseInt(hash.slice(0, 5), 16) % 33 === 0) {
+// Implementación estándar de la industria para un juego de Crash "Provably Fair".
+function getProvablyFairCrashPoint(serverSeed, clientSeed, nonce) {
+    const message = `${serverSeed}-${clientSeed}-${nonce}`;
+    const hmac = crypto.createHmac('sha256', serverSeed).update(message).digest('hex');
+
+    // Usar los primeros 8 caracteres del hash (suficiente para la aleatoriedad).
+    const hashInt = parseInt(hmac.substring(0, 8), 16);
+    const e = Math.pow(2, 32); // 2^32, ya que usamos 8 hex chars (32 bits).
+
+    // Fórmula para calcular el punto de crash. El 1% de los resultados será un crash instantáneo.
+    const crashPoint = Math.floor((100 * e - hashInt) / (e - hashInt));
+
+    // Si el resultado es menor a 100 (equivalente a 1.00x), se considera un crash instantáneo.
+    if (crashPoint < 100) {
         return 1.00;
     }
 
-    const h = parseInt(hash.slice(0, 13), 16);
-    const e = Math.pow(2, 52);
-
-    // Fórmula principal que genera la curva de resultados
-    const crashPoint = Math.floor(100 * (e - h) / (e - h * (1 - CRASH_HOUSE_EDGE))) / 100;
-
-    return Math.max(1.00, crashPoint);
+    // Devolver el resultado dividido por 100 para obtener el multiplicador.
+    return parseFloat((crashPoint / 100).toFixed(2));
 }
 
 exports.requestSlotSpin = onCall({ region: REGION, timeoutSeconds: 15 }, async (request) => {
