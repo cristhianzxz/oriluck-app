@@ -1,8 +1,13 @@
-import React, { useState, useEffect, createContext, useContext } from "react";
-import { Routes, Route, useNavigate, Navigate, useLocation } from "react-router-dom";
-import { auth } from "./firebase";
+import React, { useState, useEffect, useContext } from "react";
+import { Routes, Route, useNavigate, Navigate } from "react-router-dom";
+import { auth, db } from "./firebase";
 import { onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut } from "firebase/auth";
 import { createUserDocument, checkUsernameAvailability, getUserData } from "./firestoreService";
+import { updateDoc, doc, serverTimestamp } from "firebase/firestore";
+import { AuthContext } from './AuthContext';
+import InactivityModal from './components/InactivityModal';
+
+// Importación de componentes de página
 import fondo from "./assets/fondo.png";
 import GameLobby from "./components/GameLobby";
 import Recharge from "./Recharge";
@@ -12,48 +17,15 @@ import TransactionHistory from "./components/TransactionHistory";
 import BingoLobby from './components/bingo/BingoLobby';
 import BingoGame from './components/bingo/BingoGame';
 import BingoAdmin from './components/bingo/BingoAdmin';
-import { updateDoc, doc, serverTimestamp } from "firebase/firestore";
-import { db } from "./firebase";
 import SupportPage from "./SupportPage";
 import AdminSupportPage from "./AdminSupportPage";
 import OwnerPanel from './components/OwnerPanel.jsx';
 import SlotsLobby from './components/slots/SlotsLobby';
 import SlotsGame from './components/slots/SlotsGame';
 import SlotsAdmin from './components/slots/SlotsAdmin';
-
-// >>>>> IMPORTA LOS NUEVOS COMPONENTES <<<<<
 import CrashGame from './components/crash/CrashGame';
 import CrashAdminPanel from './components/crash/CrashAdminPanel';
 
-// Contexto de autenticación
-export const AuthContext = createContext(null);
-
-// Modal de inactividad global
-const InactivityModal = () => {
-  const { inactiveWarning, setInactiveWarning } = useContext(AuthContext);
-  const location = useLocation();
-  const isAuthPage = location.pathname === "/";
-
-  if (!inactiveWarning || isAuthPage) return null;
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
-      <div className="bg-white rounded-2xl p-8 max-w-md w-full shadow-2xl text-center">
-        <h3 className="text-xl font-bold mb-4 text-red-600">⏳ Inactividad detectada</h3>
-        <p className="text-black mb-4">
-          Tu cuenta ha estado inactiva por más de 5 minutos.<br />
-          Serás desconectado en 15 segundos.
-        </p>
-        <button
-          className="bg-green-600 hover:bg-green-500 text-white font-bold py-2 px-6 rounded-xl"
-          onClick={() => setInactiveWarning(false)}
-        >
-          Sigo aquí
-        </button>
-      </div>
-    </div>
-  );
-};
 
 // Proveedor de autenticación con lógica de inactividad
 const AuthProvider = ({ children }) => {

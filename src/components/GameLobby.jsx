@@ -9,12 +9,13 @@ import { getUserData } from "../firestoreService";
 const GameLobby = () => {
     const navigate = useNavigate();
     const authCtx = useContext(AuthContext);
-    if (!authCtx) return null;
-    const { currentUser } = authCtx;
     const [userData, setUserData] = useState(null);
     const [loading, setLoading] = useState(true);
     const [hasUnreadSupport, setHasUnreadSupport] = useState(false);
     const [isMenuOpen, setIsMenuOpen] = useState(false);
+
+    // Los hooks deben llamarse incondicionalmente. La lógica se mueve aquí.
+    const { currentUser } = authCtx || {};
 
     useEffect(() => {
         if (!currentUser) {
@@ -108,6 +109,7 @@ const GameLobby = () => {
     // --- FIN DE LA ACTUALIZACIÓN ---
     // =======================================================================
 
+    // Se añade una comprobación para authCtx y userData para manejar estados de carga/error.
     if (loading) {
         return (
             <div className="min-h-screen bg-gradient-to-br from-gray-900 via-purple-900 to-gray-900 flex items-center justify-center">
@@ -116,10 +118,10 @@ const GameLobby = () => {
         );
     }
 
-    if (!userData) {
+    if (!authCtx || !userData) {
         return (
             <div className="min-h-screen bg-gradient-to-br from-gray-900 via-purple-900 to-gray-900 flex items-center justify-center">
-                <div className="text-white text-xl">Error cargando datos del usuario</div>
+                <div className="text-white text-xl">Error al cargar datos. Redirigiendo al login...</div>
             </div>
         );
     }

@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef, useContext } from 'react';
-import { Link } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom'; // Importado para navegación
 import { AuthContext } from '../../App';
 import { db, functions } from '../../firebase';
 import { doc, onSnapshot, collection, query, orderBy, limit } from 'firebase/firestore';
@@ -68,18 +68,15 @@ const RocketDisplay = ({ gameState, multiplier, waitUntil, serverTimeOffset, cra
     }
   }, [gameState, multiplier]);
 
-  // SVG Rocket con llama animada
+  // SVG Rocket
   const rocketSVG = (
-    <svg width="80" height="80" viewBox="0 0 80 80" style={{ filter: 'drop-shadow(0 0 16px #00d4ff)' }}>
-      <g className="rocket-body">
-        <polygon points="40,5 48,22 32,22" fill="#39ff14" stroke="#fff" strokeWidth="1.5" />
-        <rect x="36" y="20" width="8" height="30" rx="4" fill="#212d3b" stroke="#00d4ff" strokeWidth="1.5" />
-        <circle cx="40" cy="30" r="4" fill="#fff" stroke="#00d4ff" strokeWidth="1.5" />
-        <path d="M32 50 L32 55 Q40 60 48 55 L48 50 Z" fill="#212d3b" stroke="#00d4ff" strokeWidth="1.5" />
-      </g>
-      <g className="flame">
-        <polygon points="36,50 44,50 40,65" fill="rgba(255, 220, 0, 0.9)" />
-        <polygon points="37,50 43,50 40,60" fill="rgba(255, 100, 0, 1)" />
+    <svg width="60" height="60" viewBox="0 0 60 60" style={{ filter: 'drop-shadow(0 0 16px #00d4ff)' }}>
+      <g>
+        <ellipse cx="30" cy="53" rx="8" ry="3" fill="#00d4ff" opacity="0.5" />
+        <rect x="27" y="18" width="6" height="25" rx="3" fill="#212d3b" stroke="#00d4ff" strokeWidth="2" />
+        <polygon points="30,5 36,18 24,18" fill="#39ff14" stroke="#fff" strokeWidth="2" />
+        <rect x="28" y="43" width="4" height="8" rx="2" fill="#fffc00" />
+        <circle cx="30" cy="25" r="3" fill="#fff" stroke="#00d4ff" strokeWidth="2" />
       </g>
     </svg>
   );
@@ -90,15 +87,13 @@ const RocketDisplay = ({ gameState, multiplier, waitUntil, serverTimeOffset, cra
   const displayValue = gameState === 'crashed' ? (crashPoint ?? 1).toFixed(2) : multiplier.toFixed(2);
   const countdownText = (countdownMs / 1000).toFixed(1);
 
-  const rocketPositionStyle = rocketRef.current ? { top: rocketRef.current.style.top, left: rocketRef.current.style.left } : {};
-
   return (
-    <div className="bg-gradient-to-br from-[#0e1948] via-[#020024] to-[#001e3c] border-4 border-cyan-600/30 rounded-2xl shadow-2xl relative aspect-video min-h-[400px] overflow-hidden w-full">
+    <div className="bg-gradient-to-br from-[#0e1948] via-[#020024] to-[#001e3c] border-4 border-cyan-600/30 rounded-2xl shadow-2xl relative aspect-[1.8] min-h-[450px] overflow-hidden w-full">
       <div className="absolute inset-0 bg-space-stars z-0" />
       <div className="absolute inset-0 flex flex-col items-center justify-center p-6 text-center pointer-events-none z-20">
-        <div className={`text-7xl md:text-[8rem] font-black ${multiplierColor} drop-shadow-[0_0_30px_#00d4ff] transition-colors duration-500`}>{displayValue}x</div>
-        <div className="mt-4 text-2xl md:text-4xl font-semibold text-cyan-200">
-          {gameState === 'waiting' && <div className="text-blue-400 bg-gray-900/80 px-8 py-4 rounded-full border-2 border-blue-500/50 shadow-lg animate-pulse">LANZAMIENTO EN: <span className="font-mono text-5xl font-bold">{countdownText}s</span></div>}
+        <div className={`text-8xl md:text-[10rem] font-black ${multiplierColor} drop-shadow-[0_0_30px_#00d4ff] transition-colors duration-500`}>{displayValue}x</div>
+        <div className="mt-4 text-3xl md:text-5xl font-semibold text-cyan-200">
+          {gameState === 'waiting' && <div className="text-blue-400 bg-gray-900/80 px-8 py-4 rounded-full border-2 border-blue-500/50 shadow-lg animate-pulse">LANZAMIENTO EN: <span className="font-mono text-6xl font-bold">{countdownText}s</span></div>}
           {gameState === 'crashed' && <div className="text-red-600 bg-gray-900/80 px-8 py-4 rounded-full border-2 border-red-500 shadow-lg animate-pulse">¡CRASH! 🚨</div>}
           {gameState === 'running' && <div className="text-neon-green bg-gray-900/80 px-8 py-4 rounded-full">COHETE EN ASCENSO</div>}
         </div>
@@ -110,21 +105,21 @@ const RocketDisplay = ({ gameState, multiplier, waitUntil, serverTimeOffset, cra
         {gameState !== 'crashed' && rocketSVG}
       </div>
       {gameState === 'crashed' && (
-        <div className="absolute w-64 h-64 pointer-events-none z-50" style={rocketPositionStyle}>
-          <svg viewBox="0 0 200 200" className="w-full h-full">
-            <circle cx="100" cy="100" r="0" fill="white" className="animate-flash" />
-            <circle cx="100" cy="100" r="0" fill="none" stroke="#ffdd00" strokeWidth="2" className="animate-shockwave" style={{ animationDelay: '0s' }} />
-            <circle cx="100" cy="100" r="0" fill="none" stroke="#ff8800" strokeWidth="2" className="animate-shockwave" style={{ animationDelay: '0.15s' }} />
-            <circle cx="100" cy="100" r="0" fill="none" stroke="#ff4400" strokeWidth="2" className="animate-shockwave" style={{ animationDelay: '0.3s' }} />
-          </svg>
-        </div>
+        <div className="absolute w-40 h-40 bg-red-700/80 rounded-full animate-explosion-fire pointer-events-none z-50"
+          style={{
+            left: '18%',
+            bottom: '14%',
+            boxShadow: '0 0 70px 20px rgba(255, 60, 0, 0.9), 0 0 150px 40px rgba(255, 160, 0, 0.7)',
+            filter: 'blur(10px)',
+          }} />
       )}
     </div>
   );
 };
 
 const CrashGame = () => {
-  const { currentUser, userData, loading: authLoading } = useContext(AuthContext);
+  const { currentUser, loading: authLoading } = useContext(AuthContext);
+  const navigate = useNavigate(); // Hook para navegar
   const [userBalance, setUserBalance] = useState(0);
   const [game, setGame] = useState({ state: 'loading', roundId: null, crashPoint: null, startedAt: null, waitUntil: null });
   const [currentMultiplier, setCurrentMultiplier] = useState(1.0);
@@ -144,24 +139,35 @@ const CrashGame = () => {
     setNotification({ message, type, key: Date.now() });
   };
 
+  // --- SEPARACIÓN DE EFECTOS ---
+
+  // Efecto para suscripciones a Firestore (datos)
   useEffect(() => {
     if (!currentUser) return;
-
-    const unsubUser = onSnapshot(doc(db, 'users', currentUser.uid), (snap) => {
+    const userRef = doc(db, 'users', currentUser.uid);
+    const unsubUser = onSnapshot(userRef, (snap) => {
       if (snap.exists()) setUserBalance(snap.data().balance || 0);
     });
 
-    const unsubGame = onSnapshot(doc(db, 'game_crash', 'live_game'), (snap) => {
+    const gameRef = doc(db, 'game_crash', 'live_game');
+    const unsubGame = onSnapshot(gameRef, (snap) => {
       if (snap.exists()) {
         const data = snap.data();
-        setGame(prevGame => ({ ...prevGame, ...data }));
-        if (data.server_time_now) {
+        setGame({
+          state: data.gameState || 'waiting',
+          roundId: data.roundId || null,
+          crashPoint: data.crashPoint || null,
+          startedAt: data.started_at || null,
+          waitUntil: data.wait_until || null,
+        });
+        if (serverTimeOffset.current === 0 && data.server_time_now) {
           serverTimeOffset.current = Date.now() - toMillis(data.server_time_now);
         }
       }
     });
 
-    const unsubPlayers = onSnapshot(collection(db, 'game_crash', 'live_game', 'players'), (snap) => {
+    const playersRef = collection(db, 'game_crash', 'live_game', 'players');
+    const unsubPlayers = onSnapshot(playersRef, (snap) => {
       const playersData = snap.docs.map(d => ({ id: d.id, ...d.data() }));
       setLivePlayers(playersData);
       const myBet = playersData.find(p => p.id === currentUser.uid);
@@ -173,33 +179,44 @@ const CrashGame = () => {
       setRecentRounds(snap.docs.map(d => ({ id: d.id, ...d.data() })));
     });
 
-    // --- Bucle de Animación Unificado ---
-    const animate = () => {
-      setGame(prevGame => {
-        if (prevGame.state === 'running' && prevGame.started_at) {
-          const elapsed = (Date.now() - serverTimeOffset.current) - toMillis(prevGame.started_at);
-          const newMultiplier = Math.max(1, Math.floor(100 * Math.exp(ROCKET_PATH_K * elapsed)) / 100);
-          setCurrentMultiplier(newMultiplier);
-        } else if (prevGame.state === 'crashed') {
-          setCurrentMultiplier(prevGame.crashPoint || 1.0);
-        } else {
-          setCurrentMultiplier(1.0);
-        }
-        return prevGame;
-      });
-      animationFrameId.current = requestAnimationFrame(animate);
-    };
-
-    animationFrameId.current = requestAnimationFrame(animate);
-
     return () => {
       unsubUser();
       unsubGame();
       unsubPlayers();
       unsubHistory();
-      cancelAnimationFrame(animationFrameId.current);
     };
   }, [currentUser]);
+
+  // Efecto para la animación (visual)
+  useEffect(() => {
+    const animate = () => {
+      const startedMs = toMillis(game.startedAt);
+      if (game.state === 'running' && startedMs) {
+        const elapsed = (Date.now() - serverTimeOffset.current) - startedMs;
+        const newMultiplier = Math.max(1, Math.floor(100 * Math.exp(ROCKET_PATH_K * elapsed)) / 100);
+
+        // Detener la animación si el multiplicador calculado supera el punto de crash
+        if (game.crashPoint && newMultiplier >= game.crashPoint) {
+            setCurrentMultiplier(game.crashPoint);
+        } else {
+            setCurrentMultiplier(newMultiplier);
+            animationFrameId.current = requestAnimationFrame(animate);
+        }
+      }
+    };
+
+    if (game.state === 'running') {
+      animationFrameId.current = requestAnimationFrame(animate);
+    } else {
+      cancelAnimationFrame(animationFrameId.current);
+      if (game.state === 'crashed') {
+        setCurrentMultiplier(game.crashPoint || 1.0);
+      } else {
+        setCurrentMultiplier(1.0);
+      }
+    }
+    return () => cancelAnimationFrame(animationFrameId.current);
+  }, [game.state, game.startedAt, game.crashPoint]);
 
   // --- ACTION HANDLERS ---
   const handlePlaceBet = async () => {
@@ -371,82 +388,20 @@ const CrashGame = () => {
         .animate-pulse-neon{animation:pulse-neon 3s infinite}
         @keyframes pulse-slow{0%,100%{text-shadow:0 0 8px #00d4ff,0 0 16px #39ff14}50%{text-shadow:0 0 20px #39ff14,0 0 35px #00d4ff}}
         .animate-pulse-slow{animation:pulse-slow 3.5s infinite}
-
-        /* --- Nuevas Animaciones --- */
-        @keyframes flame {
-          0%, 100% { transform: scaleY(1) translateY(0); }
-          50% { transform: scaleY(1.2) translateY(5px); }
-        }
-        .flame { animation: flame 0.15s infinite; }
-
-        @keyframes flash {
-          0% { r: 0; opacity: 1; }
-          50% { r: 100px; opacity: 0.5; }
-          100% { r: 100px; opacity: 0; }
-        }
-        .animate-flash { animation: flash 0.5s ease-out forwards; }
-
-        @keyframes shockwave {
-          0% { r: 0; opacity: 1; }
-          100% { r: 100px; opacity: 0; }
-        }
-        .animate-shockwave { animation: shockwave 0.7s ease-out forwards; }
-
-        @keyframes move-stars-bg { from { background-position: 0 0; } to { background-position: -10000px 5000px; } }
+        @keyframes explosion-fire{0%{transform:scale(1);opacity:1}50%{transform:scale(4);opacity:.5}100%{transform:scale(6);opacity:0}}
+        .animate-explosion-fire{animation:explosion-fire .4s ease-out forwards}
         .bg-space-stars {
-          background: transparent;
-          position: absolute;
-          top: 0;
-          left: 0;
-          right: 0;
-          bottom: 0;
-          z-index: 1;
-        }
-        .bg-space-stars::before, .bg-space-stars::after {
-          content: '';
-          position: absolute;
-          top: 0;
-          left: 0;
-          right: 0;
-          bottom: 0;
-          background-image:
-            radial-gradient(1px 1px at 20px 30px, #eee, rgba(0,0,0,0)),
-            radial-gradient(1px 1px at 40px 70px, #fff, rgba(0,0,0,0)),
-            radial-gradient(1px 1px at 50px 160px, #ddd, rgba(0,0,0,0)),
-            radial-gradient(1px 1px at 90px 40px, #fff, rgba(0,0,0,0)),
-            radial-gradient(2px 2px at 160px 100px, #fff, rgba(0,0,0,0)),
-            radial-gradient(2px 2px at 40px 200px, #ddd, rgba(0,0,0,0)),
-            radial-gradient(3px 3px at 180px 80px, #fff, rgba(0,0,0,0));
-          background-repeat: repeat;
-          background-size: 300px 300px;
-          animation: move-stars-bg 200s linear infinite;
-        }
-        .bg-space-stars::after {
-          background-size: 600px 600px;
-          animation-duration: 400s;
-          animation-direction: reverse;
+          background-image: radial-gradient(ellipse at 60% 10%, #fff 0.5px, transparent 1px), radial-gradient(ellipse at 80% 70%, #fff 1.2px, transparent 1px), radial-gradient(ellipse at 20% 20%, #fff 0.7px, transparent 1px), radial-gradient(ellipse at 55% 85%, #fff 0.5px, transparent 1px);
+          background-size: cover;
+          opacity: 0.25;
         }
       `}</style>
       <NotificationBar key={notification.key} message={notification.message} type={notification.type} />
 
-      {['admin', 'owner'].includes(userData?.role) && (
-        <Link
-          to="/admin/crash"
-          className="absolute top-5 right-5 z-50 p-2 bg-gray-800/50 rounded-full hover:bg-blue-600/70 transition-colors"
-          title="Panel de Administración de Crash"
-        >
-          <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-          </svg>
-        </Link>
-      )}
-
-      <div className="max-w-7xl mx-auto p-4 sm:p-6 lg:p-8">
+      <div className="max-w-screen-xl mx-auto p-4 sm:p-6 lg:p-8">
         <header className="mb-7 flex flex-col md:flex-row justify-between items-center bg-gradient-to-br from-[#001e3c] via-[#212d3b] to-[#002244] p-5 rounded-2xl border-4 border-blue-700/30 shadow-2xl">
           <h1 className="text-5xl md:text-6xl font-extrabold tracking-wide text-blue-400 drop-shadow-neon flex items-center gap-3">
             🚀 ASCENSO ESTELAR
-            <span className="text-base md:text-xl font-bold text-cyan-200 ml-2">| NASA Neon</span>
           </h1>
           <div className="flex items-center gap-6 mt-4 md:mt-0">
             <div className="text-right">
@@ -455,15 +410,12 @@ const CrashGame = () => {
                 Bs. {userBalance.toLocaleString('es-VE', { minimumFractionDigits: 2 })}
               </div>
             </div>
-            <p className="text-md text-blue-300 font-mono bg-blue-800/50 px-5 py-2 rounded-lg border border-blue-600/50">Ronda #{game.roundId ?? '...'}</p>
-            <Link to="/lobby" className="bg-yellow-500 hover:bg-yellow-400 text-gray-900 font-bold py-2 px-4 rounded-lg transition-colors">
-              Volver al Lobby
-            </Link>
+            <p className="text-md text-blue-300 font-mono bg-blue-800/50 px-5 py-2 rounded-lg border border-blue-600/50">Ronda #{game.roundId?.substring(0, 8) ?? '...'}</p>
           </div>
         </header>
         <HistoryBar rounds={recentRounds} />
-        <div className="grid grid-cols-1 gap-8 mt-7">
-          <div className="order-1">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 mt-7">
+          <div className="lg:col-span-8 order-1">
             <RocketDisplay
               gameState={game.state}
               multiplier={currentMultiplier}
@@ -472,11 +424,16 @@ const CrashGame = () => {
               crashPoint={game.crashPoint}
             />
           </div>
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 order-2">
+          <div className="lg:col-span-4 order-2 space-y-7">
             <div className="bg-gradient-to-br from-[#212d3b] via-[#001e3c] to-[#090979] border-4 border-blue-700/20 rounded-2xl p-7 shadow-2xl space-y-5">
-              <h3 className="text-3xl font-bold text-white mb-4 border-b-2 border-blue-700/30 pb-2">
-                PANEL DE CONTROL DE MISIÓN
-              </h3>
+              <div className="flex justify-between items-center mb-4 border-b-2 border-blue-700/30 pb-2">
+                 <h3 className="text-3xl font-bold text-white">PANEL DE CONTROL</h3>
+                 <button
+                    onClick={() => navigate('/lobby')}
+                    className="bg-gray-700 hover:bg-gray-600 text-white font-bold py-2 px-4 rounded-lg transition-colors text-sm">
+                    Volver al Lobby
+                 </button>
+              </div>
               <div className="flex items-center gap-3">
                 <input
                   type="number"
