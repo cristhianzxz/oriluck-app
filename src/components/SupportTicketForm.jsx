@@ -2,7 +2,7 @@
 import React, { useState } from 'react';
 import { createSupportTicket } from '../firestoreService';
 
-const SupportTicketForm = ({ currentUser, onTicketCreated, onCancel }) => {
+const SupportTicketForm = ({ currentUser, userData, onTicketCreated, onCancel }) => {
   const [subject, setSubject] = useState('');
   const [message, setMessage] = useState('');
   const [category, setCategory] = useState('recargas');
@@ -26,7 +26,7 @@ const SupportTicketForm = ({ currentUser, onTicketCreated, onCancel }) => {
     try {
       const ticketData = {
         userId: currentUser.uid,
-        username: currentUser.displayName || currentUser.email.split('@')[0],
+        userName: userData.username || currentUser.email.split('@')[0],
         email: currentUser.email,
         subject: subject.trim(),
         message: message.trim(),

@@ -4,45 +4,40 @@ import { AuthContext } from './App'; // Asumiendo que AuthContext está en './Ap
 import AdminSupportPanel from './components/AdminSupportPanel';
 
 const AdminSupportPage = () => {
-    // MODIFICACIÓN: Asumo que 'userData' (con el rol) también se obtiene del AuthContext
     const { currentUser, userData: currentUserData } = useContext(AuthContext);
     const navigate = useNavigate();
 
-    // ========================================================
-    // MODIFICACIÓN 1: Definir 'isAdmin' correctamente
-    // ========================================================
-    const isRoleAdmin = currentUserData?.role === "admin";
-    // Agrego una comprobación de correo como respaldo si es necesario
-    const isHardcodedAdmin = currentUser?.email === "cristhianzxz@hotmail.com" || currentUser?.email === "admin@oriluck.com";
-    const isAdmin = isRoleAdmin || isHardcodedAdmin;
-    // ========================================================
+    // >>>>> REEMPLAZA EL BLOQUE DE ACCESO CON ESTA VERSIÓN MEJORADA <<<<<
+    // --- INICIO DE LA CORRECCIÓN DE ACCESO ---
+    // 1. Define todos los roles que pueden acceder a esta página.
+    const allowedRoles = ['support_agent', 'moderator', 'supervisor', 'admin'];
+
+    // 2. Comprueba si el rol del usuario actual está en la lista de roles permitidos.
+    const hasPermission = allowedRoles.includes(currentUserData?.role);
 
     useEffect(() => {
-        // Solo intentamos navegar si ya sabemos el estado del usuario
-        if (currentUser === undefined) return;
+        // Si los datos del usuario aún no han cargado, no hagas nada.
+        if (currentUser === undefined || currentUserData === null) return;
 
-        // Redirigir si no es admin (MODIFICACIÓN solicitada)
-        if (!isAdmin) {
-            navigate('/lobby');
-            return;
+        // Si el usuario NO tiene permiso, redirígelo al lobby.
+        if (!hasPermission) {
+            console.warn(`Acceso denegado a /admin/support para el rol: ${currentUserData?.role}`);
+            navigate('/lobby', { replace: true });
         }
-    }, [isAdmin, navigate, currentUser]);
+    }, [hasPermission, currentUser, currentUserData, navigate]);
 
-    // ========================================================
-    // MODIFICACIÓN 2: Lógica de Carga de Credenciales
-    // ========================================================
-    if (currentUser === undefined) {
+    // Lógica de carga y renderizado seguro
+    if (currentUser === undefined || currentUserData === null) {
         return <div className="min-h-screen flex items-center justify-center bg-gray-900 text-white">Cargando credenciales...</div>;
     }
 
-    // Si el usuario cargó, pero no es admin, ya fue redirigido por useEffect.
-    // Retornamos null para evitar renderizar el resto del contenido.
-    if (!isAdmin) {
-        return null;
+    if (!hasPermission) {
+        // Muestra null mientras la redirección de useEffect hace su trabajo.
+        return null; 
     }
-    // ========================================================
+    // --- FIN DE LA CORRECCIÓN DE ACCESO ---
 
-
+    // El resto de tu componente...
     return (
         <div className="min-h-screen bg-gradient-to-br from-gray-900 via-purple-900 to-gray-900 relative overflow-hidden">
             {/* Efectos de fondo */}

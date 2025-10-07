@@ -17,29 +17,36 @@ const GameLobby = () => {
     const [isMenuOpen, setIsMenuOpen] = useState(false);
 
     useEffect(() => {
-        const loadUserData = async () => {
-            if (currentUser) {
-                try {
-                    const userDataFromFirestore = await getUserData(currentUser.uid);
-                    setUserData({
-                        username: userDataFromFirestore?.username || currentUser.email?.split('@')[0] || "Usuario",
-                        balance: userDataFromFirestore?.balance || 0,
-                        isAdmin: userDataFromFirestore?.role === "admin",
-                        email: currentUser.email
-                    });
-                } catch (error) {
-                    console.error("❌ Error cargando datos del usuario:", error);
-                    setUserData({
-                        username: currentUser.email?.split('@')[0] || "Usuario",
-                        balance: 0,
-                        isAdmin: currentUser.email === "cristhianzxz@hotmail.com",
-                        email: currentUser.email
-                    });
-                }
+        if (!currentUser) {
+            setLoading(false);
+            return;
+        }
+        const userDocRef = doc(db, "users", currentUser.uid);
+        const unsubscribe = onSnapshot(userDocRef, (snapshot) => {
+            if (snapshot.exists()) {
+                const userDataFromFirestore = snapshot.data();
+                const adminRoles = ['support_agent', 'moderator', 'supervisor', 'admin'];
+                setUserData({
+                    username: userDataFromFirestore?.username || currentUser.email?.split('@')[0] || "Usuario",
+                    balance: userDataFromFirestore?.balance || 0,
+                    isAdmin: adminRoles.includes(userDataFromFirestore?.role),
+                    email: currentUser.email
+                });
+            } else {
+                console.error("❌ No se encontró el documento del usuario en Firestore.");
+                setUserData({
+                    username: currentUser.email?.split('@')[0] || "Usuario",
+                    balance: 0,
+                    isAdmin: currentUser.email === "cristhianzxz@hotmail.com",
+                    email: currentUser.email
+                });
             }
             setLoading(false);
-        };
-        loadUserData();
+        }, (error) => {
+            console.error("❌ Error escuchando los datos del usuario en tiempo real:", error);
+            setLoading(false);
+        });
+        return () => unsubscribe();
     }, [currentUser]);
 
     useEffect(() => {
@@ -75,37 +82,31 @@ const GameLobby = () => {
         setIsMenuOpen(false);
     };
 
+    // =======================================================================
+    // --- INICIO DE LA ACTUALIZACIÓN ---
+    // =======================================================================
     const games = [
-        { id: 1, name: "BINGO", icon: "🎯", status: "active", description: "Juega al clásico Bingo con premios millonarios", color: "from-red-500 to-pink-500", glow: "shadow-lg shadow-red-500/30", path: "/bingo" },
-        { id: 2, name: "TRAGAMONEDAS", icon: "🎰", status: "active", description: "Máquinas exclusivas de alta gama con jackpots progresivos", color: "from-blue-500 to-purple-500", glow: "shadow-lg shadow-blue-500/20", path: "/slots" },
-        { id: 3, name: "RULETA", icon: "🎡", status: "construction", description: "Próximamente - Ruleta europea premium", color: "from-green-500 to-teal-500", glow: "shadow-lg shadow-green-500/20" },
-        { id: 4, name: "PÓKER", icon: "🎴", status: "construction", description: "Próximamente - Texas Hold'em VIP", color: "from-yellow-500 to-orange-500", glow: "shadow-lg shadow-yellow-500/20" },
-        { id: 5, name: "BLACKJACK", icon: "🃏", status: "construction", description: "Próximamente - 21 contra crupieres expertos", color: "from-indigo-500 to-blue-500", glow: "shadow-lg shadow-indigo-500/20" },
-        { id: 6, name: "LOTERÍA", icon: "🎫", status: "construction", description: "Próximamente - Sorteos millonarios exclusivos", color: "from-purple-500 to-pink-500", glow: "shadow-lg shadow-purple-500/20" }
+        { id: 1, name: "BINGO", icon: "🎯", status: "active", description: "Juega al clásico Bingo con premios millonarios.", color: "from-red-500 to-pink-500", glow: "shadow-lg shadow-red-500/30", path: "/bingo" },
+        { id: 2, name: "TRAGAMONEDAS", icon: "🎰", status: "active", description: "Máquinas exclusivas con jackpots progresivos.", color: "from-blue-500 to-purple-500", glow: "shadow-lg shadow-blue-500/20", path: "/slots" },
+        { id: 3, name: "RULETA", icon: "🎡", status: "construction", description: "Próximamente - Ruleta europea premium.", color: "from-green-500 to-teal-500", glow: "shadow-lg shadow-green-500/20" },
+        { id: 4, name: "ASCENSO ESTELAR", icon: "🚀", status: "active", description: "¿Hasta dónde llegará tu codicia antes del CRASH?", color: "from-cyan-500 to-indigo-500", glow: "shadow-lg shadow-cyan-500/20", path: "/crash" },
+        { id: 5, name: "BLACKJACK", icon: "🃏", status: "construction", description: "Próximamente - 21 contra crupieres expertos.", color: "from-gray-700 to-gray-800", glow: "shadow-lg shadow-gray-500/20" },
+        { id: 6, name: "LOTERÍA", icon: "🎫", status: "construction", description: "Próximamente - Sorteos millonarios exclusivos.", color: "from-purple-500 to-pink-500", glow: "shadow-lg shadow-purple-500/20" }
     ];
 
-    // =======================================================================
-    // --- INICIO DE LA CORRECCIÓN ---
-    // =======================================================================
     const handleGameClick = (game) => {
-        // Si el juego no está activo, muestra la alerta y detente.
         if (game.status === 'construction') {
             alert("🚧 Este juego premium estará disponible próximamente");
-            return; // Detiene la ejecución aquí
+            return;
         }
-
-        // Si el juego está activo, decide a dónde ir.
-        if (game.name === "BINGO") {
-            navigate('/bingo');
-        } else if (game.name === "TRAGAMONEDAS") {
-            navigate('/slots');
+        // Navegamos dinámicamente usando la propiedad 'path' del objeto del juego.
+        if (game.path) {
+            navigate(game.path);
         }
-        // Puedes añadir más 'else if' para futuros juegos aquí
     };
     // =======================================================================
-    // --- FIN DE LA CORRECCIÓN ---
+    // --- FIN DE LA ACTUALIZACIÓN ---
     // =======================================================================
-
 
     if (loading) {
         return (

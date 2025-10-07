@@ -17,6 +17,11 @@ const BINGO_NUMBERS = Array.from({ length: 75 }, (_, i) => i + 1);
 const SLOTS_MACHINE_ID = 'main_machine';
 const BOTE_MINIMO_GARANTIZADO = 1000;
 
+// --- CONSTANTES PARA CRASH GAME ---
+const CRASH_HOUSE_EDGE = 0.03; // 3% de margen para la casa
+const CRASH_INSTANT_PROB = 0.01; // 1% de probabilidad de crash en 1.00x
+const CRASH_ROUND_INTERVAL_SECONDS = 15; // Duración total de una ronda (ej: 10s espera + 5s post-crash)
+
 const PURCHASE_BONUSES = [
     { min: 100, bonus: 10 }, { min: 50, bonus: 6 }, { min: 20, bonus: 4 },
     { min: 10, bonus: 2 }, { min: 5, bonus: 1 }, { min: 1, bonus: 0 },
@@ -472,6 +477,26 @@ function getProvablyFairSlotResult(serverSeed, clientSeed, nonce) {
     return { prize: PAY_TABLE[PAY_TABLE.length - 1], finalHash: hmac };
 }
 
+// Función para generar punto de crash con RNG verificable
+function getProvablyFairCrashPoint(serverSeed) {
+    const hash = crypto.createHash('sha256').update(serverSeed).digest('hex');
+    
+    // Usar el hash para determinar si es un crash instantáneo
+    const instantCrashRoll = parseInt(hash.substring(0, 2), 16);
+    if (instantCrashRoll / 255 < CRASH_INSTANT_PROB) {
+        return 1.00;
+    }
+
+    // Fórmula para generar un punto de crash con una distribución exponencial.
+    const h = parseInt(hash.substring(0, 13), 16);
+    const e = Math.pow(2, 52);
+    // ¡LA LÍNEA CORRECTA!
+    const crashPoint = Math.floor(100 * e / (e - h)) / 100;
+    
+    // Aseguramos que el mínimo sea 1.00
+    return Math.max(1.00, crashPoint);
+}
+
 exports.requestSlotSpin = onCall({ region: REGION, timeoutSeconds: 15 }, async (request) => {
     if (!request.auth) throw new HttpsError("unauthenticated", "Debes iniciar sesión.");
     
@@ -579,3 +604,235 @@ exports.executeSlotSpin = onCall({ region: REGION, timeoutSeconds: 20 }, async (
         };
     });
 });
+
+// ===================================================================
+// --- INICIO DEL NUEVO "MOTOR DE JUEGO" PARA CRASH ---
+// ===================================================================
+
+/**
+ * [LLAMABLE] Inicia el motor del juego Crash.
+ * Solo los administradores pueden llamarla. Una vez iniciada, se ejecuta en un bucle infinito.
+ */
+exports.startCrashGameEngine = onCall({ region: REGION, timeoutSeconds: 60 }, async (request) => {
+    if (!request.auth) throw new HttpsError('unauthenticated', 'Autenticación requerida.');
+    
+    // Verificación de rol de administrador (¡IMPORTANTE!)
+    // >>>>> CORRECCIÓN DE SINTAXIS CRÍTICA: .exists() -> .exists <<<<<
+    const adminSnap = await db.doc(`users/${request.auth.uid}`).get();
+    if (!adminSnap.exists || !['admin', 'owner'].includes(adminSnap.data().role)) {
+        throw new HttpsError('permission-denied', 'No tienes permisos para iniciar el motor del juego.');
+    }
+
+    logger.info("[CRASH_ENGINE] ¡Motor del juego Ascenso Estelar INICIADO por un administrador!");
+
+    // Bucle infinito y seguro que controla el juego
+    (async function gameLoop() {
+        while (true) {
+            try {
+                // --- Aquí va EXACTAMENTE LA MISMA LÓGICA que tenía la función 'onSchedule' ---
+                
+                const gameDocRef = db.doc('game_crash/live_game');
+                const historyCollectionRef = db.collection('game_crash_history');
+
+                // PASO 1: Finalizar y archivar la ronda anterior
+                const previousGameSnap = await gameDocRef.get();
+                // >>>>> CORRECCIÓN DE SINTAXIS CRÍTICA: .exists() -> .exists <<<<<
+                if (previousGameSnap.exists && previousGameSnap.data().gameState !== 'waiting') {
+                    const oldData = previousGameSnap.data();
+                    const playersSnap = await gameDocRef.collection('players').get();
+                    const oldPlayers = playersSnap.docs.map(doc => doc.data());
+                    
+                    const totalPot = oldPlayers.reduce((sum, p) => sum + (p.bet || 0), 0);
+                    const totalPayout = oldPlayers.filter(p => p.status === 'cashed_out').reduce((sum, p) => sum + ((p.bet || 0) * (p.cashOutMultiplier || 0)), 0);
+                    const netProfit = totalPot - totalPayout;
+
+                    if (oldData.roundId) {
+                        await historyCollectionRef.doc(oldData.roundId).set({
+                            crashPoint: oldData.crashPoint, totalPot, netProfit,
+                            timestamp: oldData.started_at || FieldValue.serverTimestamp(),
+                            serverSeed: oldData.serverSeed,
+                        });
+                    }
+                }
+
+                // PASO 2: Preparar la nueva ronda
+                logger.info("[CRASH_ENGINE] Preparando nueva ronda...");
+                const playersToDeleteSnap = await gameDocRef.collection('players').get();
+                const batch = db.batch();
+                playersToDeleteSnap.docs.forEach(doc => batch.delete(doc.ref));
+                await batch.commit();
+
+                const serverSeed = crypto.randomBytes(32).toString('hex');
+                const serverSeedHash = crypto.createHash('sha256').update(serverSeed).digest('hex');
+                const roundId = db.collection('dummy').doc().id;
+
+                await gameDocRef.set({
+                    gameState: 'waiting', roundId, serverSeedHash,
+                    wait_until: new Date(Date.now() + 10000), // Usamos Date object
+                    server_time_now: FieldValue.serverTimestamp(),
+                });
+                
+                await sleep(10000); // Pausa para apuestas
+
+                // PASO 3: Lógica Anti-Quiebra
+                const playersSnap = await gameDocRef.collection('players').get();
+                if (playersSnap.empty) {
+                    await gameDocRef.update({ gameState: 'crashed', crashPoint: 1.00, serverSeed: serverSeed });
+                } else {
+                    const currentPlayers = playersSnap.docs.map(doc => doc.data());
+                    const totalPot = currentPlayers.reduce((sum, p) => sum + (p.bet || 0), 0);
+                    const maxPayout = totalPot * (1 - CRASH_HOUSE_EDGE);
+                    
+                    let crashPoint = getProvablyFairCrashPoint(serverSeed);
+                    const potentialPayout = totalPot * crashPoint;
+
+                    if (potentialPayout > maxPayout) {
+                        crashPoint = maxPayout / totalPot;
+                        logger.warn(`[CRASH_ENGINE] ¡RIESGO! CrashPoint ${crashPoint.toFixed(2)}x limitado a ${crashPoint.toFixed(2)}x.`);
+                    }
+                    
+                    logger.info(`[CRASH_ENGINE] Ronda ${roundId}: CrashPoint fijado en ${crashPoint.toFixed(2)}x`);
+
+                    // PASO 4: Iniciar fase "running"
+                    await gameDocRef.update({
+                        gameState: 'running',
+                        started_at: FieldValue.serverTimestamp(),
+                        server_time_now: FieldValue.serverTimestamp(),
+                        crashPoint: crashPoint,
+                        serverSeed: serverSeed,
+                    });
+                }
+
+            } catch (error) {
+                logger.error("[CRASH_ENGINE] Error en el bucle principal:", error);
+            }
+            
+            // Pausa antes de la siguiente ronda
+            await sleep(CRASH_ROUND_INTERVAL_SECONDS * 1000);
+        }
+    })(); // La función se auto-ejecuta para iniciar el bucle
+
+    // La función retorna una respuesta inmediata al administrador, mientras el bucle sigue corriendo en el servidor.
+    return { success: true, message: "El motor del juego Ascenso Estelar ha sido iniciado." };
+});
+
+/**
+ * [LLAMABLE] Permite a un usuario realizar una apuesta en la ronda actual.
+ */
+exports.placeBet_crash = onCall({ region: REGION }, async (request, context) => {
+    logger.info('Invocación a placeBet_crash', { uid: context.auth?.uid, data: request.data });
+
+    if (!context.auth) {
+        logger.error('Usuario no autenticado');
+        throw new HttpsError('unauthenticated', 'Debes iniciar sesión.');
+    }
+
+    const { amount } = request.data;
+    const uid = context.auth.uid;
+
+    if (typeof amount !== 'number' || amount <= 0) {
+        logger.error('Monto de apuesta inválido', { amount });
+        throw new HttpsError('invalid-argument', 'El monto de la apuesta no es válido.');
+    }
+
+    const gameDocRef = db.doc('game_crash/live_game');
+    const userRef = db.doc(`users/${uid}`);
+
+    return db.runTransaction(async (tx) => {
+        const [gameSnap, userSnap] = await tx.getAll(gameDocRef, userRef);
+
+        if (!gameSnap.exists) {
+            logger.error('No hay una ronda activa');
+            throw new HttpsError('failed-precondition', 'No hay una ronda activa.');
+        }
+
+        logger.info('Estado de la ronda:', { gameState: gameSnap.data().gameState });
+
+        if (gameSnap.data().gameState !== 'waiting') {
+            logger.error('La fase de apuestas ha terminado', { gameState: gameSnap.data().gameState });
+            throw new HttpsError('failed-precondition', 'La fase de apuestas ha terminado.');
+        }
+        if (!userSnap.exists) {
+            logger.error('Perfil de usuario no encontrado', { uid });
+            throw new HttpsError('not-found', 'Perfil de usuario no encontrado.');
+        }
+        logger.info('Saldo del usuario:', { balance: userSnap.data().balance });
+
+        if ((userSnap.data().balance || 0) < amount) {
+            logger.error('Saldo insuficiente', { balance: userSnap.data().balance, amount });
+            throw new HttpsError('failed-precondition', 'Saldo insuficiente.');
+        }
+
+        // Realizar la apuesta
+        tx.update(userRef, { balance: FieldValue.increment(-amount) });
+        const playerDocRef = gameDocRef.collection('players').doc(uid);
+        tx.set(playerDocRef, {
+            bet: amount,
+            username: userSnap.data().username || 'Jugador',
+            status: 'playing'
+        });
+
+        logger.info('Apuesta realizada con éxito', { uid, amount });
+
+        return { success: true, bet: { amount } };
+    });
+});
+
+/**
+ * [LLAMABLE] Permite a un usuario retirar su apuesta durante la fase "running".
+ */
+exports.cashOut_crash = onCall({ region: REGION }, async (request, context) => {
+    if (!context.auth) throw new HttpsError('unauthenticated', 'Debes iniciar sesión.');
+    
+    const uid = context.auth.uid;
+    const gameDocRef = db.doc('game_crash/live_game');
+    const playerDocRef = gameDocRef.collection('players').doc(uid);
+    const userRef = db.doc(`users/${uid}`);
+
+    return db.runTransaction(async (tx) => {
+        const [gameSnap, playerSnap] = await tx.getAll(gameDocRef, playerDocRef);
+
+        if (!gameSnap.exists) {
+            throw new HttpsError('failed-precondition', 'No hay una ronda activa.');
+        }
+        
+        if (gameSnap.data().gameState !== 'running') {
+            throw new HttpsError('failed-precondition', 'El juego no está en curso.');
+        }
+        if (!playerSnap.exists || playerSnap.data().status !== 'playing') {
+            throw new HttpsError('failed-precondition', 'No tienes una apuesta activa o ya has retirado.');
+        }
+        
+        const gameData = gameSnap.data();
+        const playerData = playerSnap.data();
+        
+        // Calcular el multiplicador actual de forma segura en el servidor
+        const startedAt = gameData.started_at;
+        if (typeof startedAt.toDate === 'function') {
+            const elapsedTime = Date.now() - startedAt.toDate().getTime();
+            const currentMultiplier = Math.max(1.00, Math.floor(100 * Math.exp(0.00006 * elapsedTime)) / 100);
+            
+            if (currentMultiplier >= gameData.crashPoint) {
+                throw new HttpsError('failed-precondition', '¡Demasiado tarde! El juego ya ha crasheado.');
+            }
+            
+            const winnings = playerData.bet * currentMultiplier;
+
+            // Pagar al jugador y actualizar su estado
+            tx.update(userRef, { balance: FieldValue.increment(winnings) });
+            tx.update(playerDocRef, {
+                status: 'cashed_out',
+                cashOutMultiplier: currentMultiplier,
+                winnings: winnings
+            });
+            
+            return { success: true, winnings, cashOutMultiplier: currentMultiplier };
+        } else {
+            throw new HttpsError('internal', 'Error en la fecha de inicio del juego.');
+        }
+    });
+});
+
+// ===================================================================
+// --- FIN DEL NUEVO "MOTOR DE JUEGO" ---
+// ===================================================================

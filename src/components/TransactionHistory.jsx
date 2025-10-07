@@ -25,13 +25,23 @@ const TransactionHistory = () => {
     };
   }, [currentUser]);
 
-  const filteredTransactions = transactions.filter(transaction => {
-    if (activeFilter === "all") return true;
-    if (activeFilter === "approved") {
-      return transaction.status === "approved" || transaction.status === "completed";
-    }
-    return transaction.status === activeFilter;
-  });
+  // >>>>> REEMPLAZA LA DEFINICIÓN DE filteredTransactions CON ESTE BLOQUE <<<<<
+  const filteredTransactions = transactions
+    .filter(transaction => {
+      if (activeFilter === "all") return true;
+      if (activeFilter === "approved") {
+        return transaction.status === "approved" || transaction.status === "completed";
+      }
+      return transaction.status === activeFilter;
+    })
+    .sort((a, b) => {
+      // Obtenemos los timestamps, con un fallback a 0 si no existen para evitar errores.
+      const timeA = a.createdAt?.toDate?.().getTime() || 0;
+      const timeB = b.createdAt?.toDate?.().getTime() || 0;
+      
+      // Restamos B - A para obtener un orden descendente (el más reciente primero).
+      return timeB - timeA;
+    });
 
   const formatDate = (timestamp) => {
     if (!timestamp) return "Fecha no disponible";

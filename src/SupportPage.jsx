@@ -7,7 +7,7 @@ import { db } from './firebase';
 import { collection, query, where, orderBy, onSnapshot } from 'firebase/firestore';
 
 const SupportPage = () => {
-  const { currentUser } = useContext(AuthContext);
+  const { currentUser, userData } = useContext(AuthContext);
   const navigate = useNavigate();
   const [view, setView] = useState('list'); // 'list', 'form', 'chat'
   const [selectedTicket, setSelectedTicket] = useState(null);
@@ -109,12 +109,13 @@ const SupportPage = () => {
           </div>
         )}
         {view === 'form' && (
-          <SupportTicketForm
-            currentUser={currentUser}
-            onTicketCreated={() => setView('list')}
-            onCancel={() => setView('list')}
-          />
-        )}
+  <SupportTicketForm
+    currentUser={currentUser}
+    userData={userData} // ¡AQUÍ ESTÁ LA LÍNEA QUE FALTABA!
+    onTicketCreated={() => setView('list')}
+    onCancel={() => setView('list')}
+  />
+)}
         {view === 'chat' && selectedTicket && (
           <SupportChat
             ticket={selectedTicket}

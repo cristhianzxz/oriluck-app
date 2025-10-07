@@ -5,12 +5,12 @@ import { getFunctions } from "firebase/functions";
 
 // Tu configuración real de Firebase.
 const firebaseConfig = {
-    apiKey: "AIzaSyCcF2BDA2qfONH8B1EGPZ6FB1gKSqLRSZQ",
-    authDomain: "oriluck-7e0e3.firebaseapp.com",
-    projectId: "oriluck-7e0e3",
-    storageBucket: "oriluck-7e0e3.appspot.com", // Usando el valor estándar
-    messagingSenderId: "916983029756",
-    appId: "1:916983029756:web:b1fbf4fd6f7f0210a79c79"
+  apiKey: import.meta.env.VITE_API_KEY,
+  authDomain: import.meta.env.VITE_AUTH_DOMAIN,
+  projectId: import.meta.env.VITE_PROJECT_ID,
+  storageBucket: import.meta.env.VITE_STORAGE_BUCKET,
+  messagingSenderId: import.meta.env.VITE_MESSAGING_SENDER_ID,
+  appId: import.meta.env.VITE_APP_ID
 };
 
 // Inicializamos Firebase

@@ -12,8 +12,6 @@ import {
     createTransaction,
     getAllRechargeRequests,
     getAllWithdrawRequests,
-    findTransactionByRequestId,
-    updateTransactionStatus,
     getAllUsers,
     setUserBalance,
     deleteUserFromFirestore,
@@ -21,13 +19,12 @@ import {
     updateUserRole,
     logAdminMovement,
     logUserBalanceChange,
-    logCreateTournament,
-    logEditHouseFund, // Añadir import
-    updateSlotsExchangeRate // Añadir import
+    updateSlotsExchangeRate
 } from "./firestoreService";
-import { doc, onSnapshot, updateDoc, getDocs, collection, deleteDoc, query, where, getDoc } from "firebase/firestore";
+import { doc, onSnapshot, updateDoc, getDocs, collection, deleteDoc, query, where } from "firebase/firestore";
 import { db } from "./firebase";
 import { writeBatch } from "firebase/firestore";
+
 const ROLES = [
     { id: 'user', name: 'Usuario' },
     { id: 'support_agent', name: 'Agente de Soporte' },
@@ -35,44 +32,41 @@ const ROLES = [
     { id: 'supervisor', name: 'Supervisor' },
     { id: 'admin', name: 'Administrador' }
 ];
-const adminEmails = [
-    "cristhianzxz@hotmail.com",
-    "admin@oriluck.com",
-    "correo.nuevo.admin1@example.com",
-    "correo.nuevo.admin2@example.com"
-];
+
 const USERS_PASSWORD = import.meta.env.VITE_USERS_PASSWORD;
 const OWNER_PASSWORD = import.meta.env.VITE_OWNER_PASSWORD;
+
 const AdminPanel = () => {
     const navigate = useNavigate();
-    const { currentUser } = useContext(AuthContext);
-    const [currentUserData, setCurrentUserData] = useState(undefined);
-    const [activeTab, setActiveTab] = useState("recharges");
+    const { currentUser, userData } = useContext(AuthContext);
+
+    // --- ESTADOS DEL PANEL ---
+    const [activeTab, setActiveTab] = useState(""); // Inicia vacío para la nueva lógica
     const [exchangeRate, setExchangeRate] = useState(100);
     const [requests, setRequests] = useState([]);
     const [users, setUsers] = useState([]);
-    const [loadingData, setLoadingData] = useState(false);
     const [allRequests, setAllRequests] = useState([]);
     const [historyFilter, setHistoryFilter] = useState("all");
     const [isUsersSectionUnlocked, setIsUsersSectionUnlocked] = useState(false);
     const [userSearch, setUserSearch] = useState("");
     const [selectedRequest, setSelectedRequest] = useState(null);
     const [newRequestNotification, setNewRequestNotification] = useState(false);
-    // Nuevos estados para búsqueda en historial
     const [rechargeSearch, setRechargeSearch] = useState("");
     const [withdrawSearch, setWithdrawSearch] = useState("");
-    // Modal de contraseña
     const [showPasswordModal, setShowPasswordModal] = useState(false);
     const [passwordInput, setPasswordInput] = useState("");
     const [passwordError, setPasswordError] = useState("");
-    // Modal de confirmación para eliminar transactions
     const [showDeleteModal, setShowDeleteModal] = useState(false);
     const [deleteLoading, setDeleteLoading] = useState(false);
-    const isAdmin = currentUserData?.role === "admin" || adminEmails.includes(currentUser?.email);
-    // Modal de Owner
     const [showOwnerModal, setShowOwnerModal] = useState(false);
     const [ownerPasswordInput, setOwnerPasswordInput] = useState("");
     const [ownerPasswordError, setOwnerPasswordError] = useState("");
+
+    // --- ESTADO DE CARGA Y PERMISOS ---
+    const [verifyingAccess, setVerifyingAccess] = useState(true);
+    const [permissions, setPermissions] = useState({});
+
+    // --- MANEJADOR DEL PANEL DE OWNER ---
     const handleOwnerAccess = () => {
         if (ownerPasswordInput === OWNER_PASSWORD) {
             localStorage.setItem('ownerAccess', 'true');
@@ -84,146 +78,179 @@ const AdminPanel = () => {
             setOwnerPasswordError("❌ Contraseña incorrecta.");
         }
     };
+
+    // --- USEEFFECT UNIFICADO PARA PERMISOS Y ACCESO ---
     useEffect(() => {
-        if (!currentUser?.uid) {
-            if (currentUserData === undefined) setCurrentUserData(null);
+        if (userData === undefined) {
+            setVerifyingAccess(true);
             return;
         }
-        const userRef = doc(db, "users", currentUser.uid);
-        const unsub = onSnapshot(userRef, (snap) => {
-            if (snap.exists()) {
-                setCurrentUserData(snap.data());
-            } else {
-                setCurrentUserData({ role: 'user' });
-            }
-        });
-        return () => unsub();
-    }, [currentUser?.uid]);
-    useEffect(() => {
-        if (currentUserData === undefined) return;
-        if (!isAdmin) {
-            navigate('/lobby');
+
+        if (!userData || !userData.role) {
+            navigate("/lobby", { replace: true });
             return;
         }
-        loadData();
-    }, [isAdmin, navigate, currentUserData]);
-    useEffect(() => {
-        if (activeTab !== "recharges") return;
-        const qRecharge = query(collection(db, "rechargeRequests"), where("status", "==", "pending"));
-        const unsubRecharge = onSnapshot(qRecharge, (snap) => {
-            if (snap.docChanges().some(change => change.type === "added")) {
-                setNewRequestNotification(true);
-                const audio = new window.Audio("/notification.mp3");
-                audio.play().catch(() => {});
-                setTimeout(() => setNewRequestNotification(false), 3000);
-            }
-        });
-        const qWithdraw = query(collection(db, "withdrawRequests"), where("status", "==", "pending"));
-        const unsubWithdraw = onSnapshot(qWithdraw, (snap) => {
-            if (snap.docChanges().some(change => change.type === "added")) {
-                setNewRequestNotification(true);
-                const audio = new window.Audio("/notification.mp3");
-                audio.play().catch(() => {});
-                setTimeout(() => setNewRequestNotification(false), 3000);
-            }
-        });
-        return () => {
-            unsubRecharge();
-            unsubWithdraw();
+
+        const role = userData.role;
+        
+        // LA "CONSTITUCIÓN" DE PERMISOS - VERSIÓN FINAL Y CORREGIDA
+        const userPermissions = {
+            canViewPanel: ['support_agent', 'moderator', 'supervisor', 'admin', 'owner'].includes(role),
+            canViewRechargesTab: ['supervisor', 'admin', 'owner'].includes(role),
+            canViewHistoryTab: ['supervisor', 'admin', 'owner'].includes(role),
+            canViewSettingsTab: ['moderator', 'supervisor', 'admin', 'owner'].includes(role), // <-- CORREGIDO: Moderador SÍ puede ver settings
+            canViewUsersTab: ['moderator', 'supervisor', 'admin', 'owner'].includes(role),
+            canViewSupportTab: ['support_agent', 'moderator', 'supervisor', 'admin', 'owner'].includes(role),
+            canAccessOwnerZone: ['admin', 'owner'].includes(role),
+            canApprovePayments: ['supervisor', 'admin', 'owner'].includes(role),
+            canSuspendUsers: ['moderator', 'supervisor', 'admin', 'owner'].includes(role),
+            canEditBalances: ['admin', 'owner'].includes(role), // <-- Supervisor NO puede editar saldos
+            canEditRoles: ['admin', 'owner'].includes(role), // <-- Supervisor NO puede editar roles
+            canDeleteUsers: ['admin', 'owner'].includes(role) // <-- Supervisor NO puede eliminar usuarios
         };
-    }, [activeTab]);
+        
+        setPermissions(userPermissions);
+
+        if (!userPermissions.canViewPanel) {
+            navigate("/lobby", { replace: true });
+        } else {
+            // Lógica de pestaña por defecto
+            if (role === 'support_agent') setActiveTab("support");
+            else if (role === 'moderator') setActiveTab("users");
+            else if (role === 'supervisor') setActiveTab("recharges");
+            else setActiveTab("recharges");
+
+            loadData();
+            setVerifyingAccess(false);
+        }
+    }, [userData, navigate]);
+
+    // >>>>> AÑADE ESTE BLOQUE COMPLETO PARA RESTAURAR LAS ACTUALIZACIONES EN VIVO <<<<<
+
+    // Listener para actualizar la lista de solicitudes en tiempo real
     useEffect(() => {
-        if (!isAdmin) return;
-        if (activeTab !== "recharges") return;
+        // Si el usuario no tiene permiso para ver la pestaña, no configurar los listeners.
+        if (!permissions.canViewRechargesTab) return;
+
+        // Listener para solicitudes de recarga pendientes
         const qRecharge = query(collection(db, "rechargeRequests"), where("status", "==", "pending"));
-        const qWithdraw = query(collection(db, "withdrawRequests"), where("status", "==", "pending"));
         const unsubRecharge = onSnapshot(qRecharge, (snap) => {
             const rechargeReqs = snap.docs.map(doc => ({ id: doc.id, ...doc.data(), requestType: "recharge" }));
-            setRequests(prev => {
-                const withdraws = prev.filter(r => r.requestType === "withdraw");
-                return [...rechargeReqs, ...withdraws];
+            
+            // Actualiza el estado de forma segura, manteniendo las solicitudes de retiro existentes
+            setRequests(currentRequests => {
+                const otherRequests = currentRequests.filter(r => r.requestType !== "recharge");
+                return [...otherRequests, ...rechargeReqs];
             });
         });
+
+        // Listener para solicitudes de retiro pendientes
+        const qWithdraw = query(collection(db, "withdrawRequests"), where("status", "==", "pending"));
         const unsubWithdraw = onSnapshot(qWithdraw, (snap) => {
             const withdrawReqs = snap.docs.map(doc => ({ id: doc.id, ...doc.data(), requestType: "withdraw" }));
-            setRequests(prev => {
-                const recharges = prev.filter(r => r.requestType === "recharge");
-                return [...recharges, ...withdrawReqs];
+
+            // Actualiza el estado de forma segura, manteniendo las solicitudes de recarga existentes
+            setRequests(currentRequests => {
+                const otherRequests = currentRequests.filter(r => r.requestType !== "withdraw");
+                return [...otherRequests, ...withdrawReqs];
             });
         });
+
+        // Función de limpieza: se ejecuta cuando el componente se desmonta para evitar fugas de memoria
         return () => {
             unsubRecharge();
             unsubWithdraw();
         };
-    }, [activeTab, isAdmin]);
+    }, [permissions.canViewRechargesTab]); // La dependencia clave es el permiso del usuario
+
+
+    // Listener de notificaciones (simplificado)
     useEffect(() => {
-        const rateRef = doc(db, 'appSettings', 'exchangeRate');
-        const unsub = onSnapshot(rateRef, (snap) => {
-            if (snap.exists()) {
-                setExchangeRate(snap.data().rate || 100);
-            }
-        });
-        return () => unsub();
-    }, []);
-    useEffect(() => {
-        const unsub = onSnapshot(collection(db, "users"), (snap) => {
-            setUsers(snap.docs.map(doc => ({
-                ...doc.data(),
-                id: doc.id,
-                role: doc.data().role || 'user',
-                suspended: !!doc.data().suspended,
-                active: !!doc.data().active,
-                lastActive: doc.data().lastActive
-            })));
-        });
-        return () => unsub();
-    }, []);
+        if (!permissions.canViewRechargesTab) return;
+
+        const setupListener = (collectionName) => {
+            const q = query(collection(db, collectionName), where("status", "==", "pending"));
+            return onSnapshot(q, (snap) => {
+                if (snap.docChanges().some(change => change.type === "added")) {
+                    setNewRequestNotification(true);
+                    const audio = new window.Audio("/notification.mp3");
+                    audio.play().catch(() => {});
+                    setTimeout(() => setNewRequestNotification(false), 3000);
+                }
+            });
+        };
+        const unsubRecharge = setupListener("rechargeRequests");
+        const unsubWithdraw = setupListener("withdrawRequests");
+        return () => {
+            unsubRecharge();
+            unsubWithdraw();
+        };
+    }, [permissions.canViewRechargesTab]);
+
+    // >>>>> REEMPLAZA TU FUNCIÓN loadData COMPLETA CON ESTA VERSIÓN <<<<<
     const loadData = async () => {
-        setLoadingData(true);
         try {
-            const rechargeReqs = await getPendingRechargeRequests();
-            const withdrawReqs = await getPendingWithdrawRequests();
+            // Unificamos la carga de datos para asegurar que todo esté disponible si se necesita.
+            // La interfaz ya controla qué se muestra con los permisos.
+
+            const [
+                rechargeReqs,
+                withdrawReqs,
+                allRechargeRequests,
+                allWithdrawRequests,
+                rate,
+                usersList
+            ] = await Promise.all([
+                getPendingRechargeRequests(),
+                getPendingWithdrawRequests(),
+                getAllRechargeRequests(),
+                getAllWithdrawRequests(),
+                getExchangeRate(),
+                getAllUsers()
+            ]);
+
+            // Llenar estados como antes
             const requestsWithType = [
                 ...rechargeReqs.map(r => ({ ...r, requestType: "recharge" })),
                 ...withdrawReqs.map(r => ({ ...r, requestType: "withdraw" }))
             ];
             setRequests(requestsWithType);
-            const allRechargeRequests = await getAllRechargeRequests();
-            const allWithdrawRequests = await getAllWithdrawRequests();
+
             const allRequestsWithType = [
                 ...allRechargeRequests.map(r => ({ ...r, requestType: "recharge" })),
                 ...allWithdrawRequests.map(r => ({ ...r, requestType: "withdraw" }))
             ];
-            setAllRequests(allRequestsWithType);
-            const rate = await getExchangeRate();
+            setAllRequests(allRequestsWithType); // <-- ESTO ARREGLA EL HISTORIAL
+
             setExchangeRate(rate);
-            const usersList = await getAllUsers();
+
             setUsers(usersList.map(u => ({
                 ...u,
+                id: u.id,
                 role: u.role || 'user',
                 suspended: !!u.suspended,
                 active: !!u.active,
                 lastActive: u.lastActive
             })));
+
         } catch (error) {
             console.error("❌ Error cargando datos del panel:", error);
         }
-        setLoadingData(false);
     };
-    const usersActive = users.filter(u =>
-        !u.suspended &&
-        u.active &&
-        (
-            u.lastActive && typeof u.lastActive === "object" && typeof u.lastActive.toMillis === "function"
-                ? (Date.now() - u.lastActive.toMillis() < 10 * 60 * 1000)
-                : true
-        )
-    );
+
+
+    // --- FUNCIONES HANDLE ---
     const handleRequestAction = async (requestId, action) => {
+        if (!permissions.canApprovePayments) {
+            alert("❌ No tienes permiso para aprobar o rechazar pagos.");
+            return;
+        }
         try {
             const request = requests.find(req => req.id === requestId);
             if (!request) return;
+
             const adminEmail = currentUser?.email || 'Admin Desconocido';
+
             // Eliminar cualquier transacción pendiente asociada a este requestId
             const q = query(
                 collection(db, "transactions"),
@@ -234,6 +261,7 @@ const AdminPanel = () => {
             for (const pendingDoc of snapshot.docs) {
                 await deleteDoc(doc(db, "transactions", pendingDoc.id));
             }
+
             if (request.requestType === "recharge") {
                 if (action === "approved") {
                     await createTransaction({
@@ -256,9 +284,9 @@ const AdminPanel = () => {
                         actionType: "aprobar_recarga",
                         adminData: {
                             id: currentUser?.uid || '',
-                            name: currentUserData?.username || '',
+                            name: userData?.username || '',
                             email: currentUser?.email || '',
-                            role: currentUserData?.role || ''
+                            role: userData?.role || ''
                         },
                         targetId: request.id,
                         targetType: "solicitud_recarga",
@@ -290,9 +318,9 @@ const AdminPanel = () => {
                         actionType: "rechazar_recarga",
                         adminData: {
                             id: currentUser?.uid || '',
-                            name: currentUserData?.username || '',
+                            name: userData?.username || '',
                             email: currentUser?.email || '',
-                            role: currentUserData?.role || ''
+                            role: userData?.role || ''
                         },
                         targetId: request.id,
                         targetType: "solicitud_recarga",
@@ -307,6 +335,7 @@ const AdminPanel = () => {
                     alert(`❌ Solicitud de recarga rechazada`);
                 }
             }
+
             if (request.requestType === "withdraw") {
                 if (action === "approved") {
                     await createTransaction({
@@ -332,9 +361,9 @@ const AdminPanel = () => {
                         actionType: "aprobar_retiro",
                         adminData: {
                             id: currentUser?.uid || '',
-                            name: currentUserData?.username || '',
+                            name: userData?.username || '',
                             email: currentUser?.email || '',
-                            role: currentUserData?.role || ''
+                            role: userData?.role || ''
                         },
                         targetId: request.id,
                         targetType: "solicitud_retiro",
@@ -364,9 +393,9 @@ const AdminPanel = () => {
                         actionType: "rechazar_retiro",
                         adminData: {
                             id: currentUser?.uid || '',
-                            name: currentUserData?.username || '',
+                            name: userData?.username || '',
                             email: currentUser?.email || '',
-                            role: currentUserData?.role || ''
+                            role: userData?.role || ''
                         },
                         targetId: request.id,
                         targetType: "solicitud_retiro",
@@ -387,10 +416,12 @@ const AdminPanel = () => {
             alert("❌ Error al procesar la solicitud");
         }
     };
+
     const handleSaveExchangeRate = async () => {
         try {
             const oldRate = exchangeRate;
             await updateExchangeRate(exchangeRate);
+
             // 🚀 Actualiza la tasa en todos los torneos activos
             const q = query(
                 collection(db, 'bingoTournaments'),
@@ -404,7 +435,7 @@ const AdminPanel = () => {
                 });
             });
             await batch.commit();
-            
+
             // 🚀 Actualiza la tasa en la configuración específica de slots
             await updateSlotsExchangeRate(exchangeRate);
 
@@ -413,9 +444,9 @@ const AdminPanel = () => {
                 actionType: "cambiar_tasa_cambio",
                 adminData: {
                     id: currentUser?.uid || '',
-                    name: currentUserData?.username || '',
+                    name: userData?.username || '',
                     email: currentUser?.email || '',
-                    role: currentUserData?.role || ''
+                    role: userData?.role || ''
                 },
                 targetType: "configuracion_general",
                 details: {
@@ -424,17 +455,25 @@ const AdminPanel = () => {
                 },
                 description: `Cambió la tasa de cambio general a ${exchangeRate} Bs y actualizó la configuración de slots`
             });
+
             alert("✅ Tasa de cambio general actualizada correctamente (y aplicada a torneos de bingo y configuración de slots)");
         } catch (error) {
             console.error("❌ Error actualizando tasa:", error);
             alert("❌ Error al actualizar la tasa general y de slots");
         }
     };
+
     const handleUserRoleChange = async (userId, newRole) => {
+        if (!permissions.canEditRoles) {
+            alert("❌ No tienes permiso para cambiar roles.");
+            return;
+        }
         const userToChange = users.find(u => u.id === userId);
         if (!userToChange) return;
+
         const roleName = ROLES.find(r => r.id === newRole)?.name || newRole;
         if (!window.confirm(`¿Cambiar rol de "${userToChange.username || userToChange.email}" a "${roleName}"?`)) return;
+
         const oldRole = userToChange.role;
         try {
             await updateUserRole(userId, newRole);
@@ -447,14 +486,15 @@ const AdminPanel = () => {
                 await updateDoc(userRef, { isAdmin: false });
             }
             setUsers(users.map(u => u.id === userId ? { ...u, role: newRole, isAdmin: isAdminStatus } : u));
+
             // ✅ AUDITORÍA: Cambio de rol
             await logAdminMovement({
                 actionType: "cambiar_rol_usuario",
                 adminData: {
                     id: currentUser?.uid || '',
-                    name: currentUserData?.username || '',
+                    name: userData?.username || '',
                     email: currentUser?.email || '',
-                    role: currentUserData?.role || ''
+                    role: userData?.role || ''
                 },
                 targetId: userId,
                 targetType: "usuario",
@@ -465,29 +505,38 @@ const AdminPanel = () => {
                 },
                 description: `Cambió el rol de "${userToChange.username || userToChange.email}" de "${oldRole}" a "${newRole}"`
             });
+
             alert("Rol actualizado");
         } catch (e) {
             console.error("Error actualizando rol", e);
             alert("Error actualizando rol");
         }
     };
+
     const handleToggleSuspension = async (userId, isSuspended) => {
+        if (!permissions.canSuspendUsers) {
+            alert("❌ No tienes permiso para suspender o reactivar usuarios.");
+            return;
+        }
         const userToChange = users.find(u => u.id === userId);
         if (!userToChange) return;
+
         const action = isSuspended ? "Reactivar" : "Suspender";
         if (!window.confirm(`¿Está seguro de ${action.toLowerCase()} al usuario "${userToChange.username || userToChange.email}"?`)) return;
+
         try {
             const ok = await suspendUser(userId, !isSuspended);
             if (ok) {
                 setUsers(users.map(u => u.id === userId ? { ...u, suspended: !isSuspended } : u));
+
                 // ✅ AUDITORÍA: Suspensión o reactivación de usuario
                 await logAdminMovement({
                     actionType: isSuspended ? "reactivar_usuario" : "suspender_usuario",
                     adminData: {
                         id: currentUser?.uid || '',
-                        name: currentUserData?.username || '',
+                        name: userData?.username || '',
                         email: currentUser?.email || '',
-                        role: currentUserData?.role || ''
+                        role: userData?.role || ''
                     },
                     targetId: userId,
                     targetType: "usuario",
@@ -497,6 +546,7 @@ const AdminPanel = () => {
                     },
                     description: `${action} al usuario "${userToChange.username || userToChange.email}"`
                 });
+
                 alert(`${action} exitosa.`);
             } else {
                 alert(`Error al ${action.toLowerCase()} el usuario.`);
@@ -506,22 +556,30 @@ const AdminPanel = () => {
             alert(`Error al ${action.toLowerCase()} el usuario.`);
         }
     };
+
     const handleDeleteUser = async (userId) => {
+        if (!permissions.canDeleteUsers) {
+            alert("❌ No tienes permiso para eliminar usuarios.");
+            return;
+        }
         const userToChange = users.find(u => u.id === userId);
         if (!userToChange) return;
+
         if (!window.confirm(`⚠️ ADVERTENCIA: Esta acción es permanente. ¿Eliminar usuario "${userToChange.username || userToChange.email}" y sus datos?`)) return;
+
         try {
             const ok = await deleteUserFromFirestore(userId);
             if (ok) {
                 setUsers(users.filter(u => u.id !== userId));
+
                 // ✅ AUDITORÍA: Eliminación de usuario
                 await logAdminMovement({
                     actionType: "eliminar_usuario",
                     adminData: {
                         id: currentUser?.uid || '',
-                        name: currentUserData?.username || '',
+                        name: userData?.username || '',
                         email: currentUser?.email || '',
-                        role: currentUserData?.role || ''
+                        role: userData?.role || ''
                     },
                     targetId: userId,
                     targetType: "usuario",
@@ -530,6 +588,7 @@ const AdminPanel = () => {
                     },
                     description: `Eliminó permanentemente al usuario "${userToChange.username || userToChange.email}"`
                 });
+
                 alert("Usuario eliminado permanentemente.");
             } else {
                 alert("Error al eliminar el usuario.");
@@ -539,11 +598,56 @@ const AdminPanel = () => {
             alert("Error al eliminar usuario.");
         }
     };
+
+    const handleDeleteAllTransactions = async () => {
+        setDeleteLoading(true);
+        try {
+            const querySnapshot = await getDocs(collection(db, "transactions"));
+            for (const document of querySnapshot.docs) {
+                await deleteDoc(doc(db, "transactions", document.id));
+            }
+            // ✅ AUDITORÍA: Eliminación de todas las transacciones
+            await logAdminMovement({
+                actionType: "eliminar_todas_transacciones",
+                adminData: {
+                    id: currentUser?.uid || '',
+                    name: userData?.username || '',
+                    email: currentUser?.email || '',
+                    role: userData?.role || ''
+                },
+                targetType: "transacciones",
+                details: {
+                    totalEliminadas: querySnapshot.size
+                },
+                description: `Eliminó ${querySnapshot.size} registros de transacciones`
+            });
+            setDeleteLoading(false);
+            setShowDeleteModal(false);
+            alert("Todos los registros de transactions han sido eliminados.");
+        } catch (error) {
+            setDeleteLoading(false);
+            setShowDeleteModal(false);
+            alert("Error eliminando registros: " + error.message);
+        }
+    };
+
+    // --- FUNCIONES AUXILIARES ---
+    const usersActive = users.filter(u =>
+        !u.suspended &&
+        u.active &&
+        (
+            u.lastActive && typeof u.lastActive === "object" && typeof u.lastActive.toMillis === "function"
+                ? (Date.now() - u.lastActive.toMillis() < 10 * 60 * 1000)
+                : true
+        )
+    );
+
     const filteredUsers = users.filter(u =>
         (u.username || "").toLowerCase().includes(userSearch.toLowerCase()) ||
         (u.email || "").toLowerCase().includes(userSearch.toLowerCase()) ||
         (u.phone || "").includes(userSearch)
     );
+
     const rechargeHistory = allRequests
         .filter(r =>
             r.requestType === "recharge" &&
@@ -561,6 +665,7 @@ const AdminPanel = () => {
             const bMillis = b.createdAt?.toMillis?.() || 0;
             return bMillis - aMillis;
         });
+
     const withdrawHistory = allRequests
         .filter(r =>
             r.requestType === "withdraw" &&
@@ -578,37 +683,16 @@ const AdminPanel = () => {
             const bMillis = b.createdAt?.toMillis?.() || 0;
             return bMillis - aMillis;
         });
-    const handleDeleteAllTransactions = async () => {
-        setDeleteLoading(true);
-        try {
-            const querySnapshot = await getDocs(collection(db, "transactions"));
-            for (const document of querySnapshot.docs) {
-                await deleteDoc(doc(db, "transactions", document.id));
-            }
-            // ✅ AUDITORÍA: Eliminación de todas las transacciones
-            await logAdminMovement({
-                actionType: "eliminar_todas_transacciones",
-                adminData: {
-                    id: currentUser?.uid || '',
-                    name: currentUserData?.username || '',
-                    email: currentUser?.email || '',
-                    role: currentUserData?.role || ''
-                },
-                targetType: "transacciones",
-                details: {
-                    totalEliminadas: querySnapshot.size
-                },
-                description: `Eliminó ${querySnapshot.size} registros de transacciones`
-            });
-            setDeleteLoading(false);
-            setShowDeleteModal(false);
-            alert("Todos los registros de transactions han sido eliminados.");
-        } catch (error) {
-            setDeleteLoading(false);
-            setShowDeleteModal(false);
-            alert("Error eliminando registros: " + error.message);
-        }
-    };
+
+
+    if (verifyingAccess) {
+        return (
+            <div className="min-h-screen flex items-center justify-center bg-gray-900 text-white">
+                <div className="text-xl animate-pulse">Verificando credenciales...</div>
+            </div>
+        );
+    }
+
     return (
         <div className="min-h-screen bg-gradient-to-br from-gray-900 via-purple-900 to-gray-900 relative overflow-hidden">
             <header className="relative z-10 bg-black/40 backdrop-blur-lg border-b border-red-500/30 shadow-2xl">
@@ -629,9 +713,9 @@ const AdminPanel = () => {
                             <div className="text-white/80 text-left sm:text-right">
                                 <div className="text-sm opacity-60 break-words">
                                     Administrador: {currentUser?.email}
-                                    {currentUserData?.role && (
+                                    {userData?.role && (
                                         <span className="ml-2 px-2 py-0.5 rounded bg-white/10 text-xs">
-                                            {ROLES.find(r => r.id === currentUserData?.role)?.name || currentUserData?.role}
+                                            {ROLES.find(r => r.id === userData?.role)?.name || userData?.role}
                                         </span>
                                     )}
                                 </div>
@@ -648,49 +732,59 @@ const AdminPanel = () => {
                     </div>
                 </div>
             </header>
-            <div className="flex flex-col sm:flex-row gap-2 sm:gap-4 mb-8 px-4 sm:px-6 pt-6">
-                {["recharges", "history", "settings", "users", "support", "owner"].map((tab) => {
-                    if (tab === "owner") {
-                        return (
-                            <button
-                                key={tab}
-                                onClick={() => setShowOwnerModal(true)}
-                                className={`w-full sm:w-auto px-4 py-3 sm:px-8 sm:py-4 rounded-xl font-semibold text-base sm:text-lg transition-all duration-300 transform hover:scale-105 bg-black/60 text-yellow-300 border border-yellow-500/30`}
-                            >
-                                🦾 La Zona
-                            </button>
-                        );
-                    }
-                    const handleTabClick = () => {
-                        if (tab === 'users') {
-                            if (isUsersSectionUnlocked) {
-                                setActiveTab('users');
-                            } else {
-                                setShowPasswordModal(true);
-                            }
-                        } else {
-                            setActiveTab(tab);
-                        }
-                    };
-                    return (
-                        <button
-                            key={tab}
-                            onClick={handleTabClick}
-                            className={`w-full sm:w-auto px-4 py-3 sm:px-8 sm:py-4 rounded-xl font-semibold text-base sm:text-lg transition-all duration-300 transform hover:scale-105 ${
-                                activeTab === tab
-                                    ? "bg-red-500 text-white shadow-lg shadow-red-500/30"
-                                    : "bg-white/10 text-white hover:bg-white/20 border border-white/20"
-                            }`}
-                        >
-                            {tab === "recharges" && "💳 Solicitudes de Recarga/Retiro"}
-                            {tab === "history" && "📊 Historial"}
-                            {tab === "settings" && "⚙️ Configuración General"}
-                            {tab === "users" && "👥 Usuarios"}
-                            {tab === "support" && "🎫 Soporte"}
-                        </button>
-                    );
-                })}
+
+            {/* --- NAVEGACIÓN DE PESTAÑAS CON PERMISOS --- */}
+            <div className="flex flex-wrap sm:flex-row gap-2 sm:gap-4 mb-8 px-4 sm:px-6 pt-6">
+                {permissions.canViewRechargesTab && (
+                    <button
+                        onClick={() => setActiveTab("recharges")}
+                        className={`w-full sm:w-auto px-4 py-3 sm:px-8 sm:py-4 rounded-xl font-semibold text-base sm:text-lg transition-all duration-300 transform hover:scale-105 ${activeTab === "recharges" ? "bg-red-500 text-white shadow-lg shadow-red-500/30" : "bg-white/10 text-white hover:bg-white/20 border border-white/20"}`}
+                    >
+                        💳 Solicitudes
+                    </button>
+                )}
+                {permissions.canViewHistoryTab && (
+                    <button
+                        onClick={() => setActiveTab("history")}
+                        className={`w-full sm:w-auto px-4 py-3 sm:px-8 sm:py-4 rounded-xl font-semibold text-base sm:text-lg transition-all duration-300 transform hover:scale-105 ${activeTab === "history" ? "bg-red-500 text-white shadow-lg shadow-red-500/30" : "bg-white/10 text-white hover:bg-white/20 border border-white/20"}`}
+                    >
+                        📊 Historial
+                    </button>
+                )}
+                {permissions.canViewSettingsTab && (
+                    <button
+                        onClick={() => setActiveTab("settings")}
+                        className={`w-full sm:w-auto px-4 py-3 sm:px-8 sm:py-4 rounded-xl font-semibold text-base sm:text-lg transition-all duration-300 transform hover:scale-105 ${activeTab === "settings" ? "bg-red-500 text-white shadow-lg shadow-red-500/30" : "bg-white/10 text-white hover:bg-white/20 border border-white/20"}`}
+                    >
+                        ⚙️ Configuración
+                    </button>
+                )}
+                {permissions.canViewUsersTab && (
+                    <button
+                        onClick={() => isUsersSectionUnlocked ? setActiveTab('users') : setShowPasswordModal(true)}
+                        className={`w-full sm:w-auto px-4 py-3 sm:px-8 sm:py-4 rounded-xl font-semibold text-base sm:text-lg transition-all duration-300 transform hover:scale-105 ${activeTab === "users" ? "bg-red-500 text-white shadow-lg shadow-red-500/30" : "bg-white/10 text-white hover:bg-white/20 border border-white/20"}`}
+                    >
+                        👥 Usuarios
+                    </button>
+                )}
+                {permissions.canViewSupportTab && (
+                    <button
+                        onClick={() => setActiveTab("support")}
+                        className={`w-full sm:w-auto px-4 py-3 sm:px-8 sm:py-4 rounded-xl font-semibold text-base sm:text-lg transition-all duration-300 transform hover:scale-105 ${activeTab === "support" ? "bg-red-500 text-white shadow-lg shadow-red-500/30" : "bg-white/10 text-white hover:bg-white/20 border border-white/20"}`}
+                    >
+                        🎫 Soporte
+                    </button>
+                )}
+                {permissions.canAccessOwnerZone && (
+                    <button
+                        onClick={() => setShowOwnerModal(true)}
+                        className="w-full sm:w-auto px-4 py-3 sm:px-8 sm:py-4 rounded-xl font-semibold text-base sm:text-lg transition-all duration-300 transform hover:scale-105 bg-black/60 text-yellow-300 border border-yellow-500/30"
+                    >
+                        🦾 La Zona
+                    </button>
+                )}
             </div>
+
             {/* MODAL DE CONTRASEÑA */}
             {showPasswordModal && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
@@ -716,7 +810,7 @@ const AdminPanel = () => {
                             <div className="text-red-400 text-xs mb-2">{passwordError}</div>
                         )}
                         <button
-                            className="bg-purple-600 hover:bg-purple-500 text-white font-bold py-2 px-6 rounded-xl transition-all duration-300 w-full"
+                            className="bg-purple-600 hover:bg-purple-500 text-white font-bold py-2 px-6 rounded-xl transition-all"
                             onClick={() => {
                                 if (passwordInput === USERS_PASSWORD) {
                                     setIsUsersSectionUnlocked(true);
@@ -735,6 +829,7 @@ const AdminPanel = () => {
                     </div>
                 </div>
             )}
+
             {/* MODAL DE CONFIRMACIÓN PARA ELIMINAR TRANSACTIONS */}
             {showDeleteModal && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
@@ -767,6 +862,7 @@ const AdminPanel = () => {
                     </div>
                 </div>
             )}
+
             {showOwnerModal && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
                     <div className="bg-gray-900 rounded-2xl p-8 max-w-xs w-full border-2 border-yellow-500 shadow-2xl relative">
@@ -799,16 +895,19 @@ const AdminPanel = () => {
                     </div>
                 </div>
             )}
+
             {activeTab === "recharges" && newRequestNotification && (
                 <div className="fixed top-25 right-4 bg-green-600 text-white px-4 py-2 rounded-xl shadow-lg z-50">
                     ¡Nueva solicitud recibida!
                 </div>
             )}
+
             <main className="relative z-10 container mx-auto px-2 sm:px-6 py-8">
                 <div className="max-w-7xl mx-auto">
                     <div className="bg-white/10 rounded-2xl p-2 sm:p-8 backdrop-blur-lg border border-white/20 panel-content">
-                        {/* PESTAÑA: RECARGAS Y RETIROS PENDIENTES */}
-                        {activeTab === "recharges" && (
+                        
+                        {/* PESTAÑA: RECARGAS (con permiso) */}
+                        {activeTab === "recharges" && permissions.canViewRechargesTab && (
                             <div>
                                 <h3 className="text-xl sm:text-2xl font-bold text-white mb-6">
                                     💳 Solicitudes Pendientes ({requests.filter(r => r.status === "pending").length})
@@ -896,8 +995,9 @@ const AdminPanel = () => {
                                 )}
                             </div>
                         )}
-                        {/* PESTAÑA: CONFIGURACIÓN GENERAL */}
-                        {activeTab === "settings" && (
+
+                        {/* PESTAÑA: CONFIGURACIÓN GENERAL (con permiso) */}
+                        {activeTab === "settings" && permissions.canViewSettingsTab && (
                             <div>
                                 <h3 className="text-2xl font-bold text-white mb-6">⚙️ Configuración General</h3>
                                 <div className="bg-white/10 rounded-xl p-6 mb-8 border border-white/20 max-w-md mx-auto">
@@ -926,8 +1026,9 @@ const AdminPanel = () => {
                                 </div>
                             </div>
                         )}
-                        {/* PESTAÑA: HISTORIAL */}
-                        {activeTab === "history" && (
+
+                        {/* PESTAÑA: HISTORIAL (con permiso) */}
+                        {activeTab === "history" && permissions.canViewHistoryTab && (
                             <div>
                                 <h3 className="text-2xl font-bold text-white mb-6">📊 Historial de Solicitudes</h3>
                                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
@@ -1131,8 +1232,9 @@ const AdminPanel = () => {
                                 )}
                             </div>
                         )}
-                        {/* PESTAÑA: SOPORTE */}
-                        {activeTab === "support" && (
+
+                        {/* PESTAÑA: SOPORTE (con permiso) */}
+                        {activeTab === "support" && permissions.canViewSupportTab && (
                             <div className="bg-gradient-to-br from-green-900/20 to-emerald-800/20 rounded-2xl p-8 backdrop-blur-lg border border-green-500/30">
                                 <div className="text-center py-8">
                                     <div className="text-6xl mb-6">🎫</div>
@@ -1170,8 +1272,9 @@ const AdminPanel = () => {
                                 </div>
                             </div>
                         )}
-                        {/* PESTAÑA: USUARIOS */}
-                        {activeTab === "users" && (
+
+                        {/* PESTAÑA: USUARIOS (con permisos granulares) */}
+                        {activeTab === "users" && permissions.canViewUsersTab && (
                             <div>
                                 <h3 className="text-2xl font-bold text-white mb-6">👥 Gestión de Usuarios</h3>
                                 <div className="mb-6 flex flex-col gap-4">
@@ -1213,7 +1316,8 @@ const AdminPanel = () => {
                                                         <select
                                                             value={user.role || 'user'}
                                                             onChange={(e) => handleUserRoleChange(user.id, e.target.value)}
-                                                            className="bg-white/20 border border-white/30 rounded px-2 py-1 text-sm focus:outline-none"
+                                                            disabled={!permissions.canEditRoles}
+                                                            className={`bg-white/20 border border-white/30 rounded px-2 py-1 text-sm focus:outline-none ${!permissions.canEditRoles ? "cursor-not-allowed opacity-60" : ""}`}
                                                         >
                                                             {ROLES.map(r => (
                                                                 <option key={r.id} value={r.id} className="bg-gray-800">
@@ -1226,7 +1330,9 @@ const AdminPanel = () => {
                                                         <input
                                                             type="number"
                                                             defaultValue={user.balance || 0}
+                                                            readOnly={!permissions.canEditBalances}
                                                             onBlur={async (e) => {
+                                                                if (!permissions.canEditBalances) return; // Doble seguridad
                                                                 const newBalance = Number(e.target.value);
                                                                 const oldBalance = user.balance || 0;
                                                                 const difference = newBalance - oldBalance;
@@ -1249,9 +1355,9 @@ const AdminPanel = () => {
                                                                     await logUserBalanceChange({
                                                                         adminData: {
                                                                             id: currentUser?.uid || '',
-                                                                            name: currentUserData?.username || '',
+                                                                            name: userData?.username || '',
                                                                             email: currentUser?.email || '',
-                                                                            role: currentUserData?.role || ''
+                                                                            role: userData?.role || ''
                                                                         },
                                                                         userId: user.id,
                                                                         userEmail: user.email,
@@ -1265,7 +1371,7 @@ const AdminPanel = () => {
                                                                     alert("Error al actualizar saldo");
                                                                 }
                                                             }}
-                                                            className="w-24 p-1 rounded bg-white/20 text-sm focus:outline-none focus:ring-1 ring-purple-500"
+                                                            className={`w-24 p-1 rounded bg-white/20 text-sm focus:outline-none ${!permissions.canEditBalances ? "cursor-not-allowed opacity-60" : "focus:ring-1 ring-purple-500"}`}
                                                         />
                                                     </td>
                                                     <td className="px-4 py-3 text-center">
@@ -1276,13 +1382,15 @@ const AdminPanel = () => {
                                                     <td className="px-4 py-3 text-center space-x-2">
                                                         <button
                                                             onClick={() => handleToggleSuspension(user.id, user.suspended)}
-                                                            className={`px-2 py-1 rounded text-xs font-semibold transition ${user.suspended ? "bg-green-600 hover:bg-green-500" : "bg-yellow-600 hover:bg-yellow-500"}`}
+                                                            disabled={!permissions.canSuspendUsers}
+                                                            className={`px-2 py-1 rounded text-xs font-semibold transition ${user.suspended ? "bg-green-600 hover:bg-green-500" : "bg-yellow-600 hover:bg-yellow-500"} ${!permissions.canSuspendUsers ? "opacity-50 cursor-not-allowed" : ""}`}
                                                         >
                                                             {user.suspended ? "Reactivar" : "Suspender"}
                                                         </button>
                                                         <button
                                                             onClick={() => handleDeleteUser(user.id)}
-                                                            className="px-2 py-1 bg-red-600 hover:bg-red-500 rounded text-xs font-semibold transition"
+                                                            disabled={!permissions.canDeleteUsers}
+                                                            className={`px-2 py-1 bg-red-600 hover:bg-red-500 rounded text-xs font-semibold transition ${!permissions.canDeleteUsers ? "opacity-50 cursor-not-allowed" : ""}`}
                                                         >
                                                             Eliminar
                                                         </button>
@@ -1304,11 +1412,13 @@ const AdminPanel = () => {
                     </div>
                 </div>
             </main>
+
             <style>{`
                 .panel-content:empty {
                     display: none !important;
                 }
             `}</style>
+
             <div className="absolute top-20 left-10 w-32 h-32 bg-red-500/10 rounded-full blur-xl"></div>
             <div className="absolute bottom-20 right-10 w-48 h-48 bg-purple-500/10 rounded-full blur-2xl"></div>
             <style>{`
@@ -1323,4 +1433,5 @@ const AdminPanel = () => {
         </div>
     );
 };
+
 export default AdminPanel;

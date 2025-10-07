@@ -21,6 +21,10 @@ import SlotsLobby from './components/slots/SlotsLobby';
 import SlotsGame from './components/slots/SlotsGame';
 import SlotsAdmin from './components/slots/SlotsAdmin';
 
+// >>>>> IMPORTA LOS NUEVOS COMPONENTES <<<<<
+import CrashGame from './components/crash/CrashGame';
+import CrashAdminPanel from './components/crash/CrashAdminPanel';
+
 // Contexto de autenticación
 export const AuthContext = createContext(null);
 
@@ -157,6 +161,28 @@ const ProtectedRoute = ({ children }) => {
   if (!currentUser || userData?.suspended) {
     return <Navigate to="/" replace />;
   }
+  return children;
+};
+
+// >>>>> RUTA PROTEGIDA PARA ADMINISTRADORES <<<<<
+const AdminRoute = ({ children }) => {
+  const { currentUser, userData, loading } = useContext(AuthContext);
+  
+  if (loading) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-screen">
+        <div className="text-xl text-gray-700">Verificando permisos...</div>
+      </div>
+    );
+  }
+  
+  // Verificar si el usuario tiene permisos de administrador
+  const isAdmin = userData?.role === 'admin' || userData?.role === 'supervisor' || userData?.role === 'moderator' || userData?.role === 'owner';
+  
+  if (!currentUser || userData?.suspended || !isAdmin) {
+    return <Navigate to="/lobby" replace />;
+  }
+  
   return children;
 };
 
@@ -400,7 +426,7 @@ const AuthPage = () => {
         }
       `}</style>
       <img
-        src="https://upload.wikimedia.org/wikipedia/commons/0/06/Flag_of_Venezuela.svg  "
+        src="https://upload.wikimedia.org/wikipedia/commons/0/06/Flag_of_Venezuela.svg    "
         alt="Bandera de Venezuela"
         className="absolute bottom-4 right-4 w-30 h-38 object-contain"
       />
@@ -607,7 +633,7 @@ const AuthPage = () => {
         )}
       </div>
       {showTermsModal && (
-        <div className="fixed inset-0 flex items-center justify-center bg-black bg-opacity-50 z-50">
+        <div className="fixed inset-0 flex items-center justify-center bg-black/60 z-50">
           <div className="bg-white p-6 rounded-2xl w-11/12 max-w-2xl max-h-[80vh] overflow-y-auto">
             <h2 className="text-2xl font-bold mb-4 text-gray-800">📜 Términos y Condiciones</h2>
             <div className="space-y-3 text-gray-700">
@@ -650,6 +676,14 @@ function App() {
         <Route path="/slots" element={<ProtectedRoute><SlotsLobby /></ProtectedRoute>} />
         <Route path="/slots/game" element={<ProtectedRoute><SlotsGame /></ProtectedRoute>} />
         <Route path="/admin/slots" element={<ProtectedRoute><SlotsAdmin /></ProtectedRoute>} />
+        
+        {/* >>>>> AÑADE LAS NUEVAS RUTAS PARA CRASH GAME <<<<< */}
+        <Route path="/crash" element={<ProtectedRoute><CrashGame /></ProtectedRoute>} />
+        <Route path="/admin/crash" element={
+            <AdminRoute>
+                <CrashAdminPanel />
+            </AdminRoute>
+        } />
       </Routes>
     </AuthProvider>
   );

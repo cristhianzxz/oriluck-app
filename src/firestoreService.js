@@ -611,41 +611,48 @@ export const updateSlotsExchangeRate = async (newRate) => {
 // 📌 SISTEMA DE SOPORTE - TICKETS (Listener Agregado)
 // ======================================================================
 
+// >>>>> REEMPLAZA ESTA FUNCIÓN COMPLETA en firestoreService.js <<<<<
 export const createSupportTicket = async (ticketData) => {
     try {
         const ticketsRef = collection(db, "supportTickets");
-        const ticketRef = doc(ticketsRef);
-        const ticketId = `TKT-${new Date().getFullYear()}-${ticketRef.id.substring(0, 4).toUpperCase()}`;
-        const firstMessage = {
-            sender: ticketData.userId,
-            senderType: "user",
-            message: ticketData.message,
-            timestamp: new Date()
-        };
-        const ticket = {
-            ticketId,
+        const ticketRef = doc(ticketsRef); // Crea una referencia con un ID único
+        
+        const finalTicket = {
+            ticketId: `TKT-${new Date().getFullYear()}-${ticketRef.id.substring(0, 4).toUpperCase()}`,
             userId: ticketData.userId,
-            username: ticketData.username,
+            userName: ticketData.userName,
             email: ticketData.email,
             subject: ticketData.subject,
-            message: ticketData.message,
             category: ticketData.category,
             status: "abierto",
             priority: ticketData.priority || "medio",
+            // Estos SÍ pueden usar serverTimestamp porque no están en un array
             createdAt: serverTimestamp(),
             updatedAt: serverTimestamp(),
             assignedAdmin: null,
-            messages: [firstMessage],
             hasUnreadForAdmin: true,
-            hasUnreadForUser: false
+            hasUnreadForUser: false,
+            handlingHistory: [],
+            messages: [
+                {
+                    sender: ticketData.userId,
+                    senderType: "user",
+                    message: ticketData.message,
+                    // --- CORRECCIÓN FINAL ---
+                    // Usamos new Date() porque serverTimestamp() no funciona en arrays
+                    timestamp: new Date() 
+                }
+            ]
         };
-        await setDoc(ticketRef, ticket);
-        return ticketId;
+
+        await setDoc(ticketRef, finalTicket);
+        return finalTicket.ticketId;
+
     } catch (e) {
+        console.error("Error crítico en createSupportTicket:", e);
         throw e;
     }
 };
-
 export const getUserSupportTickets = async (userId) => {
     try {
         const ticketsRef = collection(db, "supportTickets");
