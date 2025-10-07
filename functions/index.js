@@ -614,7 +614,7 @@ exports.executeSlotSpin = onCall({ region: REGION, timeoutSeconds: 20 }, async (
  * Se ejecuta cada 15 segundos para un funcionamiento 24/7.
  */
 exports.crashGameEngine = onSchedule({
-    schedule: "every 1 minutes", // Se ejecuta cada minuto y gestiona 4 rondas internas.
+    schedule: "every 1 minutes", // Se ejecuta cada minuto y gestiona 2 rondas internas.
     region: REGION,
     timeoutSeconds: 59,
     memory: "256MiB"
@@ -629,9 +629,9 @@ exports.crashGameEngine = onSchedule({
         return;
     }
 
-    for (let i = 0; i < 4; i++) { // Procesamos 4 rondas de 15 segundos cada una.
+    for (let i = 0; i < 2; i++) { // Procesamos 2 rondas de 30 segundos cada una.
         const roundStartTime = Date.now();
-        logger.info(`[CRASH_ENGINE] Procesando ronda #${i + 1}...`);
+        logger.info(`[CRASH_ENGINE] Procesando ronda #${i + 1} de 2...`);
 
         try {
             const gameDocRef = db.doc('game_crash/live_game');
@@ -673,21 +673,33 @@ exports.crashGameEngine = onSchedule({
                 gameState: 'waiting',
                 roundId,
                 serverSeedHash,
-                wait_until: new Date(Date.now() + 10000),
+                wait_until: new Date(Date.now() + 10000), // 10s para apostar
                 server_time_now: FieldValue.serverTimestamp(),
             });
 
             await sleep(10000); // Pausa para apuestas
 
-            // 3. Iniciar la ronda y determinar el punto de crash
+            // 3. Iniciar la ronda y determinar el punto de crash con lógica anti-quiebra
             const playersSnap = await gameDocRef.collection('players').get();
             let crashPoint;
             if (playersSnap.empty) {
                 crashPoint = 1.00;
-                logger.info(`[CRASH_ENGINE] Ronda ${roundId} sin jugadores. Crash en 1.00x`);
+                logger.info(`[CRASH_ENGINE] Ronda ${roundId} sin jugadores. Crash en 1.00x.`);
             } else {
-                crashPoint = getProvablyFairCrashPoint(serverSeed);
-                logger.info(`[CRASH_ENGINE] Ronda ${roundId}: CrashPoint fijado en ${crashPoint.toFixed(2)}x`);
+                const currentPlayers = playersSnap.docs.map(doc => doc.data());
+                const totalPot = currentPlayers.reduce((sum, p) => sum + (p.bet || 0), 0);
+                const maxPayout = totalPot / (1 - CRASH_HOUSE_EDGE); // El pozo máximo que la casa puede permitirse pagar
+
+                let potentialCrashPoint = getProvablyFairCrashPoint(serverSeed);
+                let potentialPayout = currentPlayers.reduce((sum, p) => sum + (p.bet * potentialCrashPoint), 0);
+
+                if (potentialPayout > maxPayout) {
+                    logger.warn(`[CRASH_ENGINE] ¡ALTO RIESGO! El crash point potencial (${potentialCrashPoint.toFixed(2)}x) excede el pago máximo. Forzando crash en 1.00x para proteger la casa.`);
+                    crashPoint = 1.00;
+                } else {
+                    crashPoint = potentialCrashPoint;
+                    logger.info(`[CRASH_ENGINE] Ronda ${roundId}: CrashPoint fijado en ${crashPoint.toFixed(2)}x.`);
+                }
             }
 
             await gameDocRef.update({
@@ -697,9 +709,9 @@ exports.crashGameEngine = onSchedule({
                 serverSeed: serverSeed, // Revelar la semilla
             });
 
-            // 4. Simular la duración del crash (el tiempo que tarda en llegar al punto de crash)
+            // 4. Simular la duración del crash
             const crashTimeMs = Math.log(crashPoint) / 0.00006;
-            await sleep(Math.min(crashTimeMs, 4000)); // Esperar el crash o un máximo de 4s
+            await sleep(Math.min(crashTimeMs, 18000)); // Esperar el crash o un máximo de 18s
 
             // 5. Marcar la ronda como "crashed"
             await gameDocRef.update({ gameState: 'crashed' });
@@ -708,10 +720,11 @@ exports.crashGameEngine = onSchedule({
             logger.error(`[CRASH_ENGINE] Error procesando ronda #${i + 1}:`, error);
         }
 
+        // Sincronizar para asegurar que cada ronda dure 30 segundos
         const roundEndTime = Date.now();
         const elapsed = roundEndTime - roundStartTime;
-        const delay = Math.max(0, 15000 - elapsed);
-        await sleep(delay); // Esperar el tiempo restante para completar los 15s
+        const delay = Math.max(0, 30000 - elapsed);
+        await sleep(delay);
     }
 
     logger.info("[CRASH_ENGINE] Ciclo de procesamiento de rondas completado.");
@@ -720,7 +733,10 @@ exports.crashGameEngine = onSchedule({
 /**
  * [LLAMABLE] Permite a un administrador encender o apagar el motor del juego.
  */
-exports.toggleCrashEngine = onCall({ region: REGION }, async (request) => {
+exports.toggleCrashEngine = onCall({
+    region: REGION,
+    cors: ["http://localhost:5173", "http://localhost:3000", "https://oriluck-casino.onrender.com"]
+}, async (request) => {
     if (!request.auth) throw new HttpsError('unauthenticated', 'Autenticación requerida.');
 
     const adminSnap = await db.doc(`users/${request.auth.uid}`).get();
@@ -743,7 +759,10 @@ exports.toggleCrashEngine = onCall({ region: REGION }, async (request) => {
 /**
  * [LLAMABLE] Permite a un usuario realizar una apuesta en la ronda actual.
  */
-exports.placeBet_crash = onCall({ region: REGION }, async (request) => {
+exports.placeBet_crash = onCall({
+    region: REGION,
+    cors: ["http://localhost:5173", "http://localhost:3000", "https://oriluck-casino.onrender.com"]
+}, async (request) => {
     logger.info('Invocación a placeBet_crash', { uid: request.auth?.uid, data: request.data });
 
     if (!request.auth) {
@@ -805,7 +824,10 @@ exports.placeBet_crash = onCall({ region: REGION }, async (request) => {
 /**
  * [LLAMABLE] Permite a un usuario retirar su apuesta durante la fase "running".
  */
-exports.cashOut_crash = onCall({ region: REGION }, async (request) => {
+exports.cashOut_crash = onCall({
+    region: REGION,
+    cors: ["http://localhost:5173", "http://localhost:3000", "https://oriluck-casino.onrender.com"]
+}, async (request) => {
     if (!request.auth) throw new HttpsError('unauthenticated', 'Debes iniciar sesión.');
     
     const uid = request.auth.uid;
