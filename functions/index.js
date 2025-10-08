@@ -80,11 +80,11 @@ class AuditableRNG {
         // Usar el ID del torneo como base para determinar qué semilla usar
         const hash = crypto.createHash('sha256').update(tournamentId).digest('hex');
         const index = parseInt(hash.substring(0, 8), 16) % 100; // Índice basado en ID
-        
+
         // En producción, esto debería venir de una colección pre-generada
         const serverSeed = crypto.randomBytes(32).toString('hex');
         const commitment = crypto.createHash('sha256').update(serverSeed).digest('hex');
-        
+
         return { serverSeed, commitment, index };
     }
 
@@ -158,13 +158,13 @@ exports.startAuditableBingo = onCall({ region: REGION, timeoutSeconds: 30 }, asy
         // Sistema RNG legal: compromiso-revelación
         const { serverSeed, commitment } = await rngSystem.getCommittedSeedForTournament(tournamentId);
         const initialClientSeed = data.initialClientSeed || 'default-client-seed'; 
-        
+
         const finalSeedHash = crypto.createHash('sha256')
             .update(serverSeed + tournamentId + initialClientSeed)
             .digest('hex');
-            
+
         const shuffledBalls = rngSystem.getAuditableShuffledBalls(finalSeedHash);
-        
+
         // DENTRO DE startAuditableBingo, REEMPLAZA EL OBJETO updateData CON ESTE:
         const updateData = {
             status: 'active',
@@ -236,7 +236,7 @@ exports.bingoTurnProcessor = onSchedule({
           continueGame = false;
           return;
         }
-        
+
         const data = snap.data();
         // === INICIO DE LA CORRECCIÓN ===
         const { shuffledBalls = [], currentBallIndex = 0, calledNumbers = [] } = data;
@@ -348,7 +348,7 @@ exports.buySlotsChipsCallable = onCall({ region: REGION, timeoutSeconds: 20 }, a
         logger.info(`[SLOTS-PURCHASE] Usuario ${uid} iniciando compra.`);
 
         const ratesSnap = await db.doc('appSettings/exchangeRate').get();
-        
+
         // --- INICIO DE LA CORRECCIÓN CLAVE ---
         // Se accede a .exists como una propiedad, no como una función.
         if (!ratesSnap.exists || typeof ratesSnap.data().rate !== 'number' || ratesSnap.data().rate <= 0) {
@@ -362,12 +362,12 @@ exports.buySlotsChipsCallable = onCall({ region: REGION, timeoutSeconds: 20 }, a
             logger.error(`[SLOTS-PURCHASE] Datos de entrada inválidos para ${uid}:`, request.data);
             throw new HttpsError('invalid-argument', 'La cantidad de fichas a comprar es inválida.');
         }
-        
+
         const { chipsToBuy } = request.data;
         const totalCostBs = chipsToBuy * exchangeRate;
         const bonusChips = PURCHASE_BONUSES.find(b => chipsToBuy >= b.min)?.bonus || 0;
         const totalChipsToCredit = chipsToBuy + bonusChips;
-        
+
         const userRef = db.doc(`users/${uid}`);
         const userSlotsRef = db.doc(`userSlots/${uid}`);
         const machineRef = db.doc(`slotsMachines/${SLOTS_MACHINE_ID}`);
@@ -377,15 +377,15 @@ exports.buySlotsChipsCallable = onCall({ region: REGION, timeoutSeconds: 20 }, a
             const [userSnap, userSlotsSnap, machineSnap, slotsHouseFundSnap] = await tx.getAll(
                 userRef, userSlotsRef, machineRef, slotsHouseFundRef
             );
-            
+
             if (!userSnap.exists) throw new HttpsError('not-found', 'Perfil de usuario no encontrado.');
-            
+
             const userData = userSnap.data();
             const currentBalance = userData.balance || 0;
             if (currentBalance < totalCostBs) {
                 throw new HttpsError('failed-precondition', `Saldo insuficiente. Necesitas ${totalCostBs.toFixed(2)} Bs.`);
             }
-            
+
             const prizePoolContribution = totalCostBs * 0.80;
             const houseContribution = totalCostBs * 0.20;
 
@@ -408,7 +408,7 @@ exports.buySlotsChipsCallable = onCall({ region: REGION, timeoutSeconds: 20 }, a
                     lastPurchase: FieldValue.serverTimestamp(),
                 });
             }
-            
+
             if (machineSnap.exists) {
                 tx.update(machineRef, { 
                     prizePool: FieldValue.increment(prizePoolContribution),
@@ -427,11 +427,11 @@ exports.buySlotsChipsCallable = onCall({ region: REGION, timeoutSeconds: 20 }, a
             } else {
                 tx.set(slotsHouseFundRef, { totalForHouse: houseContribution, percentageHouse: 20 });
             }
-            
+
             const transRef = db.collection("transactions").doc();
             tx.set(transRef, { userId: uid, username: userData.username || 'Usuario', type: "slots_purchase", amount: -totalCostBs, description: `Compra de ${chipsToBuy} fichas + ${bonusChips} de bono.`, status: "completed", createdAt: FieldValue.serverTimestamp(), details: { chipsBought: chipsToBuy, bonusChips, totalCostBs } });
         });
-        
+
         logger.info(`[SLOTS-PURCHASE] ÉXITO: Usuario ${uid} compró ${chipsToBuy} fichas por ${totalCostBs.toFixed(2)} Bs.`);
         return { success: true, chipsCredited: totalChipsToCredit };
 
@@ -462,44 +462,46 @@ function getProvablyFairSlotResult(serverSeed, clientSeed, nonce) {
     const decimal = parseInt(hmac.substring(0, 8), 16);
     let cumulativeProbability = 0;
     const jackpotRoll = parseInt(hmac.substring(8, 12), 16) / 0xFFFF;
-    
+
     if (jackpotRoll < JACKPOT_PROBABILITY) {
         return { prize: { name: 'JACKPOT', prizeMultiplier: 'JACKPOT', prizePercent: 0.5 }, finalHash: hmac }; // 50% de la bolsa para el jackpot
     }
-    
+
     for (const prize of PAY_TABLE) {
         cumulativeProbability += prize.probability;
         if (decimal / 0xFFFFFFFF < cumulativeProbability) {
             return { prize, finalHash: hmac };
         }
     }
-    
+
     return { prize: PAY_TABLE[PAY_TABLE.length - 1], finalHash: hmac };
 }
 
 // Función para generar punto de crash con RNG verificable
-function getProvablyFairCrashPoint(serverSeed) {
-    const hash = crypto.createHash('sha256').update(serverSeed).digest('hex');
-    
-    // Usar el hash para determinar si es un crash instantáneo
-    const instantCrashRoll = parseInt(hash.substring(0, 2), 16);
-    if (instantCrashRoll / 255 < CRASH_INSTANT_PROB) {
+// Implementación estándar de la industria para un juego de Crash "Provably Fair".
+function getProvablyFairCrashPoint(serverSeed, clientSeed, nonce) {
+    const message = `${serverSeed}-${clientSeed}-${nonce}`;
+    const hmac = crypto.createHmac('sha256', serverSeed).update(message).digest('hex');
+   // Usar los primeros 8 caracteres del hash (suficiente para la aleatoriedad).
+
+    const hashInt = parseInt(hmac.substring(0, 8), 16);
+    const e = Math.pow(2, 32); // 2^32, ya que usamos 8 hex chars (32 bits).
+
+   // Fórmula para calcular el punto de crash. El 1% de los resultados será un crash instantáneo.
+    const crashPoint = Math.floor((100 * e - hashInt) / (e - hashInt));
+
+    // Si el resultado es menor a 100 (equivalente a 1.00x), se considera un crash instantáneo.
+    if (crashPoint < 100) {
         return 1.00;
     }
 
-    // Fórmula para generar un punto de crash con una distribución exponencial.
-    const h = parseInt(hash.substring(0, 13), 16);
-    const e = Math.pow(2, 52);
-    // ¡LA LÍNEA CORRECTA!
-    const crashPoint = Math.floor(100 * e / (e - h)) / 100;
-    
-    // Aseguramos que el mínimo sea 1.00
-    return Math.max(1.00, crashPoint);
+    // Devolver el resultado dividido por 100 para obtener el multiplicador.
+    return parseFloat((crashPoint / 100).toFixed(2));
 }
 
 exports.requestSlotSpin = onCall({ region: REGION, timeoutSeconds: 15 }, async (request) => {
     if (!request.auth) throw new HttpsError("unauthenticated", "Debes iniciar sesión.");
-    
+
     const uid = request.auth.uid;
     const userSlotsRef = db.doc(`userSlots/${uid}`);
     const userSlotsSnap = await userSlotsRef.get();
@@ -562,7 +564,7 @@ exports.executeSlotSpin = onCall({ region: REGION, timeoutSeconds: 20 }, async (
         const { serverSeed, nonce } = spinSnap.data();
         const { prize, finalHash } = getProvablyFairSlotResult(serverSeed, clientSeed, nonce);
         const currentPrizePool = machineSnap.data().prizePool || 0;
-        
+
         const prizeInfo = PAY_TABLE.find(p => p.name === prize.name);
         const prizePercentage = (prizeInfo && prizeInfo.prizePercent) ? (prizeInfo.prizePercent / 100) : 0;
         const winAmount = currentPrizePool * prizePercentage;
@@ -574,9 +576,9 @@ exports.executeSlotSpin = onCall({ region: REGION, timeoutSeconds: 20 }, async (
             tx.update(userRef, { balance: FieldValue.increment(winAmount) });
             tx.update(machineRef, { prizePool: FieldValue.increment(-winAmount) });
         }
-        
+
         tx.update(pendingSpinRef, { status: 'completed', clientSeed, finalHash, prizeWon: prize.name, winAmount, completedAt: FieldValue.serverTimestamp() });
-        
+
         const spinLogRef = db.collection("slotsSpins").doc(spinId);
         tx.set(spinLogRef, { 
             userId: uid, username: userSnap.data().username || 'Anónimo', type: prize.name, 
@@ -584,7 +586,7 @@ exports.executeSlotSpin = onCall({ region: REGION, timeoutSeconds: 20 }, async (
             winAmount, playedAt: FieldValue.serverTimestamp(), serverSeedHash: spinSnap.data().serverSeedHash, 
             clientSeed, nonce 
         });
-        
+
         // --- CORRECCIÓN: Se elimina la actualización de 'spins' ---
         const statsUpdate = { 
             totalWinnings: FieldValue.increment(winAmount), 
@@ -592,9 +594,9 @@ exports.executeSlotSpin = onCall({ region: REGION, timeoutSeconds: 20 }, async (
             biggestWin: Math.max(winAmount, userSlotsSnap.data().biggestWin || 0) 
         };
         tx.update(userSlotsRef, statsUpdate);
-        
+
         logger.info(`[SPIN-EXECUTE] ${uid} | ${spinId} | ${prize.name} | Premio: ${winAmount.toFixed(2)} Bs.`);
-        
+
         return { 
             success: true, 
             result: { prizeType: prize.name, combination: prize.symbol ? [prize.symbol, prize.symbol, prize.symbol] : ['🚫', '🚫', '🚫'], winAmount }, 
@@ -610,125 +612,154 @@ exports.executeSlotSpin = onCall({ region: REGION, timeoutSeconds: 20 }, async (
 // ===================================================================
 
 /**
- * [LLAMABLE] Inicia el motor del juego Crash.
- * Solo los administradores pueden llamarla. Una vez iniciada, se ejecuta en un bucle infinito.
+ * [PROGRAMADA] Procesa el ciclo de vida de una ronda del juego Crash.
+ * Se ejecuta cada 15 segundos para un funcionamiento 24/7.
  */
-exports.startCrashGameEngine = onCall({ region: REGION, timeoutSeconds: 60 }, async (request) => {
-    if (!request.auth) throw new HttpsError('unauthenticated', 'Autenticación requerida.');
-    
-    // Verificación de rol de administrador (¡IMPORTANTE!)
-    // >>>>> CORRECCIÓN DE SINTAXIS CRÍTICA: .exists() -> .exists <<<<<
-    const adminSnap = await db.doc(`users/${request.auth.uid}`).get();
-    if (!adminSnap.exists || !['admin', 'owner'].includes(adminSnap.data().role)) {
-        throw new HttpsError('permission-denied', 'No tienes permisos para iniciar el motor del juego.');
+exports.crashGameEngine = onSchedule({
+    schedule: "every 1 minutes", // Se ejecuta cada minuto y gestiona 2 rondas internas.
+    region: REGION,
+    timeoutSeconds: 59,
+    memory: "256MiB"
+}, async () => {
+    logger.info("[CRASH_ENGINE] Iniciando ciclo de procesamiento de rondas...");
+
+    const engineConfigRef = db.doc('game_crash/engine_config');
+    const configSnap = await engineConfigRef.get();
+
+    if (!configSnap.exists || configSnap.data().status !== 'enabled') {
+        logger.warn("[CRASH_ENGINE] El motor está desactivado. Omitiendo ciclo.");
+        return;
     }
 
-    logger.info("[CRASH_ENGINE] ¡Motor del juego Ascenso Estelar INICIADO por un administrador!");
+    for (let i = 0; i < 2; i++) { // Procesamos 2 rondas de 30 segundos cada una.
+        const roundStartTime = Date.now();
+        logger.info(`[CRASH_ENGINE] Procesando ronda #${i + 1} de 2...`);
 
-    // Bucle infinito y seguro que controla el juego
-    (async function gameLoop() {
-        while (true) {
-            try {
-                // --- Aquí va EXACTAMENTE LA MISMA LÓGICA que tenía la función 'onSchedule' ---
-                
-                const gameDocRef = db.doc('game_crash/live_game');
-                const historyCollectionRef = db.collection('game_crash_history');
+        try {
+            const gameDocRef = db.doc('game_crash/live_game');
+            const historyCollectionRef = db.collection('game_crash_history');
 
-                // PASO 1: Finalizar y archivar la ronda anterior
-                const previousGameSnap = await gameDocRef.get();
-                // >>>>> CORRECCIÓN DE SINTAXIS CRÍTICA: .exists() -> .exists <<<<<
-                if (previousGameSnap.exists && previousGameSnap.data().gameState !== 'waiting') {
-                    const oldData = previousGameSnap.data();
-                    const playersSnap = await gameDocRef.collection('players').get();
-                    const oldPlayers = playersSnap.docs.map(doc => doc.data());
-                    
-                    const totalPot = oldPlayers.reduce((sum, p) => sum + (p.bet || 0), 0);
-                    const totalPayout = oldPlayers.filter(p => p.status === 'cashed_out').reduce((sum, p) => sum + ((p.bet || 0) * (p.cashOutMultiplier || 0)), 0);
-                    const netProfit = totalPot - totalPayout;
-
-                    if (oldData.roundId) {
-                        await historyCollectionRef.doc(oldData.roundId).set({
-                            crashPoint: oldData.crashPoint, totalPot, netProfit,
-                            timestamp: oldData.started_at || FieldValue.serverTimestamp(),
-                            serverSeed: oldData.serverSeed,
-                        });
-                    }
-                }
-
-                // PASO 2: Preparar la nueva ronda
-                logger.info("[CRASH_ENGINE] Preparando nueva ronda...");
-                const playersToDeleteSnap = await gameDocRef.collection('players').get();
-                const batch = db.batch();
-                playersToDeleteSnap.docs.forEach(doc => batch.delete(doc.ref));
-                await batch.commit();
-
-                const serverSeed = crypto.randomBytes(32).toString('hex');
-                const serverSeedHash = crypto.createHash('sha256').update(serverSeed).digest('hex');
-                const roundId = db.collection('dummy').doc().id;
-
-                await gameDocRef.set({
-                    gameState: 'waiting', roundId, serverSeedHash,
-                    wait_until: new Date(Date.now() + 10000), // Usamos Date object
-                    server_time_now: FieldValue.serverTimestamp(),
-                });
-                
-                await sleep(10000); // Pausa para apuestas
-
-                // PASO 3: Lógica Anti-Quiebra
+            // 1. Finalizar y archivar ronda anterior si es necesario
+            const previousGameSnap = await gameDocRef.get();
+            if (previousGameSnap.exists && previousGameSnap.data().gameState !== 'waiting') {
+                const oldData = previousGameSnap.data();
                 const playersSnap = await gameDocRef.collection('players').get();
-                if (playersSnap.empty) {
-                    await gameDocRef.update({ gameState: 'crashed', crashPoint: 1.00, serverSeed: serverSeed });
-                } else {
-                    const currentPlayers = playersSnap.docs.map(doc => doc.data());
-                    const totalPot = currentPlayers.reduce((sum, p) => sum + (p.bet || 0), 0);
-                    const maxPayout = totalPot * (1 - CRASH_HOUSE_EDGE);
-                    
-                    let crashPoint = getProvablyFairCrashPoint(serverSeed);
-                    const potentialPayout = totalPot * crashPoint;
+                const oldPlayers = playersSnap.docs.map(doc => doc.data());
 
-                    if (potentialPayout > maxPayout) {
-                        crashPoint = maxPayout / totalPot;
-                        logger.warn(`[CRASH_ENGINE] ¡RIESGO! CrashPoint ${crashPoint.toFixed(2)}x limitado a ${crashPoint.toFixed(2)}x.`);
-                    }
-                    
-                    logger.info(`[CRASH_ENGINE] Ronda ${roundId}: CrashPoint fijado en ${crashPoint.toFixed(2)}x`);
+                const totalPot = oldPlayers.reduce((sum, p) => sum + (p.bet || 0), 0);
+                const totalPayout = oldPlayers.filter(p => p.status === 'cashed_out').reduce((sum, p) => sum + p.winnings, 0);
+                const netProfit = totalPot - totalPayout;
 
-                    // PASO 4: Iniciar fase "running"
-                    await gameDocRef.update({
-                        gameState: 'running',
-                        started_at: FieldValue.serverTimestamp(),
-                        server_time_now: FieldValue.serverTimestamp(),
-                        crashPoint: crashPoint,
-                        serverSeed: serverSeed,
+                if (oldData.roundId) {
+                    await historyCollectionRef.doc(oldData.roundId).set({
+                        crashPoint: oldData.crashPoint,
+                        totalPot,
+                        netProfit,
+                        timestamp: oldData.started_at || FieldValue.serverTimestamp(),
+                        serverSeed: oldData.serverSeed,
                     });
                 }
-
-            } catch (error) {
-                logger.error("[CRASH_ENGINE] Error en el bucle principal:", error);
             }
-            
-            // Pausa antes de la siguiente ronda
-            await sleep(CRASH_ROUND_INTERVAL_SECONDS * 1000);
-        }
-    })(); // La función se auto-ejecuta para iniciar el bucle
 
-    // La función retorna una respuesta inmediata al administrador, mientras el bucle sigue corriendo en el servidor.
-    return { success: true, message: "El motor del juego Ascenso Estelar ha sido iniciado." };
+            // 2. Preparar nueva ronda
+            const playersToDeleteSnap = await gameDocRef.collection('players').get();
+            const batch = db.batch();
+            playersToDeleteSnap.forEach(doc => batch.delete(doc.ref));
+            await batch.commit();
+
+            const serverSeed = crypto.randomBytes(32).toString('hex');
+            const serverSeedHash = crypto.createHash('sha256').update(serverSeed).digest('hex');
+            const roundId = db.collection('dummy').doc().id;
+
+            await gameDocRef.set({
+                gameState: 'waiting',
+                roundId,
+                serverSeedHash,
+                wait_until: new Date(Date.now() + 20000), // 20s para apostar
+                server_time_now: FieldValue.serverTimestamp(),
+            });
+
+            await sleep(20000); // Pausa para apuestas
+           // 3. Iniciar la ronda y determinar el punto de crash
+            // La nueva función getProvablyFairCrashPoint ya maneja la probabilidad y el margen de la casa.
+            // Siempre generamos un resultado, haya o no jugadores, para un historial atractivo.
+            const crashPoint = getProvablyFairCrashPoint(serverSeed);
+            const MAX_CRASH_TIME_MS = 18000; // o 20000 si quieres 20s máximo
+
+            // Calcula K dinámico para que el crashPoint se alcance en el tiempo máximo
+            const rocketPathK = Math.log(crashPoint) / MAX_CRASH_TIME_MS;
+
+            await gameDocRef.update({
+                gameState: 'running',
+                started_at: FieldValue.serverTimestamp(),
+                crashPoint: crashPoint,
+                serverSeed: serverSeed,
+                server_time_now: FieldValue.serverTimestamp(),
+                rocketPathK: rocketPathK // <-- Nuevo campo
+            });
+
+            // Espera el tiempo máximo
+            await sleep(MAX_CRASH_TIME_MS);
+
+            // 5. Marcar la ronda como "crashed"
+            await gameDocRef.update({ gameState: 'crashed' });
+
+        } catch (error) {
+            logger.error(`[CRASH_ENGINE] Error procesando ronda #${i + 1}:`, error);
+        }
+
+        // Sincronizar para asegurar que cada ronda dure 30 segundos
+        const roundEndTime = Date.now();
+        const elapsed = roundEndTime - roundStartTime;
+        const delay = Math.max(0, 30000 - elapsed);
+        await sleep(delay);
+    }
+
+    logger.info("[CRASH_ENGINE] Ciclo de procesamiento de rondas completado.");
+});
+
+/**
+ * [LLAMABLE] Permite a un administrador encender o apagar el motor del juego.
+ */
+exports.toggleCrashEngine = onCall({
+    region: REGION,
+    cors: ["http://localhost:5173", "http://localhost:3000", "https://oriluck-casino.onrender.com"]
+}, async (request) => {
+    if (!request.auth) throw new HttpsError('unauthenticated', 'Autenticación requerida.');
+
+    const adminSnap = await db.doc(`users/${request.auth.uid}`).get();
+    if (!adminSnap.exists || !['admin', 'owner'].includes(adminSnap.data().role)) {
+        throw new HttpsError('permission-denied', 'No tienes permisos para esta acción.');
+    }
+
+    const { status } = request.data;
+    if (status !== 'enabled' && status !== 'disabled') {
+        throw new HttpsError('invalid-argument', 'El estado debe ser "enabled" o "disabled".');
+    }
+
+    const engineConfigRef = db.doc('game_crash/engine_config');
+    await engineConfigRef.set({ status: status, last_updated_by: request.auth.uid }, { merge: true });
+
+    logger.info(`[CRASH_ENGINE] Motor cambiado a estado: ${status} por ${request.auth.uid}`);
+    return { success: true, message: `Motor del juego ${status === 'enabled' ? 'activado' : 'desactivado'}.` };
 });
 
 /**
  * [LLAMABLE] Permite a un usuario realizar una apuesta en la ronda actual.
  */
-exports.placeBet_crash = onCall({ region: REGION }, async (request, context) => {
-    logger.info('Invocación a placeBet_crash', { uid: context.auth?.uid, data: request.data });
+exports.placeBet_crash = onCall({
+    region: REGION,
+    cors: ["http://localhost:5173", "http://localhost:3000", "https://oriluck-casino.onrender.com"]
+}, async (request) => {
+    logger.info('Invocación a placeBet_crash', { uid: request.auth?.uid, data: request.data });
 
-    if (!context.auth) {
+    if (!request.auth) {
         logger.error('Usuario no autenticado');
         throw new HttpsError('unauthenticated', 'Debes iniciar sesión.');
     }
 
     const { amount } = request.data;
-    const uid = context.auth.uid;
+    const uid = request.auth.uid;
 
     if (typeof amount !== 'number' || amount <= 0) {
         logger.error('Monto de apuesta inválido', { amount });
@@ -781,10 +812,13 @@ exports.placeBet_crash = onCall({ region: REGION }, async (request, context) => 
 /**
  * [LLAMABLE] Permite a un usuario retirar su apuesta durante la fase "running".
  */
-exports.cashOut_crash = onCall({ region: REGION }, async (request, context) => {
-    if (!context.auth) throw new HttpsError('unauthenticated', 'Debes iniciar sesión.');
-    
-    const uid = context.auth.uid;
+exports.cashOut_crash = onCall({
+    region: REGION,
+    cors: ["http://localhost:5173", "http://localhost:3000", "https://oriluck-casino.onrender.com"]
+}, async (request) => {
+    if (!request.auth) throw new HttpsError('unauthenticated', 'Debes iniciar sesión.');
+
+    const uid = request.auth.uid;
     const gameDocRef = db.doc('game_crash/live_game');
     const playerDocRef = gameDocRef.collection('players').doc(uid);
     const userRef = db.doc(`users/${uid}`);
@@ -795,27 +829,28 @@ exports.cashOut_crash = onCall({ region: REGION }, async (request, context) => {
         if (!gameSnap.exists) {
             throw new HttpsError('failed-precondition', 'No hay una ronda activa.');
         }
-        
+
         if (gameSnap.data().gameState !== 'running') {
             throw new HttpsError('failed-precondition', 'El juego no está en curso.');
         }
         if (!playerSnap.exists || playerSnap.data().status !== 'playing') {
             throw new HttpsError('failed-precondition', 'No tienes una apuesta activa o ya has retirado.');
         }
-        
+
         const gameData = gameSnap.data();
         const playerData = playerSnap.data();
-        
+
         // Calcular el multiplicador actual de forma segura en el servidor
         const startedAt = gameData.started_at;
+        const rocketPathK = gameData.rocketPathK || 0.00006; // Usa el valor dinámico si existe
         if (typeof startedAt.toDate === 'function') {
             const elapsedTime = Date.now() - startedAt.toDate().getTime();
-            const currentMultiplier = Math.max(1.00, Math.floor(100 * Math.exp(0.00006 * elapsedTime)) / 100);
-            
+            const currentMultiplier = Math.max(1.00, Math.floor(100 * Math.exp(rocketPathK * elapsedTime)) / 100);
+
             if (currentMultiplier >= gameData.crashPoint) {
                 throw new HttpsError('failed-precondition', '¡Demasiado tarde! El juego ya ha crasheado.');
             }
-            
+
             const winnings = playerData.bet * currentMultiplier;
 
             // Pagar al jugador y actualizar su estado
@@ -825,7 +860,7 @@ exports.cashOut_crash = onCall({ region: REGION }, async (request, context) => {
                 cashOutMultiplier: currentMultiplier,
                 winnings: winnings
             });
-            
+
             return { success: true, winnings, cashOutMultiplier: currentMultiplier };
         } else {
             throw new HttpsError('internal', 'Error en la fecha de inicio del juego.');
@@ -835,4 +870,3 @@ exports.cashOut_crash = onCall({ region: REGION }, async (request, context) => {
 
 // ===================================================================
 // --- FIN DEL NUEVO "MOTOR DE JUEGO" ---
-// ===================================================================

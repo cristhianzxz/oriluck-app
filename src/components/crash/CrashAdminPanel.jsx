@@ -1,24 +1,24 @@
 import React, { useEffect, useState } from 'react';
-import { db } from '../../firebase';
+import { Link } from 'react-router-dom';
+import { db, functions } from '../../firebase';
 import { collection, doc, onSnapshot, query, orderBy, limit } from 'firebase/firestore';
-// >>>>> AÑADE LAS IMPORTACIONES NECESARIAS PARA LAS NOTAS INTERNAS <<<<<
-import { getFunctions, httpsCallable } from 'firebase/functions';
-import { functions } from '../../firebase';
+import { httpsCallable } from 'firebase/functions';
 
 const CrashAdminPanel = () => {
   // Estados Firestore en vivo
   const [liveGameData, setLiveGameData] = useState(null);
   const [livePlayers, setLivePlayers] = useState([]);
   const [roundHistory, setRoundHistory] = useState([]);
+  const [engineStatus, setEngineStatus] = useState('loading');
   const [loading, setLoading] = useState(true);
+  const [isToggling, setIsToggling] = useState(false);
 
   // Métricas calculadas
   const [liveMetrics, setLiveMetrics] = useState({ pot: 0, payout: 0, profit: 0 });
   const [globalMetrics, setGlobalMetrics] = useState({ totalProfit: 0, rtp: 0 });
 
-  // >>>>> DEFINE LA FUNCIÓN "LLAMABLE" <<<<<
-  const functions = getFunctions(undefined, 'southamerica-east1');
-  const startEngineCallable = httpsCallable(functions, 'startCrashGameEngine');
+  // Función "llamable" para controlar el motor
+  const toggleCrashEngineCallable = httpsCallable(functions, 'toggleCrashEngine');
 
   // Parámetros visibles (solo lectura)
   const gameConfig = {
@@ -44,102 +44,82 @@ const CrashAdminPanel = () => {
 
   const stateLabel = (state) => {
     switch ((state || '').toLowerCase()) {
-      case 'waiting':
-      case 'idle':
-        return 'Esperando';
-      case 'running':
-        return 'En Curso';
-      case 'ended':
-      case 'finished':
-        return 'Finalizada';
-      case 'settling':
-        return 'Finalizando';
-      default:
-        return 'N/A';
+      case 'waiting': return 'Esperando';
+      case 'running': return 'En Curso';
+      case 'crashed': return 'Crasheado';
+      default: return 'N/A';
     }
   };
 
-  // >>>>> CREA EL HANDLER DEL BOTÓN <<<<<
-  const handleStartEngine = async () => {
-    if (!window.confirm("¿Estás seguro de que quieres iniciar/reiniciar el motor del juego Ascenso Estelar? Esta acción solo debe realizarse una vez o si el juego se ha detenido.")) {
+  // Handler para encender/apagar el motor
+  const handleToggleEngine = async () => {
+    const newStatus = engineStatus === 'enabled' ? 'disabled' : 'enabled';
+    if (!window.confirm(`¿Estás seguro de que quieres ${newStatus === 'enabled' ? 'ACTIVAR' : 'DESACTIVAR'} el motor del juego?`)) {
       return;
     }
+    setIsToggling(true);
     try {
-      alert("Enviando señal para iniciar el motor... Por favor, espera.");
-      const result = await startEngineCallable();
+      const result = await toggleCrashEngineCallable({ status: newStatus });
       alert(`✅ Éxito: ${result.data.message}`);
     } catch (error) {
-      console.error("Error al iniciar el motor del juego:", error);
+      console.error("Error al cambiar el estado del motor:", error);
       alert(`❌ Error: ${error.message}`);
+    } finally {
+      setIsToggling(false);
     }
   };
 
-  // Listener: juego en vivo (documento) y jugadores (subcolección)
+  // Listeners de Firestore
   useEffect(() => {
-    const liveGameRef = doc(db, 'game_crash', 'live_game');
-    const unsubLiveGame = onSnapshot(liveGameRef, (snap) => {
+    const unsubLiveGame = onSnapshot(doc(db, 'game_crash', 'live_game'), (snap) => {
       if (snap.exists()) setLiveGameData(snap.data());
     });
 
-    const livePlayersRef = collection(db, 'game_crash', 'live_game', 'players');
-    const unsubPlayers = onSnapshot(livePlayersRef, (snap) => {
+    const unsubPlayers = onSnapshot(collection(db, 'game_crash', 'live_game', 'players'), (snap) => {
       const playersData = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
       setLivePlayers(playersData);
     });
 
-    return () => {
-      unsubLiveGame();
-      unsubPlayers();
-    };
-  }, []);
+    const unsubEngineConfig = onSnapshot(doc(db, 'game_crash', 'engine_config'), (snap) => {
+      if (snap.exists()) {
+        setEngineStatus(snap.data().status || 'disabled');
+      } else {
+        setEngineStatus('disabled');
+      }
+    });
 
-  // Listener: historial (últimas 100 rondas)
-  useEffect(() => {
-    const historyQuery = query(
-      collection(db, 'game_crash_history'),
-      orderBy('timestamp', 'desc'),
-      limit(100)
-    );
+    const historyQuery = query(collection(db, 'game_crash_history'), orderBy('timestamp', 'desc'), limit(100));
     const unsubHistory = onSnapshot(historyQuery, (snap) => {
       const data = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
       setRoundHistory(data);
       setLoading(false);
     });
-    return () => unsubHistory();
+
+    return () => {
+      unsubLiveGame();
+      unsubPlayers();
+      unsubEngineConfig();
+      unsubHistory();
+    };
   }, []);
 
   // Cálculos de métricas
   useEffect(() => {
-    // Métricas live
     const totalPot = livePlayers.reduce((sum, p) => sum + Number(p?.bet || 0), 0);
     const totalPayout = livePlayers
-      .filter((p) => (p?.status || '').toLowerCase() === 'cashed_out')
-      .reduce((sum, p) => sum + Number(p?.bet || 0) * Number(p?.cashOutMultiplier || 0), 0);
+      .filter((p) => p.status === 'cashed_out')
+      .reduce((sum, p) => sum + Number(p.winnings || 0), 0);
 
-    setLiveMetrics({
-      pot: totalPot,
-      payout: totalPayout,
-      profit: totalPot - totalPayout,
-    });
+    setLiveMetrics({ pot: totalPot, payout: totalPayout, profit: totalPot - totalPayout });
 
-    // Global 24h
     const now = Date.now();
-    const last24hRounds = roundHistory.filter((r) => {
-      const d = toDate(r?.timestamp);
-      if (!d) return false;
-      return now - d.getTime() <= 24 * 60 * 60 * 1000;
-    });
+    const last24hRounds = roundHistory.filter(r => (now - toDate(r.timestamp).getTime()) <= 24 * 60 * 60 * 1000);
 
     if (last24hRounds.length > 0) {
       const totalNetProfit = last24hRounds.reduce((sum, r) => sum + Number(r?.netProfit || 0), 0);
       const totalBet = last24hRounds.reduce((sum, r) => sum + Number(r?.totalPot || 0), 0);
-      const totalPaid = totalBet - totalNetProfit;
-      const rtp = totalBet > 0 ? (totalPaid / totalBet) * 100 : 0;
-
-      setGlobalMetrics({
-        totalProfit: totalNetProfit,
-        rtp,
-      });
+      const rtp = totalBet > 0 ? ((totalBet - totalNetProfit) / totalBet) * 100 : 0;
+      setGlobalMetrics({ totalProfit: totalNetProfit, rtp });
     } else {
       setGlobalMetrics({ totalProfit: 0, rtp: 0 });
     }
@@ -150,22 +130,22 @@ const CrashAdminPanel = () => {
   }
 
   return (
-    <div className="p-6 bg-gray-900 text-white min-h-screen">
-      <h1 className="text-3xl font-bold mb-6 text-cyan-400">🚀 Panel de Administrador - Ascenso Estelar</h1>
+   <div className="p-6 bg-gray-900 text-white min-h-screen">
+        {/* Sección 1: Estado en vivo y control del motor */}
+      <div className="flex justify-between items-center mb-6">
+        <h1 className="text-3xl font-bold text-cyan-400">🚀 Panel de Administrador - Ascenso Estelar</h1>
+        <Link to="/crash" className="bg-blue-500 hover:bg-blue-400 text-white font-bold py-2 px-4 rounded-lg transition-colors">
+          Volver al Juego
+        </Link>
+      </div>
 
-      {/* Sección 1: Dashboard en vivo y Configuración */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-        {/* Estado en vivo */}
         <div className="md:col-span-2 bg-gray-800 p-6 rounded-lg border border-white/10">
-          <h2 className="text-xl font-semibold mb-4">
-            Ronda Actual: #{liveGameData?.roundId ?? '...'}
-          </h2>
+          <h2 className="text-xl font-semibold mb-4">Ronda Actual: #{liveGameData?.roundId ?? '...'}</h2>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-center">
             <div>
               <p className="text-sm text-gray-400">Estado</p>
-              <p className={`text-lg font-bold ${
-                (liveGameData?.gameState || '').toLowerCase() === 'running' ? 'text-green-400' : 'text-yellow-400'
-              }`}>
+              <p className={`text-lg font-bold ${(liveGameData?.gameState === 'running') ? 'text-green-400' : 'text-yellow-400'}`}>
                 {stateLabel(liveGameData?.gameState)}
               </p>
             </div>
@@ -186,45 +166,44 @@ const CrashAdminPanel = () => {
           </div>
         </div>
 
-        {/* Configuración y rentabilidad */}
-        <div className="md:col-span-1 bg-gray-800 p-6 rounded-lg border border-white/10">
-          <h2 className="text-xl font-semibold mb-4">Configuración y Rentabilidad</h2>
-          <div className="space-y-3">
-            <div className="flex justify-between text-sm">
-              <span className="text-gray-400">Margen de la Casa (Edge):</span>
-              <span className="font-mono bg-blue-500/20 text-blue-300 px-2 rounded">
-                {gameConfig.houseEdge.toFixed(1)}%
-              </span>
-            </div>
-            <div className="flex justify-between text-sm">
-              <span className="text-gray-400">Prob. Crash 1.00x:</span>
-              <span className="font-mono bg-red-500/20 text-red-300 px-2 rounded">
-                {gameConfig.instantCrashProb.toFixed(1)}%
-              </span>
-            </div>
-            <div className="flex justify-between text-sm pt-2 border-t border-white/10">
-              <span className="text-gray-400">Ganancia Neta (24h):</span>
-              <span className={`font-bold ${globalMetrics.totalProfit >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                {globalMetrics.totalProfit.toFixed(2)} Bs.
-              </span>
-            </div>
-            <div className="flex justify-between text-sm">
-              <span className="text-gray-400">RTP % (24h):</span>
-              <span className="font-bold">{globalMetrics.rtp.toFixed(2)}%</span>
+        <div className="md:col-span-1 bg-gray-800 p-6 rounded-lg border border-white/10 flex flex-col justify-between">
+          <div>
+            <h2 className="text-xl font-semibold mb-4">Control del Motor y Métricas</h2>
+            <div className="space-y-3">
+              <div className="flex justify-between text-sm">
+                <span className="text-gray-400">Margen de la Casa:</span>
+                <span className="font-mono bg-blue-500/20 text-blue-300 px-2 rounded">{gameConfig.houseEdge.toFixed(1)}%</span>
+              </div>
+              <div className="flex justify-between text-sm pt-2 border-t border-white/10">
+                <span className="text-gray-400">Ganancia Neta (24h):</span>
+                <span className={`font-bold ${globalMetrics.totalProfit >= 0 ? 'text-green-400' : 'text-red-400'}`}>{globalMetrics.totalProfit.toFixed(2)} Bs.</span>
+              </div>
+              <div className="flex justify-between text-sm">
+                <span className="text-gray-400">RTP % (24h):</span>
+                <span className="font-bold">{globalMetrics.rtp.toFixed(2)}%</span>
+              </div>
             </div>
           </div>
-          
-          {/* >>>>> AÑADE EL BOTÓN A LA UI <<<<< */}
+
           <div className="mt-6">
+            <div className="text-center mb-3">
+              <p className="text-gray-400">Estado del Motor</p>
+              {engineStatus === 'loading' ? (
+                <p className="font-bold text-lg text-yellow-400">Cargando...</p>
+              ) : (
+                <p className={`font-bold text-lg ${engineStatus === 'enabled' ? 'text-green-400' : 'text-red-400'}`}>
+                  {engineStatus === 'enabled' ? '● ACTIVADO' : '● DESACTIVADO'}
+                </p>
+              )}
+            </div>
             <button
-              onClick={handleStartEngine}
-              className="w-full bg-red-600 hover:bg-red-500 text-white font-bold py-3 rounded-lg shadow-lg transition-transform transform hover:scale-105"
+              onClick={handleToggleEngine}
+              disabled={isToggling || engineStatus === 'loading'}
+              className={`w-full font-bold py-3 rounded-lg shadow-lg transition-all transform hover:scale-105 disabled:opacity-50 disabled:cursor-wait
+                ${engineStatus === 'enabled' ? 'bg-red-600 hover:bg-red-500' : 'bg-green-600 hover:bg-green-500'}`}
             >
-              ⚡ ENCENDER MOTOR DEL JUEGO
+              {isToggling ? 'Cambiando...' : (engineStatus === 'enabled' ? 'Apagar Motor' : 'Encender Motor')}
             </button>
-            <p className="text-xs text-gray-500 mt-2 text-center">
-              (Solo presionar una vez o si el juego se detiene)
-            </p>
           </div>
         </div>
       </div>
@@ -276,5 +255,6 @@ const CrashAdminPanel = () => {
     </div>
   );
 };
-
 export default CrashAdminPanel;
+        
+        

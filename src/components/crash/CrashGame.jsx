@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useRef, useContext } from 'react';
+import { Link } from 'react-router-dom';
 import { AuthContext } from '../../App';
 import { db, functions } from '../../firebase';
 import { doc, onSnapshot, collection, query, orderBy, limit } from 'firebase/firestore';
@@ -11,9 +12,14 @@ const COLORS = {
   neonGreen: '#39ff14',
 };
 
-const ROCKET_PATH_K = 0.00006;
 const MAX_MULTIPLIER_VISUAL = 40;
-const toMillis = (ts) => (ts?.toMillis ? ts.toMillis() : ts instanceof Date ? ts.getTime() : null);
+const toMillis = (ts) => {
+  if (!ts) return null;
+  if (typeof ts.toMillis === 'function') return ts.toMillis();
+  if (ts.seconds) return ts.seconds * 1000 + Math.floor((ts.nanoseconds || 0) / 1000000);
+  if (ts instanceof Date) return ts.getTime();
+  return null;
+};
 
 const NotificationBar = ({ message, type }) => {
   if (!message) return null;
@@ -27,7 +33,7 @@ const NotificationBar = ({ message, type }) => {
 };
 
 // --- ROCKET ANIMATION ---
-const RocketDisplay = ({ gameState, multiplier, waitUntil, serverTimeOffset, crashPoint }) => {
+const RocketDisplay = ({ gameState, multiplier, waitUntil, serverTimeOffset, crashPoint, rocketPathK }) => {
   const [countdownMs, setCountdownMs] = useState(0);
   const rocketRef = useRef(null);
 
@@ -49,11 +55,11 @@ const RocketDisplay = ({ gameState, multiplier, waitUntil, serverTimeOffset, cra
   useEffect(() => {
     if (!rocketRef.current) return;
     if (gameState === 'running' && multiplier > 1) {
-      const currentT = Math.log(multiplier) / ROCKET_PATH_K;
+      const currentT = Math.log(multiplier) / rocketPathK;
       const logM = Math.log(multiplier);
       const logMaxVisual = Math.log(MAX_MULTIPLIER_VISUAL);
       const yPercent = Math.min(85, Math.max(0, 100 - (logM / logMaxVisual) * 100));
-      const xPercent = Math.min(85, (currentT / (Math.log(100) / ROCKET_PATH_K)) * 100);
+      const xPercent = Math.min(85, (currentT / (Math.log(100) / rocketPathK)) * 100);
       const rotation = Math.min(75, currentT / 250);
       rocketRef.current.style.transform = `translate3d(${xPercent}%, ${yPercent}%, 0) rotateZ(-${rotation + 45}deg)`;
       rocketRef.current.style.opacity = 1;
@@ -65,17 +71,19 @@ const RocketDisplay = ({ gameState, multiplier, waitUntil, serverTimeOffset, cra
       rocketRef.current.style.transform = 'translate3d(-50%, 100%, 0) rotateZ(-45deg)';
       rocketRef.current.style.opacity = 0.2;
     }
-  }, [gameState, multiplier]);
+  }, [gameState, multiplier, rocketPathK]);
 
-  // SVG Rocket
   const rocketSVG = (
-    <svg width="60" height="60" viewBox="0 0 60 60" style={{ filter: 'drop-shadow(0 0 16px #00d4ff)' }}>
-      <g>
-        <ellipse cx="30" cy="53" rx="8" ry="3" fill="#00d4ff" opacity="0.5" />
-        <rect x="27" y="18" width="6" height="25" rx="3" fill="#212d3b" stroke="#00d4ff" strokeWidth="2" />
-        <polygon points="30,5 36,18 24,18" fill="#39ff14" stroke="#fff" strokeWidth="2" />
-        <rect x="28" y="43" width="4" height="8" rx="2" fill="#fffc00" />
-        <circle cx="30" cy="25" r="3" fill="#fff" stroke="#00d4ff" strokeWidth="2" />
+    <svg width="80" height="80" viewBox="0 0 80 80" style={{ filter: 'drop-shadow(0 0 16px #00d4ff)' }}>
+      <g className="rocket-body">
+        <polygon points="40,5 48,22 32,22" fill="#39ff14" stroke="#fff" strokeWidth="1.5" />
+        <rect x="36" y="20" width="8" height="30" rx="4" fill="#212d3b" stroke="#00d4ff" strokeWidth="1.5" />
+        <circle cx="40" cy="30" r="4" fill="#fff" stroke="#00d4ff" strokeWidth="1.5" />
+        <path d="M32 50 L32 55 Q40 60 48 55 L48 50 Z" fill="#212d3b" stroke="#00d4ff" strokeWidth="1.5" />
+      </g>
+      <g className="flame">
+        <polygon points="36,50 44,50 40,65" fill="rgba(255, 220, 0, 0.9)" />
+        <polygon points="37,50 43,50 40,60" fill="rgba(255, 100, 0, 1)" />
       </g>
     </svg>
   );
@@ -85,6 +93,7 @@ const RocketDisplay = ({ gameState, multiplier, waitUntil, serverTimeOffset, cra
 
   const displayValue = gameState === 'crashed' ? (crashPoint ?? 1).toFixed(2) : multiplier.toFixed(2);
   const countdownText = (countdownMs / 1000).toFixed(1);
+  const rocketPositionStyle = rocketRef.current ? { top: rocketRef.current.style.top, left: rocketRef.current.style.left } : {};
 
   return (
     <div className="bg-gradient-to-br from-[#0e1948] via-[#020024] to-[#001e3c] border-4 border-cyan-600/30 rounded-2xl shadow-2xl relative aspect-video min-h-[400px] overflow-hidden w-full">
@@ -104,22 +113,23 @@ const RocketDisplay = ({ gameState, multiplier, waitUntil, serverTimeOffset, cra
         {gameState !== 'crashed' && rocketSVG}
       </div>
       {gameState === 'crashed' && (
-        <div className="absolute w-40 h-40 bg-red-700/80 rounded-full animate-explosion-fire pointer-events-none z-50"
-          style={{
-            left: '18%',
-            bottom: '14%',
-            boxShadow: '0 0 70px 20px rgba(255, 60, 0, 0.9), 0 0 150px 40px rgba(255, 160, 0, 0.7)',
-            filter: 'blur(10px)',
-          }} />
+        <div className="absolute w-64 h-64 pointer-events-none z-50" style={rocketPositionStyle}>
+          <svg viewBox="0 0 200 200" className="w-full h-full">
+            <circle cx="100" cy="100" r="0" fill="white" className="animate-flash" />
+            <circle cx="100" cy="100" r="0" fill="none" stroke="#ffdd00" strokeWidth="2" className="animate-shockwave" style={{ animationDelay: '0s' }} />
+            <circle cx="100" cy="100" r="0" fill="none" stroke="#ff8800" strokeWidth="2" className="animate-shockwave" style={{ animationDelay: '0.15s' }} />
+            <circle cx="100" cy="100" r="0" fill="none" stroke="#ff4400" strokeWidth="2" className="animate-shockwave" style={{ animationDelay: '0.3s' }} />
+          </svg>
+        </div>
       )}
     </div>
   );
 };
 
 const CrashGame = () => {
-  const { currentUser, loading: authLoading } = useContext(AuthContext);
+  const { currentUser, userData, loading: authLoading } = useContext(AuthContext);
   const [userBalance, setUserBalance] = useState(0);
-  const [game, setGame] = useState({ state: 'loading', roundId: null, crashPoint: null, startedAt: null, waitUntil: null });
+  const [game, setGame] = useState({ state: 'loading', roundId: null, crashPoint: null, startedAt: null, waitUntil: null, rocketPathK: 0.00006 });
   const [currentMultiplier, setCurrentMultiplier] = useState(1.0);
   const [playerBet, setPlayerBet] = useState(null);
   const [betAmount, setBetAmount] = useState('10.00');
@@ -129,6 +139,9 @@ const CrashGame = () => {
   const [recentRounds, setRecentRounds] = useState([]);
   const animationFrameId = useRef();
   const serverTimeOffset = useRef(0);
+  
+  // CORRECCIÓN: El hook useRef se mueve aquí, al nivel principal del componente.
+  const offsetSamples = useRef([]);
 
   const placeBetCallable = httpsCallable(functions, 'placeBet_crash');
   const cashOutCallable = httpsCallable(functions, 'cashOut_crash');
@@ -154,9 +167,18 @@ const CrashGame = () => {
           crashPoint: data.crashPoint || null,
           startedAt: data.started_at || null,
           waitUntil: data.wait_until || data.next_round_at || null,
+          rocketPathK: data.rocketPathK || 0.00006,
         });
-        if (serverTimeOffset.current === 0 && data.server_time_now)
-          serverTimeOffset.current = Date.now() - toMillis(data.server_time_now);
+
+        // La función ahora usa el `offsetSamples` definido en el scope del componente.
+        const updateOffset = (serverTime) => {
+          const offset = Date.now() - toMillis(serverTime);
+          offsetSamples.current.push(offset);
+          if (offsetSamples.current.length > 10) offsetSamples.current.shift();
+          serverTimeOffset.current = Math.round(offsetSamples.current.reduce((a, b) => a + b, 0) / offsetSamples.current.length);
+        };
+
+        if (data.server_time_now) updateOffset(data.server_time_now);
       }
     });
 
@@ -182,12 +204,17 @@ const CrashGame = () => {
   }, [currentUser]);
 
   useEffect(() => {
+    const rocketPathK = game.rocketPathK || 0.00006;
+    
     const animate = () => {
       const startedMs = toMillis(game.startedAt);
       if (game.state === 'running' && startedMs) {
-        const elapsed = (Date.now() - serverTimeOffset.current) - startedMs;
-        const newMultiplier = Math.max(1, Math.floor(100 * Math.exp(ROCKET_PATH_K * elapsed)) / 100);
+        const elapsed = Date.now() - (startedMs + serverTimeOffset.current);
+        const newMultiplier = Math.max(1, Math.floor(100 * Math.exp(rocketPathK * elapsed)) / 100);
         setCurrentMultiplier(newMultiplier);
+        animationFrameId.current = requestAnimationFrame(animate);
+      } else if (game.state === 'running') {
+        setCurrentMultiplier(1.0);
         animationFrameId.current = requestAnimationFrame(animate);
       }
     };
@@ -199,7 +226,24 @@ const CrashGame = () => {
       else setCurrentMultiplier(1.0);
     }
     return () => cancelAnimationFrame(animationFrameId.current);
-  }, [game.state, game.startedAt, game.crashPoint]);
+  }, [game.state, game.startedAt, game.crashPoint, game.rocketPathK]);
+
+  useEffect(() => {
+    if (game.state === 'crashed' && currentMultiplier < game.crashPoint) {
+      let frame;
+      const animateCrash = () => {
+        setCurrentMultiplier(prev => {
+          if (prev + 0.5 >= game.crashPoint) return game.crashPoint;
+          return prev + 0.5;
+        });
+        if (currentMultiplier < game.crashPoint) {
+          frame = requestAnimationFrame(animateCrash);
+        }
+      };
+      animateCrash();
+      return () => cancelAnimationFrame(frame);
+    }
+  }, [game.state, game.crashPoint]);
 
   // --- ACTION HANDLERS ---
   const handlePlaceBet = async () => {
@@ -352,6 +396,8 @@ const CrashGame = () => {
       </div>
     );
   }
+  
+  const rocketPathKValue = game.rocketPathK || 0.00006;
 
   return (
     <div
@@ -371,16 +417,34 @@ const CrashGame = () => {
         .animate-pulse-neon{animation:pulse-neon 3s infinite}
         @keyframes pulse-slow{0%,100%{text-shadow:0 0 8px #00d4ff,0 0 16px #39ff14}50%{text-shadow:0 0 20px #39ff14,0 0 35px #00d4ff}}
         .animate-pulse-slow{animation:pulse-slow 3.5s infinite}
-        @keyframes explosion-fire{0%{transform:scale(1);opacity:1}50%{transform:scale(4);opacity:.5}100%{transform:scale(6);opacity:0}}
-        .animate-explosion-fire{animation:explosion-fire .4s ease-out forwards}
-        .bg-space-stars {
-          background-image: radial-gradient(ellipse at 60% 10%, #fff 0.5px, transparent 1px), radial-gradient(ellipse at 80% 70%, #fff 1.2px, transparent 1px), radial-gradient(ellipse at 20% 20%, #fff 0.7px, transparent 1px), radial-gradient(ellipse at 55% 85%, #fff 0.5px, transparent 1px);
-          background-size: cover;
-          opacity: 0.25;
+        @keyframes flame { 0%, 100% { transform: scaleY(1) translateY(0); } 50% { transform: scaleY(1.2) translateY(5px); } }
+        .flame { animation: flame 0.15s infinite; }
+        @keyframes flash { 0% { r: 0; opacity: 1; } 50% { r: 100px; opacity: 0.5; } 100% { r: 100px; opacity: 0; } }
+        .animate-flash { animation: flash 0.5s ease-out forwards; }
+        @keyframes shockwave { 0% { r: 0; opacity: 1; } 100% { r: 100px; opacity: 0; } }
+        .animate-shockwave { animation: shockwave 0.7s ease-out forwards; }
+        @keyframes move-stars-bg { from { background-position: 0 0; } to { background-position: -10000px 5000px; } }
+        .bg-space-stars { background: transparent; position: absolute; top: 0; left: 0; right: 0; bottom: 0; z-index: 1; }
+        .bg-space-stars::before, .bg-space-stars::after {
+          content: ''; position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+          background-image:
+            radial-gradient(1px 1px at 20px 30px, #eee, rgba(0,0,0,0)), radial-gradient(1px 1px at 40px 70px, #fff, rgba(0,0,0,0)),
+            radial-gradient(1px 1px at 50px 160px, #ddd, rgba(0,0,0,0)), radial-gradient(1px 1px at 90px 40px, #fff, rgba(0,0,0,0)),
+            radial-gradient(2px 2px at 160px 100px, #fff, rgba(0,0,0,0)), radial-gradient(2px 2px at 40px 200px, #ddd, rgba(0,0,0,0)),
+            radial-gradient(3px 3px at 180px 80px, #fff, rgba(0,0,0,0));
+          background-repeat: repeat; background-size: 300px 300px; animation: move-stars-bg 200s linear infinite;
         }
+        .bg-space-stars::after { background-size: 600px 600px; animation-duration: 400s; animation-direction: reverse; }
       `}</style>
       <NotificationBar key={notification.key} message={notification.message} type={notification.type} />
-
+      {['admin', 'owner'].includes(userData?.role) && (
+        <Link to="/admin/crash" className="absolute top-5 right-5 z-50 p-2 bg-gray-800/50 rounded-full hover:bg-blue-600/70 transition-colors" title="Panel de Administración de Crash">
+          <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+          </svg>
+        </Link>
+      )}
       <div className="max-w-7xl mx-auto p-4 sm:p-6 lg:p-8">
         <header className="mb-7 flex flex-col md:flex-row justify-between items-center bg-gradient-to-br from-[#001e3c] via-[#212d3b] to-[#002244] p-5 rounded-2xl border-4 border-blue-700/30 shadow-2xl">
           <h1 className="text-5xl md:text-6xl font-extrabold tracking-wide text-blue-400 drop-shadow-neon flex items-center gap-3">
@@ -395,6 +459,9 @@ const CrashGame = () => {
               </div>
             </div>
             <p className="text-md text-blue-300 font-mono bg-blue-800/50 px-5 py-2 rounded-lg border border-blue-600/50">Ronda #{game.roundId ?? '...'}</p>
+            <Link to="/lobby" className="bg-yellow-500 hover:bg-yellow-400 text-gray-900 font-bold py-2 px-4 rounded-lg transition-colors">
+              Volver al Lobby
+            </Link>
           </div>
         </header>
         <HistoryBar rounds={recentRounds} />
@@ -406,6 +473,7 @@ const CrashGame = () => {
               waitUntil={game.waitUntil}
               serverTimeOffset={serverTimeOffset.current}
               crashPoint={game.crashPoint}
+              rocketPathK={rocketPathKValue}
             />
           </div>
           <div className="lg:col-span-3 order-2 space-y-7">
@@ -427,27 +495,14 @@ const CrashGame = () => {
               </div>
               <div className="grid grid-cols-4 gap-2 pt-3">
                 {[1, 5, 10, 25, 50, 100].map(val => (
-                  <button
-                    key={val}
-                    onClick={() => setBetAmount(v => (parseFloat(v) || 0) + val)}
-                    disabled={!canBet}
-                    className="px-3 py-3 text-base bg-[#142c4c] hover:bg-blue-700/80 rounded-lg transition disabled:opacity-50 font-bold shadow-md"
-                  >
+                  <button key={val} onClick={() => setBetAmount(v => (parseFloat(v) || 0) + val)} disabled={!canBet} className="px-3 py-3 text-base bg-[#142c4c] hover:bg-blue-700/80 rounded-lg transition disabled:opacity-50 font-bold shadow-md">
                     + {val}
                   </button>
                 ))}
-                <button
-                  onClick={() => setBetAmount(v => (parseFloat(v) / 2).toFixed(2))}
-                  disabled={!canBet}
-                  className="px-3 py-3 text-base bg-[#142c4c] hover:bg-blue-700/80 rounded-lg transition disabled:opacity-50 font-bold"
-                >
+                <button onClick={() => setBetAmount(v => (parseFloat(v) / 2).toFixed(2))} disabled={!canBet} className="px-3 py-3 text-base bg-[#142c4c] hover:bg-blue-700/80 rounded-lg transition disabled:opacity-50 font-bold">
                   1/2
                 </button>
-                <button
-                  onClick={() => setBetAmount(v => (parseFloat(v) * 2).toFixed(2))}
-                  disabled={!canBet}
-                  className="px-3 py-3 text-base bg-[#142c4c] hover:bg-blue-700/80 rounded-lg transition disabled:opacity-50 font-bold"
-                >
+                <button onClick={() => setBetAmount(v => (parseFloat(v) * 2).toFixed(2))} disabled={!canBet} className="px-3 py-3 text-base bg-[#142c4c] hover:bg-blue-700/80 rounded-lg transition disabled:opacity-50 font-bold">
                   2X
                 </button>
               </div>
