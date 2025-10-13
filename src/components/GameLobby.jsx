@@ -8,9 +8,7 @@ import { getUserData } from "../firestoreService";
 
 const GameLobby = () => {
     const navigate = useNavigate();
-    const authCtx = useContext(AuthContext);
-    if (!authCtx) return null;
-    const { currentUser } = authCtx;
+    const { currentUser } = useContext(AuthContext);
     const [userData, setUserData] = useState(null);
     const [loading, setLoading] = useState(true);
     const [hasUnreadSupport, setHasUnreadSupport] = useState(false);
