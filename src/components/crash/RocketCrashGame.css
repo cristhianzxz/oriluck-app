@@ -1,0 +1,229 @@
+/* RocketCrashGame.css */
+body {
+    font-family: 'Poppins', sans-serif;
+    /* Las propiedades de body como background se manejarán en el componente principal o en index.css */
+}
+
+.main-grid {
+    display: grid;
+    grid-template-columns: 280px 1fr 320px;
+    gap: 1.5rem;
+    height: 100%;
+    padding: 1rem;
+}
+.center-column {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+    min-height: 0;
+}
+.game-screen {
+    background-color: #0d1117;
+    border-radius: 1rem;
+    position: relative;
+    overflow: hidden;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    flex-grow: 1;
+    min-height: 0;
+}
+#background-canvas, #confetti-canvas {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 0;
+    pointer-events: none;
+}
+#confetti-canvas {
+    z-index: 30;
+}
+#game-grid {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 1;
+}
+.multiplier {
+    font-size: 6rem;
+    font-weight: 700;
+    text-shadow: 0 0 10px rgba(255, 255, 255, 0.8), 0 0 20px rgba(255, 255, 255, 0.6);
+    color: #fff;
+    transition: all 0.2s ease;
+    z-index: 25;
+}
+.multiplier.crashed {
+    color: #ff4d4d;
+    text-shadow: 0 0 10px #ff4d4d, 0 0 20px #ff4d4d;
+}
+#rocket {
+    position: absolute;
+    bottom: 5%;
+    left: 10%;
+    z-index: 10;
+    font-size: 4.5rem;
+    transform-origin: center center;
+    transform: rotate(-5deg);
+    transition: opacity 0.1s ease-in-out, bottom 0.1s linear, left 0.1s linear;
+}
+#rocket::after {
+    content: '';
+    position: absolute;
+    left: 15px;
+    bottom: 30px;
+    width: 35px;
+    height: 45px;
+    background: linear-gradient(to top, #ff8c00, #ffd700);
+    border-radius: 50% 50% 50% 50% / 80% 80% 20% 20%;
+    filter: blur(8px);
+    transform: rotate(-5deg);
+    transform-origin: 50% 100%;
+    z-index: -1;
+    opacity: 0;
+    transition: opacity 0.1s ease-in-out;
+}
+#rocket.is-flying::after {
+    opacity: 1;
+    animation: flame-flicker 0.1s infinite alternate;
+}
+.particle {
+    position: absolute;
+    background-color: #ffd700;
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    opacity: 1;
+    animation: fade-out 0.8s ease-out forwards;
+    z-index: 5;
+}
+@keyframes fade-out { to { transform: scale(0); opacity: 0; } }
+@keyframes flame-flicker {
+    from { transform: rotate(-127deg) scaleY(1) scaleX(1); }
+    to { transform: rotate(-127deg) scaleY(1.4) scaleX(1.1); }
+}
+#explosion {
+    position: absolute;
+    width: 300px;
+    height: 300px;
+    border-radius: 50%;
+    overflow: hidden;
+    z-index: 20;
+    opacity: 0;
+    pointer-events: none;
+    transform-origin: center;
+    background: transparent;
+}
+#explosion.active { opacity: 1; }
+.explosion-svg { width: 100%; height: 100%; background: transparent; }
+.flash { transform-origin: center; opacity: 0; fill: white; }
+#explosion.active .flash { opacity: 1; animation: flash-bang 0.8s ease-out forwards; }
+@keyframes flash-bang {
+    0% { opacity: 1; transform: scale(0); }
+    80% { opacity: 0.7; transform: scale(1.3); }
+    100% { opacity: 0; transform: scale(2); }
+}
+.spark { stroke-width: 4; stroke-linecap: round; transform-origin: center; opacity: 0; }
+#explosion.active .spark { animation: spark-fly 0.8s ease-out forwards; }
+@keyframes spark-fly {
+    0% { stroke-dasharray: 0 100; opacity: 1; }
+    50% { stroke-dasharray: 20 100; }
+    100% { stroke-dasharray: 20 100; opacity: 0; }
+}
+.panel {
+    background-color: rgba(22, 27, 34, 0.7);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 1rem;
+    backdrop-filter: blur(10px);
+}
+#history-list { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+.btn-play { background: linear-gradient(45deg, #00bfff, #1e90ff); box-shadow: 0 0 15px rgba(30, 144, 255, 0.6); }
+.btn-play:hover { background: linear-gradient(45deg, #1ec8ff, #3ea0ff); }
+.btn-cancel { background: linear-gradient(45deg, #f97316, #ea580c); box-shadow: 0 0 15px rgba(249, 115, 22, 0.6); }
+.btn-cashout { background: linear-gradient(45deg, #ff4500, #ff8c00); box-shadow: 0 0 15px rgba(255, 69, 0, 0.6); }
+.btn-cashout:hover { background: linear-gradient(45deg, #ff6a33, #ffa533); }
+.btn-success { background-color: #16a34a; }
+
+.tab-button {
+    transition: all 0.2s ease-in-out;
+    border-bottom: 2px solid transparent;
+}
+.tab-button.active {
+    color: #22d3ee;
+    border-bottom-color: #22d3ee;
+}
+.toggle-switch {
+    width: 44px;
+    height: 24px;
+    background-color: #4b5563;
+    border-radius: 9999px;
+    padding: 2px;
+    transition: background-color 0.2s ease-in-out;
+    cursor: pointer;
+}
+.toggle-switch.active {
+    background-color: #16a34a;
+}
+.toggle-switch-slider {
+    width: 20px;
+    height: 20px;
+    background-color: white;
+    border-radius: 50%;
+    transition: transform 0.2s ease-in-out;
+}
+.toggle-switch.active .toggle-switch-slider {
+    transform: translateX(20px);
+}
+.input-error {
+    box-shadow: 0 0 0 2px #ef4444;
+}
+
+#toast-container {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    z-index: 1000;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+.toast {
+    padding: 1rem;
+    border-radius: 0.5rem;
+    color: white;
+    font-weight: 600;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    animation: slide-in 0.3s ease-out, fade-out-toast 0.5s ease-in 2.5s forwards;
+}
+.toast.success { background-color: #22c55e; }
+.toast.error { background-color: #ef4444; }
+.toast.info { background-color: #3b82f6; }
+@keyframes slide-in {
+    from { transform: translateX(100%); opacity: 0; }
+    to { transform: translateX(0); opacity: 1; }
+}
+@keyframes fade-out-toast {
+    from { opacity: 1; }
+    to { opacity: 0; }
+}
+
+@media (max-width: 1200px) {
+    .main-grid {
+        grid-template-columns: 280px 1fr;
+        grid-template-rows: 1fr auto;
+    }
+    .right-column { order: 3; grid-column: 1 / -1; }
+}
+@media (max-width: 768px) {
+    body { overflow: auto; }
+    .main-grid {
+        grid-template-columns: 1fr;
+        height: auto;
+    }
+    .game-screen { height: 60vh; }
+    .left-column, .center-column, .right-column {
+        order: initial;
+        grid-column: initial;
+    }
+}

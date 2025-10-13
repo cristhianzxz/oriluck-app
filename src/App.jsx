@@ -21,8 +21,8 @@ import SlotsLobby from './components/slots/SlotsLobby';
 import SlotsGame from './components/slots/SlotsGame';
 import SlotsAdmin from './components/slots/SlotsAdmin';
 
-// >>>>> IMPORTA LOS NUEVOS COMPONENTES <<<<<
-import CrashGame from './components/crash/CrashGame';
+// >>>>> IMPORTA EL NUEVO COMPONENTE CORRECTAMENTE <<<<<
+import RocketCrashGame from './components/crash/RocketCrashGame.jsx';
 import CrashAdminPanel from './components/crash/CrashAdminPanel';
 
 // Contexto de autenticación
@@ -677,8 +677,8 @@ function App() {
         <Route path="/slots/game" element={<ProtectedRoute><SlotsGame /></ProtectedRoute>} />
         <Route path="/admin/slots" element={<ProtectedRoute><SlotsAdmin /></ProtectedRoute>} />
         
-        {/* >>>>> AÑADE LAS NUEVAS RUTAS PARA CRASH GAME <<<<< */}
-        <Route path="/crash" element={<ProtectedRoute><CrashGame /></ProtectedRoute>} />
+        {/* >>>>> RUTA DE CRASH GAME ACTUALIZADA <<<<< */}
+        <Route path="/crash" element={<ProtectedRoute><RocketCrashGame /></ProtectedRoute>} />
         <Route path="/admin/crash" element={
             <AdminRoute>
                 <CrashAdminPanel />
