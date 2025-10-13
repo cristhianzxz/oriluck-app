@@ -1,6 +1,6 @@
-import React, { useRef, useEffect, useCallback, useState } from 'react';
+import { useRef, useEffect, useCallback, useState } from 'react';
 
-const GameAnimation = ({ gameState, multiplier }) => {
+const GameAnimation = ({ gameState, multiplier, countdown }) => {
     const gridCanvasRef = useRef(null);
     const bgCanvasRef = useRef(null);
     const [rocketPosition, setRocketPosition] = useState({ x: 10, y: 30 });
@@ -47,7 +47,7 @@ const GameAnimation = ({ gameState, multiplier }) => {
         ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)'; ctx.fillStyle = 'rgba(255, 255, 255, 0.4)';
         ctx.font = '12px Poppins'; ctx.setLineDash([2, 4]);
 
-        const yMultiplierRange = 1.0; // Representa 1.0x de multiplicador en la vista
+        const yMultiplierRange = 1.0;
         const pixelsPerMultiplier = (height * 0.9) / yMultiplierRange;
         const startMultiplier = 1.0 + (yPixelOffset / pixelsPerMultiplier);
         const yStep = 0.25;
@@ -70,7 +70,6 @@ const GameAnimation = ({ gameState, multiplier }) => {
         const gameScreen = document.querySelector('.game-screen');
         if (!gameScreen) return;
 
-        // Posición inicial del cohete en la base de lanzamiento
         const launchpadY = 30;
         const launchpadX = 10;
 
@@ -81,28 +80,19 @@ const GameAnimation = ({ gameState, multiplier }) => {
         }
 
         if (gameState === 'running') {
-            // La altura de la pantalla visible que dedicamos a 1.0x de multiplicador
             const pixelsPerMultiplierUnit = gameScreen.clientHeight * 0.8;
-            // Distancia vertical total que el cohete debería haber recorrido desde 1.0x
             const totalTravelY = (multiplier - 1) * pixelsPerMultiplierUnit;
-            // Punto a partir del cual la cámara empieza a seguir al cohete
             const scrollThreshold = gameScreen.clientHeight * 0.4;
 
-            // La posición Y del cohete se limita al umbral, el resto se compensa con el scroll
             const rocketY = launchpadY + Math.min(totalTravelY, scrollThreshold);
-            // El offset de la cuadrícula es lo que el cohete ha recorrido más allá del umbral
             const newGridOffset = totalTravelY > scrollThreshold ? totalTravelY - scrollThreshold : 0;
 
-            // El movimiento horizontal puede ser una función del tiempo o del multiplicador
-            const horizontalProgress = Math.min((multiplier - 1) / 10, 1); // Se mueve hacia la derecha hasta 11x
+            const horizontalProgress = Math.min((multiplier - 1) / 10, 1);
             const rocketX = launchpadX + (horizontalProgress * 70);
 
             setRocketPosition({ x: rocketX, y: rocketY });
             setGridOffset(newGridOffset);
         }
-        // Si el estado es 'crashed', el 'multiplier' se fija en el crash point,
-        // por lo que el cohete y la cuadrícula se detendrán en su posición final automáticamente.
-
     }, [multiplier, gameState]);
 
     useEffect(() => {
@@ -120,6 +110,8 @@ const GameAnimation = ({ gameState, multiplier }) => {
             <canvas ref={bgCanvasRef} id="background-canvas"></canvas>
             <canvas ref={gridCanvasRef} id="game-grid"></canvas>
 
+            {gameState === 'waiting' && (<div id="game-status" className="absolute top-4 left-1/2 -translate-x-1/2 bg-black/50 px-4 py-2 rounded-lg font-semibold z-30">Iniciando ronda en {countdown.toFixed(1)}s</div>)}
+
             {showRoundElements && (
                 <div id="multiplier-display" className={`multiplier ${gameState === 'crashed' ? 'crashed' : ''}`}>
                     {multiplier.toFixed(2)}x
@@ -132,7 +124,6 @@ const GameAnimation = ({ gameState, multiplier }) => {
                     left: `${rocketPosition.x}%`,
                     bottom: `${rocketPosition.y}px`,
                     opacity: gameState === 'crashed' ? 0 : 1,
-                    // Siempre visible, incluso en espera
                     display: gameState === 'loading' ? 'none' : 'block'
                 }}
                 className={gameState === 'running' ? 'is-flying' : ''}
@@ -149,15 +140,7 @@ const GameAnimation = ({ gameState, multiplier }) => {
                     }}
                     className="active"
                 >
-                    <svg className="explosion-svg" viewBox="0 0 200 200">
-                        <circle className="flash" cx="100" cy="100" r="100" />
-                        <g stroke="orange">
-                            <path className="spark" d="M100 100 L180 100" /><path className="spark" d="M100 100 L155 155" />
-                            <path className="spark" d="M100 100 L100 180" /><path className="spark" d="M100 100 L45 155" />
-                            <path className="spark" d="M100 100 L20 100" /><path className="spark" d="M100 100 L45 45" />
-                            <path className="spark" d="M100 100 L100 20" /><path className="spark" d="M100 100 L155 45" />
-                        </g>
-                    </svg>
+                    <svg className="explosion-svg" viewBox="0 0 200 200"><circle className="flash" cx="100" cy="100" r="100" /><g stroke="orange"><path className="spark" d="M100 100 L180 100" /><path className="spark" d="M100 100 L155 155" /><path className="spark" d="M100 100 L100 180" /><path className="spark" d="M100 100 L45 155" /><path className="spark" d="M100 100 L20 100" /><path className="spark" d="M100 100 L45 45" /><path className="spark" d="M100 100 L100 20" /><path className="spark" d="M100 100 L155 45" /></g></svg>
                 </div>
             )}
         </div>

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 
 const BetControls = ({ gameState, onBet, onCancel, onCashout, currentBet, multiplier }) => {
     const [betAmount, setBetAmount] = useState('10.00');
@@ -13,23 +13,18 @@ const BetControls = ({ gameState, onBet, onCancel, onCashout, currentBet, multip
         onBet(amount, autoCashout);
     }, [betAmount, isAutoCashout, autoCashoutAmount, onBet]);
 
-    // Efecto para gestionar la auto-apuesta y la pre-apuesta
     useEffect(() => {
-        // Si el estado cambia a 'waiting', es el inicio de una nueva ronda
         if (gameState === 'waiting') {
-            // Si el usuario tenía una pre-apuesta, la ejecutamos
             if (betForNextRound && !currentBet) {
                 handleBetAction();
-                setBetForNextRound(false); // Reseteamos la pre-apuesta
+                setBetForNextRound(false);
             }
-            // Si el modo auto-apuesta está activo y no hay apuesta actual, la ejecutamos
             else if (isAutoBet && !currentBet) {
                 handleBetAction();
             }
         }
     }, [gameState, isAutoBet, betForNextRound, currentBet, handleBetAction]);
 
-    // Lógica para el botón de acción principal
     const handleActionClick = () => {
         const state = getButtonState();
         switch (state.action) {
@@ -54,41 +49,33 @@ const BetControls = ({ gameState, onBet, onCancel, onCashout, currentBet, multip
     };
 
     const getButtonState = useCallback(() => {
-        // Ya ganó, muestra el premio y permite apostar de nuevo
         if (currentBet?.status === 'cashed_out') {
-            return { text: `GANASTE ${currentBet.winnings.toFixed(2)} VES`, action: 'bet_next_round', className: "btn-success", disabled: false };
+            return { text: `GANASTE ${currentBet.winnings.toFixed(2)} VES`, action: 'bet_next_round', className: "btn-success", disabled: betForNextRound };
         }
-        // Apuesta activa en una ronda en curso
         if (gameState === 'running' && currentBet) {
             return { text: `RETIRAR ${(currentBet.bet * multiplier).toFixed(2)} VES`, action: 'cashout', className: "btn-cashout", disabled: false };
         }
-        // Apuesta colocada, esperando que la ronda comience
         if (gameState === 'waiting' && currentBet) {
             return { text: "CANCELAR APUESTA", action: 'cancel', className: "btn-cancel", disabled: false };
         }
-        // Pre-apuesta activada para la siguiente ronda
         if (betForNextRound) {
             return { text: "CANCELAR PRÓXIMA APUESTA", action: 'cancel_next_round', className: "btn-cancel", disabled: false };
         }
-        // Estado de espera, se puede apostar ahora
         if (gameState === 'waiting') {
             return { text: "JUGAR", action: 'bet_now', className: "btn-play", disabled: false };
         }
-        // Ronda en curso o crasheada, se puede pre-apostar
         if (gameState === 'running' || gameState === 'crashed') {
             return { text: "APOSTAR PARA LA SIGUIENTE", action: 'bet_next_round', className: "btn-play", disabled: false };
         }
-        // Estado por defecto
         return { text: "JUGAR", action: 'bet_now', className: "btn-play", disabled: true };
     }, [gameState, currentBet, multiplier, betForNextRound]);
 
     const buttonState = getButtonState();
-    // Los inputs se deshabilitan si hay una apuesta actual o una pre-apuesta
     const isBetPlaced = !!currentBet || betForNextRound;
 
     return (
         <div className="bet-panel panel p-4 flex flex-col space-y-3">
-            <div className="flex items-center gap-4">
+             <div className="flex items-center gap-4">
                 <div className="flex flex-col items-center pt-5">
                     <label className="text-sm font-medium text-gray-400">Auto</label>
                     <div onClick={() => setIsAutoBet(!isAutoBet)} className={`toggle-switch mt-1 ${isAutoBet ? 'active' : ''}`}>
@@ -125,7 +112,7 @@ const BetControls = ({ gameState, onBet, onCancel, onCashout, currentBet, multip
                  </div>
             </div>
             <div className="w-full mt-2 flex gap-2">
-                {currentBet?.status === 'cashed_out' ? (
+                 {currentBet?.status === 'cashed_out' && !betForNextRound ? (
                     <>
                         <div className="w-1/2 py-3 rounded-xl text-lg font-bold btn-success text-center">
                             GANASTE {currentBet.winnings.toFixed(2)} VES
