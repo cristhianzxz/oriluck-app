@@ -1,29 +1,20 @@
-// MODIFICADO: Importaciones corregidas y separadas para la sintaxis v2
 const { onCall, HttpsError, onRequest } = require("firebase-functions/v2/https");
 const { onSchedule } = require("firebase-functions/v2/scheduler");
 const { logger } = require("firebase-functions");
 const crypto = require('crypto');
-
-// Usamos la inicialización modular
 const { initializeApp } = require("firebase-admin/app");
 const { getFirestore, FieldValue } = require("firebase-admin/firestore");
-
-// NUEVO: Importar el cliente de Cloud Tasks
 const { CloudTasksClient } = require('@google-cloud/tasks');
 
 initializeApp();
 const db = getFirestore();
 
-// "Inicialización Perezosa" (Lazy Initialization)
 let tasksClient;
 let rngSystem;
 
-// Constantes para Cloud Tasks
 const PROJECT_ID = process.env.GCLOUD_PROJECT;
 const QUEUE_LOCATION = "southamerica-east1";
 const QUEUE_ID = 'crash-game-queue';
-
-// ================= CONSTANTES =================
 const REGION = "southamerica-east1";
 const TURN_DELAY_SECONDS_BINGO = 5;
 const BINGO_NUMBERS = Array.from({ length: 75 }, (_, i) => i + 1);
@@ -48,7 +39,6 @@ const PAY_TABLE = [
 ];
 const JACKPOT_PROBABILITY = 0.001;
 
-// ================= HELPERS ====================
 const sleep = (ms) => new Promise(res => setTimeout(res, ms));
 
 function getFlatCardNumbers(cardNumbers) {
@@ -94,9 +84,6 @@ class AuditableRNG {
     }
 }
 
-// ===================================================================
-// --- BLOQUE DE BINGO ---
-// ===================================================================
 exports.startAuditableBingo = onCall({ region: REGION, timeoutSeconds: 30, cors: true }, async (request) => {
     if (!rngSystem) { rngSystem = new AuditableRNG(); }
     if (!request.auth) {
@@ -215,9 +202,6 @@ exports.bingoTurnProcessor = onSchedule({
     }
 });
 
-// ===================================================================
-// --- BLOQUE DE SLOTS ---
-// ===================================================================
 exports.buySlotsChipsCallable = onCall({ region: REGION, timeoutSeconds: 20, cors: true }, async (request) => {
     if (!request.auth) {
         throw new HttpsError('unauthenticated', 'Debe iniciar sesión para comprar fichas.');
@@ -280,9 +264,9 @@ exports.buySlotsChipsCallable = onCall({ region: REGION, timeoutSeconds: 20, cor
                 });
             }
             if (slotsHouseFundSnap.exists) {
-                tx.update(slotsHouseFundSnap, { totalForHouse: FieldValue.increment(houseContribution) });
+                tx.update(slotsHouseFundRef, { totalForHouse: FieldValue.increment(houseContribution) });
             } else {
-                tx.set(slotsHouseFundSnap, { totalForHouse: houseContribution, percentageHouse: 20 });
+                tx.set(slotsHouseFundRef, { totalForHouse: houseContribution, percentageHouse: 20 });
             }
             const transRef = db.collection("transactions").doc();
             tx.set(transRef, { userId: uid, username: userData.username || 'Usuario', type: "slots_purchase", amount: -totalCostBs, description: `Compra de ${chipsToBuy} fichas + ${bonusChips} de bono.`, status: "completed", createdAt: FieldValue.serverTimestamp(), details: { chipsBought: chipsToBuy, bonusChips, totalCostBs } });
@@ -296,7 +280,6 @@ exports.buySlotsChipsCallable = onCall({ region: REGION, timeoutSeconds: 20, cor
 });
 
 exports.slotsJackpotProcessor = onSchedule({ schedule: "every 5 minutes", region: REGION }, async () => {
-    // Código de slotsJackpotProcessor sin cambios
 });
 
 function getProvablyFairSlotResult(serverSeed, clientSeed, nonce) {
@@ -394,159 +377,249 @@ exports.executeSlotSpin = onCall({ region: REGION, timeoutSeconds: 20, cors: tru
     });
 });
 
-// ===================================================================
-// --- MOTOR DE JUEGO CRASH (VERSIÓN FINAL Y ESTABLE) ---
-// ===================================================================
-
 const CRASH_CONSTANTS = {
     BETTING_TIME_MS: 10000,
     PAUSE_BETWEEN_ROUNDS_MS: 7000,
-    GROWTH_FACTOR: 0.00007,
-    FINANCIAL_CAP_MULTIPLIER: 100.00,
+    GROWTH_FACTOR: 0.05,
+    TARGET_RTP: 97.0,
+    RECOVERY_MODE_MAX_CRASH: 1.85,
+    SEVERE_LOSS_THRESHOLD: -500.00,
 };
 
 function getProvablyFairCrashPoint(serverSeed) {
-    const hmac = crypto.createHmac('sha256', serverSeed).update("crash-game-salt-v2").digest('hex');
+    const hmac = crypto.createHmac('sha256', serverSeed).update("oriluck-crash-game-salt-v2").digest('hex');
     const hashInt = parseInt(hmac.substring(0, 8), 16);
     const e = Math.pow(2, 32);
-    if (e - hashInt === 0) return 1.00;
-    const crashPoint = Math.floor((100 * e - hashInt) / (e - hashInt));
-    return crashPoint < 100 ? 1.00 : parseFloat((crashPoint / 100).toFixed(2));
+    const probability = hashInt / e;
+
+    if (probability < 0.0001) { 
+        return parseFloat((50 + Math.random() * (10000 - 50)).toFixed(2));
+    }
+
+    let crashPoint = 1 / (1 - probability);
+    crashPoint = Math.max(1.00, Math.min(crashPoint, 50.00));
+    return parseFloat(crashPoint.toFixed(2));
 }
 
-function generateAttractiveHistoryResult() {
-    const roll = Math.random();
-    if (roll < 0.70) { return 1.5 + Math.random() * 3.5; } 
-    else if (roll < 0.95) { return 5.0 + Math.random() * 15; } 
-    else { return 20.0 + Math.random() * 80; }
-}
-
-exports.processCrashRound = onRequest({ region: REGION, timeoutSeconds: 60, memory: "256MiB" }, async (req, res) => {
+exports.processCrashRound = onRequest({ region: REGION, timeoutSeconds: 300, memory: "256MiB" }, async (req, res) => {
     if (!tasksClient) { tasksClient = new CloudTasksClient(); }
-    logger.info("[CRASH ENGINE V2] Procesando una ronda...");
+    logger.info("[CRASH ENGINE] Procesando una ronda...");
 
     if (req.header('X-CloudTasks-QueueName') !== QUEUE_ID && process.env.FUNCTIONS_EMULATOR !== 'true') {
-        logger.warn("Llamada no autorizada a processCrashRound denegada.");
+        logger.warn("Llamada no autorizada denegada.");
         return res.status(403).send("Unauthorized");
     }
 
     const gameDocRef = db.doc('game_crash/live_game');
     const historyCollectionRef = db.collection('game_crash_history');
-    
+    const financialsRef = db.doc('game_crash/financials');
+
     try {
         const engineConfigRef = db.doc('game_crash/engine_config');
         const configSnap = await engineConfigRef.get();
         if (!configSnap.exists || configSnap.data().status !== 'enabled') {
-            logger.warn("[CRASH ENGINE V2] Motor desactivado. Deteniendo el bucle.");
+            logger.warn("[CRASH ENGINE] Motor desactivado.");
             await gameDocRef.set({ gameState: 'stopped' }, { merge: true });
             return res.status(200).send("Engine stopped.");
         }
 
-        const previousGameSnap = await gameDocRef.get();
-        if (previousGameSnap.exists && previousGameSnap.data().roundId) {
-            const oldData = previousGameSnap.data();
-            if (oldData.gameState !== 'waiting') {
-                const playersSnap = await gameDocRef.collection('players').get();
-                const oldPlayers = playersSnap.docs.map(doc => doc.data());
-                const totalPot = oldPlayers.reduce((sum, p) => sum + (p.bet || 0), 0);
-                const totalPayout = oldPlayers.filter(p => p.status === 'cashed_out').reduce((sum, p) => sum + (p.winnings || 0), 0);
-                const netProfit = totalPot - totalPayout;
-                await historyCollectionRef.doc(oldData.roundId).set({
-                    crashPoint: oldData.crashPoint || 1.00,
-                    totalPot,
-                    netProfit,
-                    timestamp: oldData.started_at || FieldValue.serverTimestamp(),
-                    serverSeed: oldData.serverSeed || '',
-                });
-            }
-            const playersToDeleteSnap = await gameDocRef.collection('players').get();
-            if (!playersToDeleteSnap.empty) {
-                const batch = db.batch();
-                playersToDeleteSnap.forEach(doc => batch.delete(doc.ref));
-                await batch.commit();
-            }
-        }
+        const previousPlayersSnap = await gameDocRef.collection('players').get();
+        if (!previousPlayersSnap.empty) {
+            const batch = db.batch();
+            let roundTotalIn = 0;
+            let roundTotalOut = 0;
+            previousPlayersSnap.forEach(doc => {
+                const playerData = doc.data();
+                roundTotalIn += playerData.bet;
+                if (playerData.status === 'cashed_out') {
+                    roundTotalOut += playerData.winnings;
+                }
+                batch.delete(doc.ref);
+            });
 
+            const currentFinancialsSnap = await financialsRef.get();
+            const currentTotalIn = currentFinancialsSnap.data()?.totalIn || 0;
+            const currentTotalOut = currentFinancialsSnap.data()?.totalOut || 0;
+            const newTotalIn = currentTotalIn + roundTotalIn;
+            const newTotalOut = currentTotalOut + roundTotalOut;
+            
+            batch.set(financialsRef, {
+                totalIn: newTotalIn,
+                totalOut: newTotalOut,
+                netProfit: newTotalIn - newTotalOut
+            }, { merge: true });
+            await batch.commit();
+        }
+        
         const roundId = db.collection('dummy').doc().id;
         const serverSeed = crypto.randomBytes(32).toString('hex');
         const serverSeedHash = crypto.createHash('sha256').update(serverSeed).digest('hex');
-        
+
         await gameDocRef.set({
             gameState: 'waiting',
             roundId,
             serverSeedHash,
             wait_until: new Date(Date.now() + CRASH_CONSTANTS.BETTING_TIME_MS),
-            server_time_now: FieldValue.serverTimestamp(),
         });
-        logger.info(`[CRASH ENGINE V2] Ronda ${roundId} en estado 'waiting'.`);
-        
+        logger.info(`Ronda ${roundId} en 'waiting'.`);
+
         await sleep(CRASH_CONSTANTS.BETTING_TIME_MS);
-        
-        const playersSnap = await gameDocRef.collection('players').get();
-        const totalPot = playersSnap.docs.reduce((sum, doc) => sum + (doc.data().bet || 0), 0);
-        
-let crashPoint;
-const MARGEN_CASA = 3.00; // 3% margen de la casa
 
-if (totalPot === 0) {
-    crashPoint = parseFloat(generateAttractiveHistoryResult().toFixed(2));
-} else {
-    // Calcula el crashPoint máximo permitido para proteger el margen de la casa
-    // Si quieres que el crashPoint máximo dependa del pozo y margen:
-    // Ejemplo: Si el pozo es 10,000 y el margen es 3%, el crash máximo sería 1.03x
-    const maxCrashPoint = Math.max(1.01, 1 + MARGEN_CASA);
-    const provablyFairCrash = getProvablyFairCrashPoint(serverSeed);
-    crashPoint = Math.min(provablyFairCrash, maxCrashPoint, CRASH_CONSTANTS.FINANCIAL_CAP_MULTIPLIER);
-}
+        const financialsSnap = await financialsRef.get();
+        const financials = financialsSnap.data() || { totalIn: 0, totalOut: 0, netProfit: 0 };
         
-        const timeToCrashMs = crashPoint > 1 ? Math.log(crashPoint) / CRASH_CONSTANTS.GROWTH_FACTOR : 0;
-        logger.info(`Iniciando fase 'running'. CrashPoint: ${crashPoint}x, Duración: ${(timeToCrashMs / 1000).toFixed(2)}s`);
+        let finalCrashPoint = getProvablyFairCrashPoint(serverSeed);
+        
+        if (financials.netProfit < CRASH_CONSTANTS.SEVERE_LOSS_THRESHOLD) {
+            logger.warn(`[ANTI-QUIEBRE] Pérdida severa detectada (${financials.netProfit.toFixed(2)}). Forzando crash en 1.00x.`);
+            finalCrashPoint = 1.00;
+        } else if (financials.netProfit < 0) {
+            const randomLowCrash = parseFloat((1.01 + Math.random() * (CRASH_CONSTANTS.RECOVERY_MODE_MAX_CRASH - 1.01)).toFixed(2));
+            logger.warn(`[ANTI-QUIEBRE] Modo recuperación activado (Neto: ${financials.netProfit.toFixed(2)}). CrashPoint original: ${finalCrashPoint}x. Nuevo: ${randomLowCrash}x`);
+            finalCrashPoint = randomLowCrash;
+        } else {
+             const currentRTP = financials.totalIn > 0 ? (financials.totalOut / financials.totalIn) * 100 : 100;
+             if (currentRTP > CRASH_CONSTANTS.TARGET_RTP && finalCrashPoint > 2.0) {
+                 logger.info(`RTP alto (${currentRTP.toFixed(2)}%), aplicando CAP al crashPoint de ${finalCrashPoint}x a 2.00x.`);
+                 finalCrashPoint = 2.00;
+             }
+        }
 
+        const timeToCrashSeconds = finalCrashPoint > 1 ? (Math.log(finalCrashPoint) / CRASH_CONSTANTS.GROWTH_FACTOR) : 0;
+        const timeToCrashMs = timeToCrashSeconds * 1000;
+        const startTimeMs = Date.now();
+        
         await gameDocRef.update({
             gameState: 'running',
-            started_at: FieldValue.serverTimestamp(),
-            crashPoint,
-            serverSeed,
+            crashPoint: finalCrashPoint,
+            animationDurationMs: timeToCrashMs,
+            startedAtMs: startTimeMs,
             rocketPathK: CRASH_CONSTANTS.GROWTH_FACTOR,
-            server_time_now: FieldValue.serverTimestamp(),
+            serverSeed: serverSeed
         });
+        logger.info(`Ronda ${roundId} en 'running'. CrashPoint Secreto: ${finalCrashPoint}x`);
         
-        await sleep(timeToCrashMs);
-        
+        let elapsed = 0;
+        const tickRate = 100;
+
+        while (elapsed < timeToCrashMs) {
+            await sleep(Math.min(tickRate, timeToCrashMs - elapsed));
+            elapsed = Date.now() - startTimeMs;
+            
+            const elapsedSeconds = elapsed / 1000;
+            const currentMultiplier = Math.exp(elapsedSeconds * CRASH_CONSTANTS.GROWTH_FACTOR);
+
+            const autoCashoutQuery = gameDocRef.collection('players')
+                .where('status', '==', 'playing')
+                .where('autoCashoutTarget', '<=', currentMultiplier);
+
+            const playersToCashoutSnap = await autoCashoutQuery.get();
+
+            if (!playersToCashoutSnap.empty) {
+                const batch = db.batch();
+                playersToCashoutSnap.forEach(playerDoc => {
+                    const playerData = playerDoc.data();
+                    
+                    if (playerData.status === 'playing') {
+                        const winnings = playerData.bet * playerData.autoCashoutTarget;
+                        
+                        batch.update(playerDoc.ref, {
+                            status: 'cashed_out',
+                            winnings: winnings,
+                            cashOutMultiplier: playerData.autoCashoutTarget
+                        });
+
+                        const userRef = db.doc(`users/${playerDoc.id}`);
+                        batch.update(userRef, { balance: FieldValue.increment(winnings) });
+
+                        if (playerData.betId) {
+                            const betHistoryRef = db.doc(`crash_bets/${playerData.betId}`);
+                            batch.update(betHistoryRef, {
+                                status: 'cashed_out',
+                                winnings: winnings,
+                                cashOutMultiplier: playerData.autoCashoutTarget
+                            });
+                        }
+                    }
+                });
+                await batch.commit();
+            }
+        }
+
         await gameDocRef.update({ 
-            gameState: 'crashed',
-            server_time_now: FieldValue.serverTimestamp()
+            gameState: 'crashed'
         });
-        logger.info(`Ronda ${roundId} ha crasheado en ${crashPoint}x.`);
+        logger.info(`Ronda ${roundId} ha crasheado en ${finalCrashPoint}x.`);
+
+        const playersLostSnap = await gameDocRef.collection('players').where('status', '==', 'playing').get();
+        if (!playersLostSnap.empty) {
+            const batch = db.batch();
+            playersLostSnap.forEach(doc => {
+                batch.update(doc.ref, { status: 'lost' });
+                const betId = doc.data().betId;
+                if (betId) {
+                    const betHistoryRef = db.doc(`crash_bets/${betId}`);
+                    batch.update(betHistoryRef, { status: 'lost', crashPoint: finalCrashPoint });
+                }
+            });
+            await batch.commit();
+        }
+
+        const finalPlayersSnap = await gameDocRef.collection('players').get();
+        const playersData = [];
+        let roundTotalIn = 0;
+        let roundTotalOut = 0;
+        finalPlayersSnap.forEach(doc => {
+            const playerData = doc.data();
+            roundTotalIn += playerData.bet || 0;
+            if (playerData.status === 'cashed_out') {
+                roundTotalOut += playerData.winnings || 0;
+            }
+            playersData.push(playerData);
+        });
+
+        await historyCollectionRef.doc(roundId).set({
+            crashPoint: finalCrashPoint,
+            totalPot: roundTotalIn,
+            netProfit: roundTotalIn - roundTotalOut,
+            serverSeed: serverSeed,
+            timestamp: FieldValue.serverTimestamp(),
+            players: playersData,
+            roundId: roundId,
+        });
         
         await sleep(CRASH_CONSTANTS.PAUSE_BETWEEN_ROUNDS_MS);
 
+        const nextRoundTime = Date.now();
+        
         const queuePath = tasksClient.queuePath(PROJECT_ID, QUEUE_LOCATION, QUEUE_ID);
         const url = `https://${QUEUE_LOCATION}-${PROJECT_ID}.cloudfunctions.net/processCrashRound`;
-const task = {
-    httpRequest: { httpMethod: 'POST', url },
-    scheduleTime: { seconds: Math.floor(nextRoundTime / 1000) }
-};
-await tasksClient.createTask({ parent: queuePath, task });
+        const task = {
+            httpRequest: { httpMethod: 'POST', url },
+            scheduleTime: { seconds: Math.floor(nextRoundTime / 1000) }
+        };
+        await tasksClient.createTask({ parent: queuePath, task });
         logger.info(`Siguiente ronda programada.`);
         
         return res.status(200).send({ success: true, roundId });
 
     } catch (error) {
-        logger.error(`[CRASH ENGINE V2] Error crítico en el motor:`, error);
+        logger.error(`[CRASH ENGINE] Error crítico:`, error);
+        await gameDocRef.set({ gameState: 'stopped', error: error.message }, { merge: true });
         return res.status(500).send("Error en el motor del juego.");
     }
 });
 
-
 exports.startCrashEngineLoop = onCall({ region: REGION, cors: true }, async (request) => {
     if (!request.auth) throw new HttpsError('unauthenticated', 'Autenticación requerida.');
     if (!tasksClient) { tasksClient = new CloudTasksClient(); }
-    
-    logger.info(`[CRASH ENGINE V2] KICKSTART: Iniciando el bucle del motor...`);
+
+    logger.info(`[CRASH ENGINE] Iniciando el bucle del motor...`);
     await db.doc('game_crash/engine_config').set({ status: 'enabled' }, { merge: true });
-    
+
     await db.doc('game_crash/live_game').set({ gameState: 'stopped' }, { merge: true });
+    
+    await db.doc('game_crash/financials').set({ totalIn: 0, totalOut: 0, netProfit: 0 }, { merge: true });
 
     const queuePath = tasksClient.queuePath(PROJECT_ID, QUEUE_LOCATION, QUEUE_ID);
     const url = `https://${QUEUE_LOCATION}-${PROJECT_ID}.cloudfunctions.net/processCrashRound`;
@@ -557,7 +630,6 @@ exports.startCrashEngineLoop = onCall({ region: REGION, cors: true }, async (req
     await tasksClient.createTask({ parent: queuePath, task });
     return { success: true, message: "El bucle del motor de Crash ha sido iniciado." };
 });
-
 
 exports.toggleCrashEngine = onCall({ region: REGION, cors: true }, async (request) => {
     if (!request.auth) throw new HttpsError('unauthenticated', 'Autenticación requerida.');
@@ -575,11 +647,48 @@ exports.toggleCrashEngine = onCall({ region: REGION, cors: true }, async (reques
     return { success: true, message: `Motor del juego ${status === 'enabled' ? 'activado' : 'desactivado'}.` };
 });
 
+exports.sendChatMessage = onCall({ region: REGION, cors: true }, async (request) => {
+    if (!request.auth) throw new HttpsError('unauthenticated', 'Debes iniciar sesión para enviar un mensaje.');
+    const uid = request.auth.uid;
+    const { text } = request.data;
+
+    if (!text || typeof text !== 'string' || text.trim().length === 0 || text.length > 200) {
+        throw new HttpsError('invalid-argument', 'El mensaje no es válido.');
+    }
+
+    const userSnap = await db.doc(`users/${uid}`).get();
+    if (!userSnap.exists) {
+        throw new HttpsError('not-found', 'Usuario no encontrado.');
+    }
+    const username = userSnap.data().username || 'Jugador';
+
+    const chatRef = db.collection('crash_chat');
+    
+    await chatRef.add({
+        userId: uid,
+        username: username,
+        text: text.trim(),
+        timestamp: FieldValue.serverTimestamp()
+    });
+
+    const chatSize = 50;
+    const snapshot = await chatRef.orderBy('timestamp', 'desc').get();
+    if (snapshot.size > chatSize) {
+        const batch = db.batch();
+        snapshot.docs.slice(chatSize).forEach(doc => {
+            batch.delete(doc.ref);
+        });
+        await batch.commit();
+    }
+
+    return { success: true };
+});
+
 exports.placeBet_crash = onCall({ region: REGION, cors: true }, async (request) => {
     if (!request.auth) {
         throw new HttpsError('unauthenticated', 'Debes iniciar sesión.');
     }
-    const { amount } = request.data;
+    const { amount, autoCashoutTarget } = request.data;
     const uid = request.auth.uid;
     if (typeof amount !== 'number' || amount <= 0) {
         throw new HttpsError('invalid-argument', 'El monto de la apuesta no es válido.');
@@ -590,7 +699,15 @@ exports.placeBet_crash = onCall({ region: REGION, cors: true }, async (request) 
 
     try {
         await db.runTransaction(async (tx) => {
-            const [gameSnap, userSnap] = await tx.getAll(gameDocRef, userRef);
+            const [gameSnap, userSnap, playerSnap] = await Promise.all([
+                tx.get(gameDocRef),
+                tx.get(userRef),
+                tx.get(gameDocRef.collection('players').doc(uid))
+            ]);
+
+            if (playerSnap.exists) {
+                throw new HttpsError('failed-precondition', 'Ya tienes una apuesta activa en esta ronda.');
+            }
 
             if (!gameSnap.exists) {
                 throw new HttpsError('unavailable', 'El juego no está disponible en este momento.');
@@ -601,10 +718,6 @@ exports.placeBet_crash = onCall({ region: REGION, cors: true }, async (request) 
                 throw new HttpsError('failed-precondition', 'La fase de apuestas ha terminado.');
             }
 
-            if (!gameData.wait_until || Date.now() > gameData.wait_until.toDate().getTime()) {
-                throw new HttpsError('failed-precondition', 'El tiempo para apostar ha expirado. Inténtalo en la siguiente ronda.');
-            }
-
             if (!userSnap.exists) {
                 throw new HttpsError('not-found', 'Perfil de usuario no encontrado.');
             }
@@ -612,20 +725,36 @@ exports.placeBet_crash = onCall({ region: REGION, cors: true }, async (request) 
                 throw new HttpsError('resource-exhausted', 'Saldo insuficiente.');
             }
 
-            tx.update(userRef, { balance: FieldValue.increment(-amount) });
+            const betId = db.collection('crash_bets').doc().id;
+            const betHistoryRef = db.doc(`crash_bets/${betId}`);
             const playerDocRef = gameDocRef.collection('players').doc(uid);
+
+            tx.update(userRef, { balance: FieldValue.increment(-amount) });
             tx.set(playerDocRef, {
                 bet: amount,
                 username: userSnap.data().username || 'Jugador',
-                status: 'playing'
+                status: 'playing',
+                userId: uid,
+                betId: betId,
+                autoCashoutTarget: autoCashoutTarget || null
+            });
+            tx.set(betHistoryRef, {
+                userId: uid,
+                username: userSnap.data().username || 'Jugador',
+                roundId: gameData.roundId,
+                amount: amount,
+                status: 'playing',
+                autoCashoutTarget: autoCashoutTarget || null,
+                timestamp: FieldValue.serverTimestamp()
             });
         });
 
         return { success: true, message: "Apuesta realizada con éxito." };
 
     } catch (error) {
-        logger.warn(`Fallo al realizar apuesta para ${uid} por ${amount}. Razón: ${error.message}`);
-        throw error;
+        if (error instanceof HttpsError) throw error;
+        logger.error(`Fallo inesperado al realizar apuesta para ${uid}:`, error);
+        throw new HttpsError('internal', 'Ocurrió un error al procesar tu apuesta.');
     }
 });
 
@@ -638,9 +767,9 @@ exports.cashOut_crash = onCall({ region: REGION, cors: true }, async (request) =
 
     return db.runTransaction(async (tx) => {
         const [gameSnap, playerSnap] = await tx.getAll(gameDocRef, playerDocRef);
-        
+
         if (!gameSnap.exists || gameSnap.data().gameState !== 'running') {
-            throw new HttpsError('failed-precondition', 'El juego no está en curso.');
+            throw new HttpsError('failed-precondition', 'El juego no está en curso o ya ha terminado.');
         }
         if (!playerSnap.exists || playerSnap.data().status !== 'playing') {
             throw new HttpsError('failed-precondition', 'No tienes una apuesta activa o ya retiraste.');
@@ -648,28 +777,82 @@ exports.cashOut_crash = onCall({ region: REGION, cors: true }, async (request) =
 
         const gameData = gameSnap.data();
         const playerData = playerSnap.data();
-        const startedAt = gameData.started_at;
+        const startedAt = gameData.startedAtMs;
 
-        if (typeof startedAt.toDate === 'function') {
-            const elapsedTime = Date.now() - startedAt.toDate().getTime();
-            
-            const growthFactor = gameData.rocketPathK || CRASH_CONSTANTS.GROWTH_FACTOR;
-            let currentMultiplier = Math.exp(elapsedTime * growthFactor);
-            currentMultiplier = Math.max(1.00, Math.floor(currentMultiplier * 100) / 100);
-
-            if (currentMultiplier >= gameData.crashPoint) {
-                throw new HttpsError('failed-precondition', '¡Demasiado tarde! El juego ya ha crasheado.');
-            }
-            const winnings = playerData.bet * currentMultiplier;
-            tx.update(userRef, { balance: FieldValue.increment(winnings) });
-            tx.update(playerDocRef, {
-                status: 'cashed_out',
-                cashOutMultiplier: currentMultiplier,
-                winnings: winnings
-            });
-            return { success: true, winnings, cashOutMultiplier: currentMultiplier };
-        } else {
+        if (typeof startedAt !== 'number') {
             throw new HttpsError('internal', 'Error en la fecha de inicio del juego.');
         }
+        
+        const elapsed = Date.now() - startedAt;
+        const elapsedSeconds = elapsed / 1000;
+        const k = gameData.rocketPathK > 0.001 ? gameData.rocketPathK : 0.05;
+        let currentMultiplier = Math.exp(elapsedSeconds * k);
+
+        if (currentMultiplier >= gameData.crashPoint) {
+            throw new HttpsError('failed-precondition', 'El cohete ya ha explotado.');
+        }
+
+        currentMultiplier = Math.floor(currentMultiplier * 100) / 100;
+        currentMultiplier = Math.max(1.00, currentMultiplier);
+
+        const winnings = playerData.bet * currentMultiplier;
+        tx.update(userRef, { balance: FieldValue.increment(winnings) });
+        tx.update(playerDocRef, {
+            status: 'cashed_out',
+            cashOutMultiplier: currentMultiplier,
+            winnings: winnings
+        });
+        if(playerData.betId) {
+            const betHistoryRef = db.doc(`crash_bets/${playerData.betId}`);
+            tx.update(betHistoryRef, {
+                status: 'cashed_out',
+                winnings: winnings,
+                cashOutMultiplier: currentMultiplier
+            });
+        }
+        return { success: true, winnings, cashOutMultiplier: currentMultiplier };
     });
+});
+
+exports.cancelBet_crash = onCall({ region: REGION, cors: true }, async (request) => {
+    if (!request.auth) {
+        throw new HttpsError('unauthenticated', 'Debes iniciar sesión.');
+    }
+    const uid = request.auth.uid;
+
+    const gameDocRef = db.doc('game_crash/live_game');
+    const userRef = db.doc(`users/${uid}`);
+
+    try {
+        await db.runTransaction(async (tx) => {
+            const playerDocRef = gameDocRef.collection('players').doc(uid);
+            const [gameSnap, playerSnap] = await tx.getAll(gameDocRef, playerDocRef);
+
+            if (!gameSnap.exists || gameSnap.data().gameState !== 'waiting') {
+                throw new HttpsError('failed-precondition', 'Solo puedes cancelar apuestas durante la fase de espera.');
+            }
+
+            if (!playerSnap.exists || playerSnap.data().status !== 'playing') {
+                throw new HttpsError('not-found', 'No se encontró una apuesta activa para cancelar.');
+            }
+
+            const playerData = playerSnap.data();
+            const betAmount = playerData.bet;
+            const betId = playerData.betId;
+
+            tx.update(userRef, { balance: FieldValue.increment(betAmount) });
+            tx.delete(playerDocRef);
+
+            if (betId) {
+                const betHistoryRef = db.doc(`crash_bets/${betId}`);
+                tx.delete(betHistoryRef);
+            }
+        });
+
+        return { success: true, message: "Apuesta cancelada y saldo reembolsado." };
+    } catch (error) {
+        if (error instanceof HttpsError) throw error;
+        logger.error(`Error al cancelar la apuesta para ${uid}:`, error);
+        throw new HttpsError('internal', 'Ocurrió un error al cancelar la apuesta.');
+    }
 });
