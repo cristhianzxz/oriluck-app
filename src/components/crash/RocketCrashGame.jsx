@@ -3,14 +3,35 @@ import { useNavigate } from 'react-router-dom';
 import './RocketCrashGame.css';
 import { db, functions } from '../../firebase';
 import { httpsCallable } from 'firebase/functions';
-import { doc, onSnapshot, collection, query, orderBy, limit, where, addDoc, serverTimestamp } from 'firebase/firestore';
+import { doc, onSnapshot, collection, query, orderBy, limit, where } from 'firebase/firestore';
 import { AuthContext } from '../../App';
 
-const Header = ({ balance, onRulesClick }) => {
-  const navigate = useNavigate();
-  const { userData } = useContext(AuthContext);
+const formatCurrency = (value) => {
+    const number = Number(value) || 0;
+    return new Intl.NumberFormat('es-VE', {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+    }).format(number);
+};
 
-  return (
+const parseInputToNumber = (input) => {
+    if (typeof input !== 'string' || !input) return 0;
+    const standardized = input.replace(',', '.');
+    const cleaned = standardized.replace(/[^0-9.]/g, '');
+    const parts = cleaned.split('.');
+    if (parts.length > 2) {
+        const validNumberString = parts.slice(0, -1).join('') + '.' + parts[parts.length - 1];
+        return parseFloat(validNumberString) || 0;
+    }
+    const number = parseFloat(cleaned);
+    return isNaN(number) ? 0 : number;
+};
+
+const Header = ({ balance, onRulesClick }) => {
+ const navigate = useNavigate();
+ const { userData } = useContext(AuthContext);
+
+ return (
     <header className="bg-gray-900 border-b border-gray-700/50 p-3 shadow-lg flex-shrink-0">
         <div className="flex items-center">
             <div className="flex-1">
@@ -25,7 +46,7 @@ const Header = ({ balance, onRulesClick }) => {
                 </button>
                 <div className="text-right">
                     <p className="text-gray-400 text-sm">Saldo</p>
-                    <p id="balance" className="text-2xl font-bold text-green-400">{(balance || 0).toFixed(2)} VES</p>
+                    <p id="balance" className="text-2xl font-bold text-green-400">{formatCurrency(balance)} VES</p>
                 </div>
                 {userData?.role === 'admin' && (
                   <button
@@ -52,7 +73,7 @@ const HistoryPanel = ({ history }) => (
                 else { colorClass = 'text-green-500'; }
                 return (
                     <span key={index} className={`bg-gray-800 px-3 py-1 rounded-md font-semibold text-center ${colorClass}`}>
-                        {(crashPoint || 1).toFixed(2)}x
+                        {formatCurrency(crashPoint)}x
                     </span>
                 );
             })}
@@ -166,7 +187,7 @@ const GameScreen = ({ gameState, multiplier, countdown, rocketPosition, gridOffs
             const currentMultiplier = firstLineMultiplier + i * yStep; if (currentMultiplier < 1) continue;
             const yPos = height - ((currentMultiplier - startMultiplier) * pixelsPerMultiplier) - (height * 0.05);
             ctx.beginPath(); ctx.moveTo(0, yPos); ctx.lineTo(width, yPos); ctx.stroke();
-            ctx.fillText((currentMultiplier || 1).toFixed(2) + 'x', 10, yPos - 5);
+            ctx.fillText(formatCurrency(currentMultiplier) + 'x', 10, yPos - 5);
         }
         for (let i = 1; i <= 5; i++) {
             const x = (i / 6) * width;
@@ -209,79 +230,345 @@ const GameScreen = ({ gameState, multiplier, countdown, rocketPosition, gridOffs
             <canvas ref={confettiCanvasRef} id="confetti-canvas"></canvas>
             <canvas ref={gridCanvasRef} id="game-grid"></canvas>
             <div id="particle-container" className="absolute inset-0 z-5 pointer-events-none"></div>
-            {gameState === 'waiting' && (<div id="game-status" className="absolute top-4 left-1/2 -translate-x-1/2 bg-black/50 px-4 py-2 rounded-lg font-semibold z-30">Iniciando ronda en {typeof countdown === 'number' ? countdown.toFixed(1) : '...'}s</div>)}
-            {showRoundElements && <div id="multiplier-display" className={`multiplier ${gameState === 'crashed' ? 'crashed' : ''}`}>{(multiplier || 1).toFixed(2)}x</div>}
+            {gameState === 'waiting' && (<div id="game-status" className="absolute top-4 left-1/2 -translate-x-1/2 bg-black/50 px-4 py-2 rounded-lg font-semibold z-30">Iniciando ronda en {countdown.toFixed(1)}s</div>)}
+            {showRoundElements && <div id="multiplier-display" className={`multiplier ${gameState === 'crashed' ? 'crashed' : ''}`}>{formatCurrency(multiplier)}x</div>}
             {showRoundElements && <div id="rocket" style={{ left: `${rocketPosition.x}%`, bottom: `${rocketPosition.y}px`, opacity: gameState === 'crashed' ? 0 : 1 }} className={gameState === 'running' ? 'is-flying' : ''}>🚀</div>}
             {showRoundElements && <div id="explosion" style={{ left: `calc(${rocketPosition.x}% - 150px)`, top: `calc(100% - ${rocketPosition.y}px - 150px)` }} className={gameState === 'crashed' ? 'active' : ''}><svg className="explosion-svg" viewBox="0 0 200 200"><circle className="flash" cx="100" cy="100" r="100" /><g stroke="orange"><path className="spark" d="M100 100 L180 100" /><path className="spark" d="M100 100 L155 155" /><path className="spark" d="M100 100 L100 180" /><path className="spark" d="M100 100 L45 155" /><path className="spark" d="M100 100 L20 100" /><path className="spark" d="M100 100 L45 45" /><path className="spark" d="M100 100 L100 20" /><path className="spark" d="M100 100 L155 45" /></g></svg></div>}
         </div>
     );
 };
 
-const BetPanel = ({ onBet, onCancel, onCashout, gameState, currentBet, multiplier, isPlacingBet }) => {
-    const [betAmount, setBetAmount] = useState('10.00');
-    const [autoCashoutAmount, setAutoCashoutAmount] = useState('');
+const BetPanel = ({ onBet, onCancel, onCashout, onUpdateAutoCashout, gameState, currentBet, multiplier, isPlacingBet, limits, addToast, nextRoundBet, setNextRoundBet }) => {
+    const [betAmountString, setBetAmountString] = useState('0,00');
+    const [autoCashoutString, setAutoCashoutString] = useState('');
+    
     const [isAutoBet, setIsAutoBet] = useState(false);
     const [isAutoCashout, setIsAutoCashout] = useState(false);
     
-    useEffect(() => {
-        if (isAutoBet && gameState === 'waiting' && !currentBet && !isPlacingBet) {
-            const autoTarget = (isAutoCashout && parseFloat(autoCashoutAmount) > 1) ? parseFloat(autoCashoutAmount) : null;
-            onBet(parseFloat(betAmount), autoTarget);
-        }
-    }, [isAutoBet, gameState, currentBet, onBet, betAmount, isAutoCashout, autoCashoutAmount, isPlacingBet]);
+    const [betAmountError, setBetAmountError] = useState('');
+    const [autoCashoutError, setAutoCashoutError] = useState('');
 
-    const handleActionClick = () => {
-        const state = getButtonState();
-        if (state.text.startsWith("RETIRAR")) {
-            onCashout();
-        } else if (state.text === "CANCELAR APUESTA") {
-            if (isAutoBet) {
-                setIsAutoBet(false);
-            }
-            onCancel();
+    const autoCashoutDebounceRef = useRef(null);
+
+    const checkBetAmountValidity = useCallback((value) => {
+        if (limits.minBet === null || limits.maxBet === null) return true;
+        const amount = parseInputToNumber(value);
+        return amount >= limits.minBet && amount <= limits.maxBet;
+    }, [limits]);
+
+    const checkAutoCashoutValidity = useCallback((value) => {
+        if (!value) return true;
+        const amount = parseInputToNumber(value);
+        return amount >= 1.01;
+    }, []);
+
+
+    const validateBetAmount = useCallback((value) => {
+        const isValid = checkBetAmountValidity(value);
+        if (!isValid) {
+            setBetAmountError(`Monto entre ${formatCurrency(limits.minBet)} y ${formatCurrency(limits.maxBet)}`);
         } else {
-            const autoTarget = (isAutoCashout && parseFloat(autoCashoutAmount) > 1) ? parseFloat(autoCashoutAmount) : null;
-            onBet(parseFloat(betAmount), autoTarget);
+            setBetAmountError('');
+        }
+        return isValid;
+    }, [limits, checkBetAmountValidity, formatCurrency]);
+
+    const validateAutoCashout = useCallback((value) => {
+         const isValid = checkAutoCashoutValidity(value);
+         if (!value && isAutoCashout) {
+             setAutoCashoutError('Este campo es requerido.');
+             return false;
+         } else if (value && !isValid) {
+             setAutoCashoutError('Debe ser > 1.00x');
+         } else {
+             setAutoCashoutError('');
+         }
+         return isValid;
+    }, [isAutoCashout, checkAutoCashoutValidity]);
+    
+    const handleAutoBetToggle = () => {
+        if (isAutoBet) {
+            setIsAutoBet(false);
+            return;
+        }
+        
+        const amount = parseInputToNumber(betAmountString);
+        if (amount === 0) {
+            addToast('El monto de la apuesta no puede ser cero.', 'error');
+            setBetAmountError('El monto no puede ser cero.');
+            return;
+        }
+
+        if (checkBetAmountValidity(betAmountString)) {
+            setIsAutoBet(true);
+            if (nextRoundBet) {
+                setNextRoundBet(null);
+                addToast('Apuesta para la siguiente ronda cancelada debido a la activación de Auto-Apuesta.', 'info');
+            }
+        } else {
+            addToast('El monto de la apuesta es inválido para activar Auto-Apuesta.', 'error');
+            validateBetAmount(betAmountString);
+        }
+    }
+    
+    const handleAutoCashoutToggle = () => {
+        if (isAutoCashout) {
+            setIsAutoCashout(false);
+            return;
+        }
+
+        if (!autoCashoutString || autoCashoutString.trim() === '') {
+             addToast('Debes introducir un multiplicador para el retiro automático.', 'error');
+             setAutoCashoutError('Este campo es requerido.');
+             return;
+        }
+
+        if (checkAutoCashoutValidity(autoCashoutString)) {
+            setIsAutoCashout(true);
+        } else {
+             addToast('El multiplicador de auto-retiro es inválido.', 'error');
+             validateAutoCashout(autoCashoutString);
+        }
+    }
+
+    useEffect(() => {
+        if (currentBet && currentBet.status === 'playing' && gameState === 'waiting') {
+            
+            if (autoCashoutDebounceRef.current) {
+                clearTimeout(autoCashoutDebounceRef.current);
+            }
+
+            autoCashoutDebounceRef.current = setTimeout(() => {
+                let targetValue = null;
+                
+                if (isAutoCashout) {
+                    const isValid = checkAutoCashoutValidity(autoCashoutString);
+                    if (isValid) {
+                        const num = parseInputToNumber(autoCashoutString);
+                        if (num >= 1.01) {
+                            targetValue = num;
+                        }
+                    }
+                }
+                
+                onUpdateAutoCashout(targetValue);
+
+            }, 400);
+        }
+
+        return () => {
+            if (autoCashoutDebounceRef.current) {
+                clearTimeout(autoCashoutDebounceRef.current);
+            }
+        };
+    
+    }, [isAutoCashout, autoCashoutString, currentBet, gameState, onUpdateAutoCashout, checkAutoCashoutValidity]);
+
+    useEffect(() => {
+        if (gameState === 'waiting' && !currentBet && !isPlacingBet) {
+            let betAmountNum = 0;
+            let autoTarget = null;
+            let placeThisBet = false;
+
+            const isBetAmountCurrentlyValid = checkBetAmountValidity(betAmountString);
+            const isAutoCashoutCurrentlyValid = checkAutoCashoutValidity(autoCashoutString);
+            const autoCashoutNum = parseInputToNumber(autoCashoutString);
+
+            if (isAutoBet && isBetAmountCurrentlyValid) {
+                betAmountNum = parseInputToNumber(betAmountString);
+                if (isAutoCashout && isAutoCashoutCurrentlyValid && autoCashoutNum > 1) {
+                    autoTarget = autoCashoutNum;
+                }
+                placeThisBet = true;
+            } else if (nextRoundBet) {
+                betAmountNum = nextRoundBet.amount;
+                if (isAutoCashout && isAutoCashoutCurrentlyValid && autoCashoutNum > 1) {
+                    autoTarget = autoCashoutNum;
+                } else {
+                    autoTarget = nextRoundBet.autoCashoutTarget;
+                }
+                placeThisBet = true;
+                setNextRoundBet(null);
+            }
+
+            if(placeThisBet && betAmountNum > 0) {
+                onBet(betAmountNum, autoTarget);
+            } else if (nextRoundBet) {
+                setNextRoundBet(null);
+                addToast("No se pudo colocar la apuesta preparada (datos inválidos).", "error");
+            }
+        }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [gameState, currentBet, isPlacingBet, isAutoBet, nextRoundBet, onBet, setNextRoundBet, addToast, isAutoCashout, autoCashoutString, betAmountString]);
+
+
+    const handleQueueNextBet = () => {
+        if (isAutoBet) {
+            addToast('Desactiva la opción "Auto" para apostar manualmente en la siguiente ronda.', 'error');
+            return;
+        }
+        const isBetValid = validateBetAmount(betAmountString);
+        const isCashoutValid = validateAutoCashout(autoCashoutString);
+
+        if (isBetValid && isCashoutValid) {
+            const betAmountNum = parseInputToNumber(betAmountString);
+            const autoCashoutNum = parseInputToNumber(autoCashoutString);
+            const autoTarget = (isAutoCashout && autoCashoutNum > 1) ? autoCashoutNum : null;
+            setNextRoundBet({ amount: betAmountNum, autoCashoutTarget: autoTarget });
+            addToast(`Apuesta de ${formatCurrency(betAmountNum)} Bs. preparada para la siguiente ronda.`, 'info');
+        } else {
+             addToast('Verifica el monto y el multiplicador antes de preparar la apuesta.', 'error');
+        }
+    };
+
+    const handleActionClick = (action) => {
+        switch(action) {
+            case 'cashout':
+                onCashout();
+                break;
+            case 'cancel':
+                if (isAutoBet) setIsAutoBet(false);
+                onCancel();
+                break;
+            case 'bet':
+                const isBetValid = validateBetAmount(betAmountString);
+                const isCashoutValid = validateAutoCashout(autoCashoutString);
+                if (isBetValid && isCashoutValid) {
+                    const betAmountNum = parseInputToNumber(betAmountString);
+                    const autoCashoutNum = parseInputToNumber(autoCashoutString);
+                    const autoTarget = (isAutoCashout && autoCashoutNum > 1) ? autoCashoutNum : null;
+                    onBet(betAmountNum, autoTarget);
+                } else {
+                    addToast('Verifica el monto y el multiplicador antes de apostar.', 'error');
+                }
+                break;
+            case 'queueNext':
+                handleQueueNextBet();
+                break;
+            case 'cancelNext':
+                setNextRoundBet(null);
+                addToast('Apuesta para la siguiente ronda cancelada.', 'info');
+                break;
+            default:
+                break;
         }
     };
     
-    const getButtonState = useCallback(() => {
-        if (isPlacingBet) {
-            return { text: "Apostando...", className: "btn-play", disabled: true };
-        }
+    const getButtonStates = useCallback(() => {
+        const buttons = [];
+        let mainButtonState = null;
+        let nextRoundButtonState = null;
+
+        const isBetAmountCurrentlyValid = checkBetAmountValidity(betAmountString);
+        const isAutoCashoutCurrentlyValid = checkAutoCashoutValidity(autoCashoutString);
+
+
         if (currentBet) {
-            if (gameState === 'waiting' && currentBet.status === 'playing') {
-                return { text: "CANCELAR APUESTA", className: "btn-cancel", disabled: false };
+            if (currentBet.status === 'playing') {
+                if (gameState === 'waiting') mainButtonState = { id: 'main', text: "CANCELAR APUESTA", className: "btn-cancel", disabled: false, action: 'cancel' };
+                if (gameState === 'running') mainButtonState = { id: 'main', text: `RETIRAR ${formatCurrency((currentBet.bet || 0) * (multiplier || 1))} VES`, className: "btn-cashout", disabled: false, action: 'cashout' };
+            } else if (currentBet.status === 'cashed_out') {
+                mainButtonState = { id: 'main', text: `GANASTE ${formatCurrency(currentBet.winnings || 0)} VES`, className: "btn-success", disabled: true, action: 'none' };
+            } else if (currentBet.status === 'lost') {
+                mainButtonState = { id: 'main', text: `PERDISTE`, className: "btn-cancel", disabled: true, action: 'none' };
             }
-            if (gameState === 'running' && currentBet.status === 'playing') {
-                return { text: `RETIRAR ${((currentBet.bet || 0) * (multiplier || 1)).toFixed(2)} VES`, className: "btn-cashout", disabled: false };
+
+            if (currentBet.status === 'cashed_out' || currentBet.status === 'lost') {
+                 if (nextRoundBet) {
+                     nextRoundButtonState = { id: 'next', text: "Cancelar Próx.", className: "btn-cancel", disabled: false, action: 'cancelNext' };
+                 } else {
+                     const canQueue = !isAutoBet && isBetAmountCurrentlyValid && isAutoCashoutCurrentlyValid;
+                     nextRoundButtonState = { id: 'next', text: "Siguiente Ronda", className: "btn-queue", disabled: !canQueue, action: 'queueNext' };
+                 }
             }
-            if (currentBet.status === 'cashed_out') {
-                return { text: `GANASTE ${(currentBet.winnings || 0).toFixed(2)} VES`, className: "btn-success", disabled: true };
+        } else if (isPlacingBet) {
+             mainButtonState = { id: 'main', text: "Apostando...", className: "btn-play", disabled: true, action: 'none' };
+        } else if (gameState === 'running' || gameState === 'crashed') {
+            if (nextRoundBet) {
+                mainButtonState = { id: 'main', text: "Cancelar Próx.", className: "btn-cancel", disabled: false, action: 'cancelNext' };
+            } else {
+                 const canQueue = !isAutoBet && isBetAmountCurrentlyValid && isAutoCashoutCurrentlyValid;
+                mainButtonState = { id: 'main', text: "Siguiente Ronda", className: "btn-queue", disabled: !canQueue, action: 'queueNext' };
             }
-             if (currentBet.status === 'lost') {
-                return { text: `PERDISTE`, className: "btn-cancel", disabled: true };
-            }
+        } else if (gameState === 'waiting') {
+            mainButtonState = { id: 'main', text: "JUGAR", className: "btn-play", disabled: !(isBetAmountCurrentlyValid && isAutoCashoutCurrentlyValid), action: 'bet' };
+        } else {
+             mainButtonState = { id: 'main', text: "CARGANDO...", className: "btn-play", disabled: true, action: 'none' };
         }
-        return { text: "JUGAR", className: "btn-play", disabled: !!currentBet || gameState !== 'waiting' };
-    }, [gameState, currentBet, multiplier, isPlacingBet]);
 
-    const buttonState = getButtonState();
-    const isBetPlaced = !!currentBet || isPlacingBet;
+        if(mainButtonState) buttons.push(mainButtonState);
+        if(nextRoundButtonState) buttons.push(nextRoundButtonState);
+        
+        return buttons;
 
+    }, [gameState, currentBet, multiplier, isPlacingBet, nextRoundBet, isAutoBet, betAmountString, autoCashoutString, checkBetAmountValidity, checkAutoCashoutValidity, formatCurrency]);
+
+
+    const buttonStates = getButtonStates();
+    const isBetAmountLocked = (!!currentBet && currentBet.status === 'playing') || !!nextRoundBet || isPlacingBet;
+    const isAutoCashoutInputLocked = (!!currentBet && currentBet.status === 'playing' && gameState === 'running');
+
+
+    const handleBetChange = (e) => {
+        setBetAmountString(e.target.value);
+        const isValid = validateBetAmount(e.target.value);
+        if(!isValid && isAutoBet) setIsAutoBet(false);
+    };
+
+    const handleBetBlur = () => {
+        const num = parseInputToNumber(betAmountString);
+        const formatted = formatCurrency(num);
+        setBetAmountString(formatted);
+        const isValid = validateBetAmount(formatted);
+         if(!isValid && isAutoBet) setIsAutoBet(false);
+    };
+
+    const handleCashoutChange = (e) => {
+        setAutoCashoutString(e.target.value);
+        const isValid = validateAutoCashout(e.target.value);
+        if(!isValid && isAutoCashout) setIsAutoCashout(false);
+    };
+
+    const handleCashoutBlur = () => {
+        const num = parseInputToNumber(autoCashoutString);
+        const formatted = num > 1 ? formatCurrency(num) : '';
+        setAutoCashoutString(formatted);
+        const isValid = validateAutoCashout(formatted);
+        if(!isValid && isAutoCashout) setIsAutoCashout(false);
+    };
+    
     return (
         <div className="bet-panel panel p-4 flex flex-col space-y-3">
             <div className="flex items-center gap-4">
-                <div className="flex flex-col items-center pt-5"><label className="text-sm font-medium text-gray-400">Auto</label><div onClick={() => !isBetPlaced && setIsAutoBet(!isAutoBet)} className={`toggle-switch mt-1 ${isAutoBet ? 'active' : ''} ${isBetPlaced ? 'disabled' : ''}`}><div className="toggle-switch-slider"></div></div></div>
-                <div className="flex-1"><label className="block text-sm font-medium text-gray-400 mb-1">Monto de Apuesta</label><div className="relative"><span className="absolute inset-y-0 left-0 flex items-center pl-3 text-gray-400">VES</span><input type="number" value={betAmount} onChange={(e) => setBetAmount(e.target.value)} min="3.00" max="5000.00" disabled={isBetPlaced} className="bg-gray-900 border border-gray-700 rounded-lg w-full py-2 pl-10 pr-4 disabled:opacity-50" /></div></div>
-                <div className="grid grid-cols-3 gap-2 pt-5">{[10, 50, 100].map(p => <button key={p} onClick={() => setBetAmount(prev => (parseFloat(prev) + p).toFixed(2))} disabled={isBetPlaced} className="bg-gray-700 hover:bg-gray-600 rounded-md px-4 py-2 text-sm disabled:opacity-50 disabled:cursor-not-allowed">+{p}</button>)}</div>
+                <div className="flex flex-col items-center pt-5"><label className="text-sm font-medium text-gray-400">Auto</label><div onClick={handleAutoBetToggle} className={`toggle-switch mt-1 ${isAutoBet ? 'active' : ''}`}><div className="toggle-switch-slider"></div></div></div>
+                <div className="flex-1">
+                    <label className="block text-sm font-medium text-gray-400 mb-1">Monto de Apuesta</label>
+                    <div className="relative"><span className="absolute inset-y-0 left-0 flex items-center pl-3 text-gray-400">VES</span><input type="text" value={betAmountString} onChange={handleBetChange} onBlur={handleBetBlur} disabled={isBetAmountLocked} className={`bg-gray-900 border ${betAmountError ? 'border-red-500' : 'border-gray-700'} rounded-lg w-full py-2 pl-10 pr-4 disabled:opacity-50`} /></div>
+                    {betAmountError && <p className="text-red-500 text-xs mt-1">{betAmountError}</p>}
+                </div>
+                <div className="grid grid-cols-3 gap-2 pt-5">{[10, 50, 100].map(p => <button key={p} onClick={() => { const newValue = parseInputToNumber(betAmountString) + p; setBetAmountString(formatCurrency(newValue)); validateBetAmount(String(newValue)); }} disabled={isBetAmountLocked} className="bg-gray-700 hover:bg-gray-600 rounded-md px-4 py-2 text-sm disabled:opacity-50 disabled:cursor-not-allowed">+{p}</button>)}</div>
             </div>
             <div className="flex items-center gap-4">
-                <div className="flex flex-col items-center pt-5"><label className="text-sm font-medium text-gray-400">Auto</label><div onClick={() => !isBetPlaced && setIsAutoCashout(!isAutoCashout)} className={`toggle-switch mt-1 ${isAutoCashout ? 'active' : ''} ${isBetPlaced ? 'disabled' : ''}`}><div className="toggle-switch-slider"></div></div></div>
-                <div className="flex-1"><label className="block text-sm font-medium text-gray-400 mb-1">Retiro Automático</label><div className="relative"><span className="absolute inset-y-0 left-0 flex items-center pl-3 text-gray-400">@</span><input type="number" value={autoCashoutAmount} onChange={(e) => setAutoCashoutAmount(e.target.value)} placeholder="2.00" disabled={isBetPlaced} className="bg-gray-900 border border-gray-700 rounded-lg w-full py-2 pl-7 pr-4 disabled:opacity-50" /></div></div>
-                 <div className="grid grid-cols-3 gap-2 pt-5">{[2, 5, 10].map(m => <button key={m} onClick={() => setAutoCashoutAmount(m.toFixed(2))} disabled={isBetPlaced} className="bg-gray-700 hover:bg-gray-600 rounded-md px-4 py-2 text-sm disabled:opacity-50 disabled:cursor-not-allowed">{m}x</button>)}</div>
+                <div className="flex flex-col items-center pt-5"><label className="text-sm font-medium text-gray-400">Auto</label><div onClick={!isAutoCashoutInputLocked ? handleAutoCashoutToggle : undefined} className={`toggle-switch mt-1 ${isAutoCashout ? 'active' : ''} ${isAutoCashoutInputLocked ? 'disabled' : ''}`}><div className="toggle-switch-slider"></div></div></div>
+                <div className="flex-1">
+                    <label className="block text-sm font-medium text-gray-400 mb-1">Retiro Automático</label>
+                    <div className="relative"><span className="absolute inset-y-0 left-0 flex items-center pl-3 text-gray-400">@</span><input type="text" value={autoCashoutString} onChange={handleCashoutChange} onBlur={handleCashoutBlur} placeholder="2,00" disabled={isAutoCashoutInputLocked} className={`bg-gray-900 border ${autoCashoutError ? 'border-red-500' : 'border-gray-700'} rounded-lg w-full py-2 pl-7 pr-4 disabled:opacity-50`} /></div>
+                    {autoCashoutError && <p className="text-red-500 text-xs mt-1">{autoCashoutError}</p>}
+                </div>
+                <div className="grid grid-cols-3 gap-2 pt-5">{[2, 5, 10].map(m => <button key={m} onClick={() => { setAutoCashoutString(formatCurrency(m)); validateAutoCashout(String(m)); }} disabled={isAutoCashoutInputLocked} className="bg-gray-700 hover:bg-gray-600 rounded-md px-4 py-2 text-sm disabled:opacity-50 disabled:cursor-not-allowed">{m}x</button>)}</div>
             </div>
-            <div className="w-full mt-2 flex gap-2"><button onClick={handleActionClick} disabled={buttonState.disabled} className={`w-full py-3 rounded-xl text-lg font-bold transition-all duration-300 ${buttonState.className}`}>{buttonState.text}</button></div>
+            <div className="w-full mt-2 flex gap-2">
+                 {buttonStates.map(state => (
+                     <button 
+                         key={state.id} 
+                         onClick={() => handleActionClick(state.action)} 
+                         disabled={state.disabled} 
+                         className={`py-3 rounded-xl text-lg font-bold transition-all duration-300 ${state.className} ${buttonStates.length > 1 ? 'flex-1' : 'w-full'}`}
+                     >
+                         {state.text}
+                     </button>
+                 ))}
+            </div>
         </div>
     );
 };
@@ -289,7 +576,7 @@ const BetPanel = ({ onBet, onCancel, onCashout, gameState, currentBet, multiplie
 const RightColumn = ({ myBets, activeBets, gameState }) => {
     const [activeTab, setActiveTab] = useState('active');
     const getStatusText = (bet) => {
-        if (bet.status === 'cashed_out') return { text: `Retirado @ ${(bet.cashOutMultiplier || 1).toFixed(2)}x`, color: 'text-green-400' };
+        if (bet.status === 'cashed_out') return { text: `Retirado @ ${formatCurrency(bet.cashOutMultiplier || 1)}x`, color: 'text-green-400' };
         if (bet.status === 'lost') return { text: 'Perdió', color: 'text-red-400' };
         if (gameState === 'running' && bet.status === 'playing') return { text: 'En juego', color: 'text-yellow-400' };
         return { text: 'Esperando...', color: 'text-gray-400' };
@@ -297,7 +584,7 @@ const RightColumn = ({ myBets, activeBets, gameState }) => {
     return (
         <div className="right-column panel p-4 flex flex-col min-h-0"><div className="flex border-b border-gray-700 mb-2"><button onClick={() => setActiveTab('active')} className={`tab-button flex-1 py-2 font-semibold ${activeTab === 'active' ? 'active' : ''}`}>Apuestas Activas</button><button onClick={() => setActiveTab('my')} className={`tab-button flex-1 py-2 font-semibold ${activeTab === 'my' ? 'active' : ''}`}>Mis Apuestas</button></div>
             <div className={`flex-grow overflow-y-auto text-sm space-y-2 pr-2 ${activeTab !== 'active' ? 'hidden' : ''}`}>
-                 {activeBets.map((bet) => { const status = getStatusText(bet); return ( <div key={bet.id} className="grid grid-cols-3 gap-2 items-center bg-gray-900/50 p-2 rounded-md"><span>{bet.username}</span><span className="text-right">{(bet.bet || 0).toFixed(2)} VES</span><span className={`text-right font-semibold ${status.color}`}>{status.text}</span></div> ); })}
+                 {activeBets.map((bet) => { const status = getStatusText(bet); return ( <div key={bet.id} className="grid grid-cols-3 gap-2 items-center bg-gray-900/50 p-2 rounded-md"><span>{bet.username}</span><span className="text-right">{formatCurrency(bet.bet || 0)} VES</span><span className={`text-right font-semibold ${status.color}`}>{status.text}</span></div> ); })}
             </div>
             <div className={`flex-grow overflow-y-auto text-sm space-y-2 pr-2 ${activeTab !== 'my' ? 'hidden' : ''}`}>
                 {myBets.map((bet) => {
@@ -307,19 +594,19 @@ const RightColumn = ({ myBets, activeBets, gameState }) => {
                     let colorClass = 'text-gray-400';
 
                     if (isWin) {
-                        profitLossText = `+ ${(bet.winnings || 0).toFixed(2)}`;
+                        profitLossText = `+ ${formatCurrency(bet.winnings || 0)}`;
                         colorClass = 'text-green-400';
                     } else if (isLoss) {
-                        profitLossText = `- ${(bet.amount || 0).toFixed(2)}`;
+                        profitLossText = `- ${formatCurrency(bet.amount || 0)}`;
                         colorClass = 'text-red-400';
                     } else {
-                        profitLossText = `- ${(bet.amount || 0).toFixed(2)}`;
+                        profitLossText = `- ${formatCurrency(bet.amount || 0)}`;
                     }
 
                     return (
                         <div key={bet.id} className="grid grid-cols-3 gap-2 items-center bg-gray-900/50 p-2 rounded-md">
                             <span className={`font-semibold ${colorClass}`}>{profitLossText} VES</span>
-                            <span className="text-center">@ {(bet.cashOutMultiplier || bet.crashPoint || 1).toFixed(2)}x</span>
+                            <span className="text-center">@ {formatCurrency(bet.cashOutMultiplier || bet.crashPoint || 1)}x</span>
                             <span className="text-right text-gray-400">{bet.timestamp}</span>
                         </div>
                     );
@@ -329,7 +616,7 @@ const RightColumn = ({ myBets, activeBets, gameState }) => {
     );
 };
 
-const RulesModal = ({ isOpen, onClose }) => {
+const RulesModal = ({ isOpen, onClose, limits }) => {
     if (!isOpen) return null;
     return (
         <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4" onClick={onClose}>
@@ -338,7 +625,22 @@ const RulesModal = ({ isOpen, onClose }) => {
                 <div className="p-6 overflow-y-auto space-y-6 text-gray-300">
                     <div className="text-center space-y-2"><h3 className="text-2xl font-bold">CONSIGUE UNA EXPERIENCIA SUPER EMOCIONANTE</h3><p>Es fácil de jugar y divertido para los que se arriesgan.</p><p>Aquí tenemos a un Cohete volando. Varios jugadores realizan apuestas e intentan retirar el dinero antes de que el cohete explote (crash). Con el paso del tiempo, el multiplicador aumenta.</p><h4 className="text-3xl font-bold text-yellow-400 pt-2">¡Qué tengas suerte!</h4></div>
                     <div className="grid md:grid-cols-2 gap-6 text-sm"><ul className="space-y-3 list-disc list-inside"><li>Para ganar, tu cobro debe ser mayor que 1x. La ganancia se calcula multiplicando el multiplicador recogido y la apuesta realizada.</li><li>El multiplicador máximo es 10000x. El mínimo es 1x.</li><li>Puedes realizar una apuesta por ronda.</li><li>Puedes configurar tu apuesta manualmente y luego retirarla haciendo clic en "RETIRAR".</li><li>Puedes establecer el cobro automático. Introduce un número mayor que 1 y activa "Auto" en la sección de retiro. Si el cohete no explota antes de ese número, el importe de tu ganancia se cobrará automáticamente.</li><li>Puedes activar la apuesta automática para cada apuesta y la misma se realizará automáticamente en cada tirada, hasta que la desactives.</li></ul><ul className="space-y-3 list-disc list-inside"><li>Al hacer clic en el historial de rondas (panel izquierdo), podrás ver los últimos resultados.</li><li>En la sección "Mis Apuestas" puedes ver tu historial de apuestas personal.</li><li>En la sección "Apuestas Activas" puedes ver las apuestas de otros jugadores en la ronda actual.</li><li>En caso de fallo del sistema, todas las apuestas se reembolsarán.</li><li>Ten en cuenta que se recomienda a los jugadores que utilicen la opción de cobro automático en caso de que tengan problemas de conexión a Internet o de funcionamiento del dispositivo.</li></ul></div>
-                    <div><h4 className="text-lg font-bold mb-2">Límites</h4><div className="overflow-x-auto"><table className="w-full text-sm text-left"><thead className="bg-gray-900/50"><tr><th className="px-4 py-2">Moneda</th><th className="px-4 py-2">Mínima Apuesta</th><th className="px-4 py-2">Máxima Apuesta</th><th className="px-4 py-2">Lírmite Máximo de Ganancia</th></tr></thead><tbody><tr className="border-t border-gray-700"><td className="px-4 py-2 font-bold">VES</td><td className="px-4 py-2">3.00</td><td className="px-4 py-2">5,000.00</td><td className="px-4 py-2">20,000.00</td></tr></tbody></table></div></div>
+                    <div>
+                        <h4 className="text-lg font-bold mb-2">Límites</h4>
+                        <div className="overflow-x-auto">
+                            <table className="w-full text-sm text-left">
+                                <thead className="bg-gray-900/50"><tr><th className="px-4 py-2">Moneda</th><th className="px-4 py-2">Mínima Apuesta</th><th className="px-4 py-2">Máxima Apuesta</th><th className="px-4 py-2">Límite Máximo de Ganancia</th></tr></thead>
+                                <tbody>
+                                    <tr className="border-t border-gray-700">
+                                        <td className="px-4 py-2 font-bold">VES</td>
+                                        <td className="px-4 py-2">{limits.minBet !== null ? formatCurrency(limits.minBet) : '...'}</td>
+                                        <td className="px-4 py-2">{limits.maxBet !== null ? formatCurrency(limits.maxBet) : '...'}</td>
+                                        <td className="px-4 py-2">{limits.maxProfit !== null ? formatCurrency(limits.maxProfit) : '...'}</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
                      <div className="text-sm list-disc list-inside"><li>Rango de RTP (Retorno al jugador) ofrecido: El RTP máximo se puede conseguir eligiendo un multiplicador anterior o igual a 112x, de forma que la ganancia potencial sea inferior al tope de ganancia máxima ofrecida.</li></div>
                 </div>
             </div>
@@ -362,6 +664,7 @@ const RocketCrashGame = () => {
     const [toasts, setToasts] = useState([]);
     const [confettiTrigger, setConfettiTrigger] = useState(0);
     const [isPlacingBet, setIsPlacingBet] = useState(false);
+    const [betLimits, setBetLimits] = useState({ minBet: null, maxBet: null, maxProfit: null });
 
     const [gameState, setGameState] = useState('stopped');
     const [gameStateData, setGameStateData] = useState(null);
@@ -369,6 +672,7 @@ const RocketCrashGame = () => {
     const [countdown, setCountdown] = useState(0);
     
     const [currentBet, setCurrentBet] = useState(null);
+    const [nextRoundBet, setNextRoundBet] = useState(null);
     
     const [rocketPosition, setRocketPosition] = useState({ x: 10, y: 30 });
     const [gridOffset, setGridOffset] = useState(0);
@@ -388,18 +692,23 @@ const RocketCrashGame = () => {
         try {
             const cashOutFunc = httpsCallable(functions, 'cashOut_crash');
             const result = await cashOutFunc();
-            addToast(`¡Retiro exitoso de ${(result.data.winnings || 0).toFixed(2)} VES!`, 'success');
+            addToast(`¡Retiro exitoso de ${formatCurrency(result.data.winnings)} VES!`, 'success');
             setConfettiTrigger(Date.now());
         } catch (error) {
             console.error("Error al retirar:", error);
             addToast(error.message, 'error');
         }
-    }, [gameState, currentBet, addToast]);
+    }, [gameState, currentBet, addToast, formatCurrency]);
     
     useEffect(() => {
         if (!currentUser) return;
-        const unsub = onSnapshot(doc(db, 'users', currentUser.uid), (doc) => { if (doc.exists()) setBalance(doc.data().balance || 0); });
-        return () => unsub();
+        const unsubUser = onSnapshot(doc(db, 'users', currentUser.uid), (doc) => { if (doc.exists()) setBalance(doc.data().balance || 0); });
+        const unsubLimits = onSnapshot(doc(db, 'appSettings', 'crashLimits'), (doc) => { if (doc.exists()) setBetLimits(doc.data()); });
+
+        return () => {
+            unsubUser();
+            unsubLimits();
+        };
     }, [currentUser]);
 
     useEffect(() => {
@@ -526,9 +835,9 @@ const RocketCrashGame = () => {
     }, [gameStateData]);
     
     const handleBet = async (amount, autoCashoutTarget) => {
-        if (!currentUser || balance < amount || amount < 3 || gameState !== 'waiting' || isPlacingBet || currentBet) {
-            if (!currentBet) addToast('No se puede apostar en este momento.', 'error');
-            return;
+        if (!currentUser || isPlacingBet || currentBet) {
+             if (!currentBet) addToast('No se puede apostar en este momento.', 'error');
+             return;
         }
         setIsPlacingBet(true);
         try {
@@ -541,6 +850,18 @@ const RocketCrashGame = () => {
             setIsPlacingBet(false);
         }
     };
+
+    const handleUpdateAutoCashout = useCallback(async (targetValue) => {
+        if (!currentBet || currentBet.status !== 'playing' || gameState !== 'waiting') {
+            return;
+        }
+        try {
+            const updateAutoCashoutFunc = httpsCallable(functions, 'updateAutoCashout_crash');
+            await updateAutoCashoutFunc({ autoCashoutTarget: targetValue });
+        } catch (error) {
+            console.error("Error al actualizar auto-cashout:", error);
+        }
+    }, [currentBet, gameState]);
     
     const handleCancelBet = async () => {
         if (!currentBet || gameState !== 'waiting') {
@@ -570,18 +891,31 @@ const RocketCrashGame = () => {
                     <div className="center-column">
                         <div className="panel flex justify-center items-center px-4 py-2 text-sm text-gray-400">
                              <div className="flex flex-wrap justify-center gap-x-6 gap-y-2">
-                                 <span>Apuesta mínima: <strong className="text-white">3.00 VES</strong></span>
-                                 <span>Apuesta máxima: <strong className="text-white">5,000.00 VES</strong></span>
-                                 <span>Max Profit: <strong className="text-white">20,000.00 VES</strong></span>
+                                 <span>Apuesta mínima: <strong className="text-white">{betLimits.minBet !== null ? formatCurrency(betLimits.minBet) : '...'} VES</strong></span>
+                                 <span>Apuesta máxima: <strong className="text-white">{betLimits.maxBet !== null ? formatCurrency(betLimits.maxBet) : '...'} VES</strong></span>
+                                 <span>Max Profit: <strong className="text-white">{betLimits.maxProfit !== null ? formatCurrency(betLimits.maxProfit) : '...'} VES</strong></span>
                              </div>
                         </div>
                         <GameScreen gameState={gameState} multiplier={multiplier} countdown={countdown} rocketPosition={rocketPosition} gridOffset={gridOffset} onConfettiTrigger={confettiTrigger} />
-                        <BetPanel onBet={handleBet} onCancel={handleCancelBet} onCashout={handleCashout} gameState={gameState} currentBet={currentBet} multiplier={multiplier} isPlacingBet={isPlacingBet} />
+                        <BetPanel 
+                            onBet={handleBet} 
+                            onCancel={handleCancelBet} 
+                            onCashout={handleCashout} 
+                            onUpdateAutoCashout={handleUpdateAutoCashout}
+                            gameState={gameState} 
+                            currentBet={currentBet} 
+                            multiplier={multiplier} 
+                            isPlacingBet={isPlacingBet} 
+                            limits={betLimits} 
+                            addToast={addToast} 
+                            nextRoundBet={nextRoundBet} 
+                            setNextRoundBet={setNextRoundBet} 
+                        />
                     </div>
                     <RightColumn myBets={myBets} activeBets={activeBets} gameState={gameState} />
                 </div>
             </main>
-            <RulesModal isOpen={isRulesModalOpen} onClose={() => setRulesModalOpen(false)} />
+            <RulesModal isOpen={isRulesModalOpen} onClose={() => setRulesModalOpen(false)} limits={betLimits} />
         </div>
     );
 };

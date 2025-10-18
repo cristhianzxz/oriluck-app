@@ -298,7 +298,7 @@ const SlotsGame = () => {
           {/* Contenedor del Título y la Bolsa de Premios (ocupa todo el espacio) */}
           <div className="flex-grow flex flex-col md:flex-row justify-between items-center text-center md:text-left">
             <h1 className="text-5xl font-extrabold tracking-wider text-red-700 drop-shadow-lg animate-pulse-neon-red mb-2 md:mb-0">
-              🎰 ORILUCK CASINO REAL
+              🎰 TRAGAMONEDAS
             </h1>
             <p className="text-purple-300 mt-2 text-lg">
               BOLSA DE PREMIOS EN VIVO: 
