@@ -624,7 +624,24 @@ const RulesModal = ({ isOpen, onClose, limits }) => {
                 <div className="flex justify-between items-center border-b border-gray-700 p-4"><h2 className="text-xl font-bold text-cyan-400">Reglas del Juego: UNIVERS CRASH</h2><button onClick={onClose} className="text-2xl hover:text-white">&times;</button></div>
                 <div className="p-6 overflow-y-auto space-y-6 text-gray-300">
                     <div className="text-center space-y-2"><h3 className="text-2xl font-bold">CONSIGUE UNA EXPERIENCIA SUPER EMOCIONANTE</h3><p>Es fácil de jugar y divertido para los que se arriesgan.</p><p>Aquí tenemos a un Cohete volando. Varios jugadores realizan apuestas e intentan retirar el dinero antes de que el cohete explote (crash). Con el paso del tiempo, el multiplicador aumenta.</p><h4 className="text-3xl font-bold text-yellow-400 pt-2">¡Qué tengas suerte!</h4></div>
-                    <div className="grid md:grid-cols-2 gap-6 text-sm"><ul className="space-y-3 list-disc list-inside"><li>Para ganar, tu cobro debe ser mayor que 1x. La ganancia se calcula multiplicando el multiplicador recogido y la apuesta realizada.</li><li>El multiplicador máximo es 10000x. El mínimo es 1x.</li><li>Puedes realizar una apuesta por ronda.</li><li>Puedes configurar tu apuesta manualmente y luego retirarla haciendo clic en "RETIRAR".</li><li>Puedes establecer el cobro automático. Introduce un número mayor que 1 y activa "Auto" en la sección de retiro. Si el cohete no explota antes de ese número, el importe de tu ganancia se cobrará automáticamente.</li><li>Puedes activar la apuesta automática para cada apuesta y la misma se realizará automáticamente en cada tirada, hasta que la desactives.</li></ul><ul className="space-y-3 list-disc list-inside"><li>Al hacer clic en el historial de rondas (panel izquierdo), podrás ver los últimos resultados.</li><li>En la sección "Mis Apuestas" puedes ver tu historial de apuestas personal.</li><li>En la sección "Apuestas Activas" puedes ver las apuestas de otros jugadores en la ronda actual.</li><li>En caso de fallo del sistema, todas las apuestas se reembolsarán.</li><li>Ten en cuenta que se recomienda a los jugadores que utilicen la opción de cobro automático en caso de que tengan problemas de conexión a Internet o de funcionamiento del dispositivo.</li></ul></div>
+                    <div className="grid md:grid-cols-2 gap-6 text-sm">
+                        <ul className="space-y-3 list-disc list-inside">
+                            <li>La ganancia se calcula multiplicando el multiplicador recogido por el monto de tu apuesta.</li>
+                            <li>El multiplicador mínimo es 1.00x y puede crecer teóricamente hasta 10000x.</li>
+                            <li>Solo puedes realizar una apuesta por ronda.</li>
+                            <li>Puedes cancelar tu apuesta en cualquier momento antes de que el cohete despegue (durante la fase de espera).</li>
+                            <li>Puedes configurar tu apuesta manualmente y retirarla en cualquier momento durante el vuelo haciendo clic en "RETIRAR".</li>
+                            <li>Puedes establecer un "Retiro Automático". Introduce un multiplicador (ej: 2.00) y activa "Auto". Tu apuesta se retirará automáticamente si se alcanza ese multiplicador.</li>
+                            <li>Puedes activar la "Apuesta Automática" para repetir tu apuesta en cada ronda, hasta que la desactives.</li>
+                        </ul>
+                        <ul className="space-y-3 list-disc list-inside">
+                            <li>Al hacer clic en el historial de rondas (panel izquierdo), podrás ver los últimos resultados.</li>
+                            <li>En la sección "Mis Apuestas" puedes ver tu historial de apuestas personal.</li>
+                            <li>En la sección "Apuestas Activas" puedes ver las apuestas de otros jugadores en la ronda actual.</li>
+                            <li>Puedes activar o modificar tu retiro automático únicamente durante la fase de 'espera', antes de que comience la ronda.</li>
+                            <li>Se recomienda usar la opción de "Retiro Automático" para asegurar tu ganancia en caso de problemas de conexión.</li>
+                        </ul>
+                    </div>
                     <div>
                         <h4 className="text-lg font-bold mb-2">Límites</h4>
                         <div className="overflow-x-auto">
@@ -640,8 +657,9 @@ const RulesModal = ({ isOpen, onClose, limits }) => {
                                 </tbody>
                             </table>
                         </div>
+                        <p className="text-xs text-gray-400 mt-2">Nota: La apuesta máxima puede ser reducida temporalmente si el sistema entra en modo de recuperación financiera.</p>
                     </div>
-                     <div className="text-sm list-disc list-inside"><li>Rango de RTP (Retorno al jugador) ofrecido: El RTP máximo se puede conseguir eligiendo un multiplicador anterior o igual a 112x, de forma que la ganancia potencial sea inferior al tope de ganancia máxima ofrecida.</li></div>
+                     <div className="text-sm list-disc list-inside"><li>El juego opera con un Retorno Teórico al Jugador (RTP) objetivo del 97%. El sistema puede ajustar los resultados de las rondas para mantenerse cerca de este objetivo y asegurar la sostenibilidad del juego.</li></div>
                 </div>
             </div>
         </div>
@@ -698,7 +716,7 @@ const RocketCrashGame = () => {
             console.error("Error al retirar:", error);
             addToast(error.message, 'error');
         }
-    }, [gameState, currentBet, addToast, formatCurrency]);
+    }, [gameState, currentBet, addToast]);
     
     useEffect(() => {
         if (!currentUser) return;

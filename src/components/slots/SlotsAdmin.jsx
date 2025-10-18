@@ -168,7 +168,7 @@ function SlotsAdmin() {
             <p className="text-white/60">Gestión de la máquina y visualización de datos.</p>
           </div>
           <button 
-            onClick={() => navigate('/admin')}
+            onClick={() => navigate('/slots')}
             className="bg-gray-600 hover:bg-gray-500 px-6 py-3 rounded-xl font-semibold transition-all mt-4 md:mt-0"
           >
             ← Volver al Panel Principal
