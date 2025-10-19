@@ -67,6 +67,7 @@ const buySlotsChipsCallable = onCall({ region: REGION, timeoutSeconds: 20, cors:
         const userSlotsRef = db.doc(`userSlots/${uid}`);
         const machineRef = db.doc(`slotsMachines/${SLOTS_MACHINE_ID}`);
         const slotsHouseFundRef = db.doc("houseFunds/slots");
+        
         await db.runTransaction(async (tx) => {
             const [userSnap, userSlotsSnap, machineSnap, slotsHouseFundSnap] = await tx.getAll(userRef, userSlotsRef, machineRef, slotsHouseFundRef);
             if (!userSnap.exists) throw new HttpsError('not-found', 'Perfil de usuario no encontrado.');
@@ -76,6 +77,8 @@ const buySlotsChipsCallable = onCall({ region: REGION, timeoutSeconds: 20, cors:
             }
             const prizePoolContribution = totalCostBs * 0.80;
             const houseContribution = totalCostBs * 0.20;
+            const transRef = db.collection("transactions").doc();
+            
             tx.update(userRef, { balance: FieldValue.increment(-totalCostBs) });
             if (userSlotsSnap.exists) {
                 tx.update(userSlotsRef, {
@@ -111,7 +114,17 @@ const buySlotsChipsCallable = onCall({ region: REGION, timeoutSeconds: 20, cors:
             } else {
                 tx.set(slotsHouseFundRef, { totalForHouse: houseContribution, percentageHouse: 20 });
             }
-            const transRef = db.collection("transactions").doc();
+
+            if (houseContribution > 0) {
+                const gainsHistoryRef = db.collection('houseGainsHistory').doc();
+                tx.set(gainsHistoryRef, {
+                    game: 'Slots',
+                    amount: houseContribution,
+                    roundId: `purchase-${transRef.id}`,
+                    timestamp: FieldValue.serverTimestamp()
+                });
+            }
+
             tx.set(transRef, { userId: uid, username: userData.username || 'Usuario', type: "slots_purchase", amount: -totalCostBs, description: `Compra de ${chipsToBuy} fichas + ${bonusChips} de bono.`, status: "completed", createdAt: FieldValue.serverTimestamp(), details: { chipsBought: chipsToBuy, bonusChips, totalCostBs } });
         });
         return { success: true, chipsCredited: totalChipsToCredit };
@@ -188,7 +201,7 @@ const executeSlotSpin = onCall({ region: REGION, timeoutSeconds: 20, cors: allow
             const prizePercentage = (prizeInfo && prizeInfo.prizePercent) ? (prizeInfo.prizePercent / 100) : 0;
             winAmount = currentPrizePool * prizePercentage;
             if (winAmount > 0) {
-                tx.update(machineRef, { prizePool: FieldValue.increment(-winAmount) });
+                 tx.update(machineRef, { prizePool: FieldValue.increment(-winAmount) });
             }
         }
         tx.update(userSlotsRef, { chips: FieldValue.increment(-1) });

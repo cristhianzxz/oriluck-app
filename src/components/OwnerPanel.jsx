@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useContext } from "react";
 import { useNavigate } from "react-router-dom";
-import { AuthContext } from "../App"; // Asegúrate de tener acceso al contexto de autenticación
+import { AuthContext } from "../App"; 
 import {
     setBingoHousePercent,
     getBingoHouseConfig,
@@ -26,7 +26,7 @@ const ROLES_ADMIN = [
     "moderator",
     "supervisor",
     "admin",
-    "owner" // Añadido para el owner
+    "owner"
 ];
 
 const OwnerPanel = () => {
@@ -35,6 +35,7 @@ const OwnerPanel = () => {
 
     const [showBolsa, setShowBolsa] = useState(false);
     const [showMovements, setShowMovements] = useState(false);
+    const [showGainsHistory, setShowGainsHistory] = useState(false);
     const [houseFund, setHouseFund] = useState(0);
     const [housePercent, setHousePercent] = useState(30);
     const [editPercent, setEditPercent] = useState(false);
@@ -44,10 +45,13 @@ const OwnerPanel = () => {
     const [fundLoading, setFundLoading] = useState(false);
     const [verifyingAccess, setVerifyingAccess] = useState(true);
 
-    // Historial de movimientos administrativos
     const [adminMovements, setAdminMovements] = useState([]);
     const [movementsLoading, setMovementsLoading] = useState(false);
     const [searchMovement, setSearchMovement] = useState("");
+
+    const [gainsHistory, setGainsHistory] = useState([]);
+    const [gainsLoading, setGainsLoading] = useState(false);
+    const [searchGains, setSearchGains] = useState("");
 
     useEffect(() => {
         const timer = setTimeout(() => {
@@ -70,50 +74,50 @@ const OwnerPanel = () => {
         };
     }, [navigate]);
 
-    // --- PEGA ESTE BLOQUE CORREGIDO EN LUGAR DEL ANTERIOR ---
     useEffect(() => {
         if (localStorage.getItem('ownerAccess') !== 'true') return;
 
-        // Estados para cada bolsa
         let bingoFundValue = 0;
         let slotsFundValue = 0;
+        let crashFundValue = 0;
 
         const updateCombinedFund = () => {
-            setHouseFund(bingoFundValue + slotsFundValue);
+            setHouseFund(bingoFundValue + slotsFundValue + crashFundValue);
         };
 
-        // 1. Listener para la bolsa de BINGO
         const bingoRef = doc(db, "houseFunds", "bingo");
         const unsubBingo = onSnapshot(bingoRef, (snap) => {
             if (snap.exists()) {
                 const d = snap.data();
                 bingoFundValue = d.totalForHouse || 0;
-                // Solo el listener de bingo controla el porcentaje
                 setHousePercent(d.percentageHouse || 30);
                 if (!editPercent) setNewPercent(d.percentageHouse || 30);
             } else {
                 bingoFundValue = 0;
             }
             updateCombinedFund();
-            setLoading(false); // Marcar como cargado después del primer listener
+            setLoading(false);
         });
 
-        // 2. Listener para la bolsa de SLOTS
         const slotsRef = doc(db, "houseFunds", "slots");
         const unsubSlots = onSnapshot(slotsRef, (snap) => {
             slotsFundValue = snap.exists() ? snap.data().totalForHouse || 0 : 0;
             updateCombinedFund();
         });
 
-        // Limpiar ambos listeners al desmontar el componente
+        const crashRef = doc(db, "houseFunds", "crash");
+        const unsubCrash = onSnapshot(crashRef, (snap) => {
+            crashFundValue = snap.exists() ? snap.data().totalForHouse || 0 : 0;
+            updateCombinedFund();
+        });
+
         return () => {
             unsubBingo();
             unsubSlots();
+            unsubCrash();
         };
-        // eslint-disable-next-line
-    }, [editPercent]); // Mantenemos la dependencia para que se recargue si editas el porcentaje
+    }, [editPercent]);
 
-    // Suscripción en tiempo real para movimientos administrativos (sin filtro restrictivo)
     useEffect(() => {
         let unsub = null;
         if (showMovements) {
@@ -130,14 +134,42 @@ const OwnerPanel = () => {
                     }))
                 );
                 setMovementsLoading(false);
-            }, () => setMovementsLoading(false));
+            }, (error) => {
+                console.error("Error al leer movimientos admin:", error);
+                setMovementsLoading(false);
+            });
         }
         return () => {
             if (unsub) unsub();
         };
     }, [showMovements]);
 
-    // Edita el porcentaje en Firestore y actualiza todos los torneos activos
+    useEffect(() => {
+        let unsub = null;
+        if (showGainsHistory) {
+            setGainsLoading(true);
+            const q = query(
+                collection(db, "houseGainsHistory"),
+                orderBy("timestamp", "desc")
+            );
+            unsub = onSnapshot(q, (snap) => {
+                setGainsHistory(
+                    snap.docs.map(doc => ({
+                        id: doc.id,
+                        ...doc.data()
+                    }))
+                );
+                setGainsLoading(false);
+            }, (error) => {
+                console.error("Error al leer historial de ganancias:", error);
+                setGainsLoading(false);
+            });
+        }
+        return () => {
+            if (unsub) unsub();
+        };
+    }, [showGainsHistory]);
+
     const handleSavePercent = async () => {
         const newP = Number(newPercent);
         if (newP < 1 || newP > 30) {
@@ -146,7 +178,7 @@ const OwnerPanel = () => {
         }
 
         try {
-            const oldPercent = housePercent; // Guarda el valor anterior
+            const oldPercent = housePercent; 
 
             await setBingoHousePercent(newP);
 
@@ -165,7 +197,6 @@ const OwnerPanel = () => {
             });
             await Promise.all(updates);
 
-            // ✅ AUDITORÍA: Cambio de porcentaje de la casa
             await logAdminMovement({
                 actionType: "cambiar_porcentaje_casa",
                 adminData: {
@@ -190,7 +221,6 @@ const OwnerPanel = () => {
         }
     };
 
-    // Editar el monto de la bolsa (sumar/restar)
     const handleFundEdit = async (type) => {
         if (!editFundAmount || isNaN(Number(editFundAmount)) || Number(editFundAmount) === 0) {
             alert("Ingresa un monto válido mayor a cero.");
@@ -206,7 +236,6 @@ const OwnerPanel = () => {
                 totalForHouse: increment(type === "add" ? amount : -amount)
             });
 
-            // ✅ AUDITORÍA: Cambio en bolsa de la casa
             await logAdminMovement({
                 actionType: "ajustar_bolsa_casa",
                 adminData: {
@@ -241,7 +270,6 @@ const OwnerPanel = () => {
         );
     }
 
-    // Filtrado de historial por nombre/correo/username
     const filteredMovements = adminMovements.filter(mov => {
         if (!searchMovement.trim()) return true;
         const search = searchMovement.trim().toLowerCase();
@@ -252,9 +280,16 @@ const OwnerPanel = () => {
         );
     });
 
+    const filteredGains = gainsHistory.filter(gain => {
+        if (!searchGains.trim()) return true;
+        const search = searchGains.trim().toLowerCase();
+        return (
+            (gain.game || "").toLowerCase().includes(search)
+        );
+    });
+
     return (
         <div className="min-h-screen bg-gradient-to-br from-black via-gray-900 to-yellow-900 flex flex-col">
-            {/* Header */}
             <header className="relative z-10 bg-black/60 backdrop-blur-xl border-b border-yellow-500/30 shadow-2xl">
                 <div className="container mx-auto px-4 py-6 flex flex-col sm:flex-row items-center justify-between gap-4">
                     <div className="flex items-center gap-4">
@@ -278,7 +313,6 @@ const OwnerPanel = () => {
                 </div>
             </header>
 
-            {/* Botones en el centro (cuadrícula 2x2) */}
             <main className="flex-1 flex items-center justify-center">
                 <div className="w-full flex flex-col items-center justify-center py-16">
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-12 w-full max-w-4xl mt-12">
@@ -300,12 +334,11 @@ const OwnerPanel = () => {
                             📜 Historial de Movimientos
                         </button>
                         <button
-                            disabled
-                            className="bg-gradient-to-br from-gray-700 to-gray-800 text-white font-bold py-12 px-8 rounded-2xl shadow-xl text-3xl flex flex-col items-center justify-center opacity-70 cursor-not-allowed"
+                            onClick={() => setShowGainsHistory(true)}
+                            className="bg-gradient-to-br from-purple-600 to-purple-700 hover:from-purple-500 hover:to-purple-600 text-white font-bold py-12 px-8 rounded-2xl shadow-xl text-3xl flex flex-col items-center justify-center transition-all transform hover:scale-105"
                             style={{ minHeight: "220px" }}
                         >
-                            🛠️ Función 3
-                            <span className="text-lg mt-5 font-medium">En construcción</span>
+                            📈 Historial de Ganancias
                         </button>
                         <button
                             disabled
@@ -325,7 +358,6 @@ const OwnerPanel = () => {
                 </div>
             </main>
 
-            {/* Modal Bolsa de la Casa */}
             {showBolsa && (
                 <div className="fixed inset-0 flex items-center justify-center z-50 bg-black/70 backdrop-blur-sm">
                     <div className="bg-gradient-to-br from-gray-900 to-black rounded-3xl p-8 shadow-2xl border border-yellow-500/30 max-w-lg w-full relative">
@@ -340,8 +372,8 @@ const OwnerPanel = () => {
                         ) : (
                             <>
                                 <div className="mb-4 text-center">
-                                    <div className="text-4xl font-bold text-yellow-400 mb-2">{houseFund.toLocaleString()} Bs</div>
-                                    <div className="text-yellow-100 mb-2">Acumulado total de la casa (Slots, Bingo, etc.)</div>
+                                    <div className="text-4xl font-bold text-yellow-400 mb-2">{houseFund.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Bs</div>
+                                    <div className="text-yellow-100 mb-2">Acumulado total de la casa (Slots, Bingo, Crash, etc.)</div>
                                 </div>
                                 <div className="flex items-center justify-center gap-4 my-4">
                                     <div className="font-semibold text-yellow-300">Porcentaje para la casa (Solo Bingo):</div>
@@ -376,10 +408,8 @@ const OwnerPanel = () => {
                                         >Editar %</button>
                                     )}
                                 </div>
-
-                                {/* Editar el monto manualmente */}
                                 <div className="mt-8 text-center">
-                                    <h3 className="text-lg font-bold text-yellow-300 mb-3">Modificar Monto de la Bolsa</h3>
+                                    <h3 className="text-lg font-bold text-yellow-300 mb-3">Modificar Monto de la Bolsa (Manual)</h3>
                                     <div className="flex flex-col sm:flex-row items-center justify-center gap-2 mb-2">
                                         <input
                                             type="number"
@@ -413,7 +443,6 @@ const OwnerPanel = () => {
                 </div>
             )}
 
-            {/* Modal Historial de Movimientos */}
             {showMovements && (
                 <div className="fixed inset-0 flex items-center justify-center z-50 bg-black/60 backdrop-blur-sm">
                     <div className="bg-gradient-to-br from-gray-900 to-black rounded-3xl p-8 shadow-2xl border border-blue-500/30 max-w-2xl w-full relative">
@@ -452,7 +481,6 @@ const OwnerPanel = () => {
                                                 </div>
                                                 <div>
                                                     <div className="font-bold text-yellow-300">
-                                                        {/* Mostrar dinámicamente según tipo de movimiento */}
                                                         {mov.actionType === "ajustar_bolsa_casa" ? (
                                                             <>
                                                                 {mov.details?.tipoCambio === "add" ? "+" : "-"}{mov.details?.monto?.toLocaleString()} Bs
@@ -484,7 +512,57 @@ const OwnerPanel = () => {
                 </div>
             )}
 
-            {/* Fondo decorativo */}
+            {showGainsHistory && (
+                <div className="fixed inset-0 flex items-center justify-center z-50 bg-black/60 backdrop-blur-sm">
+                    <div className="bg-gradient-to-br from-gray-900 to-black rounded-3xl p-8 shadow-2xl border border-purple-500/30 max-w-2xl w-full relative">
+                        <button
+                            onClick={() => setShowGainsHistory(false)}
+                            className="absolute top-4 right-4 text-purple-200 hover:text-purple-400 text-2xl font-bold"
+                            title="Cerrar"
+                        >×</button>
+                        <h2 className="text-2xl font-bold text-purple-300 mb-2 text-center">📈 Historial de Ganancias de la Casa</h2>
+                        <div className="mb-2 flex justify-center">
+                            <input
+                                type="text"
+                                placeholder="Buscar por juego (Crash, Bingo...)"
+                                value={searchGains}
+                                onChange={e => setSearchGains(e.target.value)}
+                                className="w-72 p-2 rounded bg-purple-100 text-black text-lg text-center"
+                            />
+                        </div>
+                        <div className="mb-3 text-xs text-purple-200 text-center">
+                            Registros automáticos de ganancias netas positivas de los juegos.
+                        </div>
+                        {gainsLoading ? (
+                            <div className="text-purple-300 text-center py-8">Cargando historial de ganancias...</div>
+                        ) : (
+                            <div className="max-h-[52vh] overflow-y-auto scrollbar-thin scrollbar-thumb-purple-500/40 scrollbar-track-transparent">
+                                {filteredGains.length === 0 ? (
+                                    <div className="text-center py-8 text-purple-300/70">No se encontraron ganancias para este filtro.</div>
+                                ) : (
+                                    <div className="space-y-3">
+                                        {filteredGains.map(gain => (
+                                            <div key={gain.id} className="bg-purple-900/20 rounded-xl p-4 border border-purple-500/10 flex flex-col sm:flex-row sm:items-center gap-2 justify-between">
+                                                <div>
+                                                    <div className="font-bold text-purple-300 text-xl">{gain.game}</div>
+                                                    <div className="text-xs text-purple-200">ID de Ronda: {gain.roundId || 'N/A'}</div>
+                                                </div>
+                                                <div className="font-bold text-green-400 text-lg text-right">
+                                                    + {gain.amount?.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Bs
+                                                </div>
+                                                <div className="text-xs text-purple-200 text-right">
+                                                    {gain.timestamp?.toDate?.()?.toLocaleString?.('es-VE') || 'Fecha inválida'}
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+                        )}
+                    </div>
+                </div>
+            )}
+
             <div className="absolute top-20 left-10 w-32 h-32 bg-yellow-500/10 rounded-full blur-xl"></div>
             <div className="absolute bottom-20 right-10 w-48 h-48 bg-yellow-500/10 rounded-full blur-2xl"></div>
             <style>{`

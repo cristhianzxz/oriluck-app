@@ -3,45 +3,40 @@ import { useNavigate } from 'react-router-dom';
 import { AuthContext } from '../../App';
 import {
     collection, doc, getDocs, getDoc, addDoc, updateDoc,
-    onSnapshot, serverTimestamp, arrayRemove, writeBatch, increment,
-    query, orderBy, runTransaction
+    onSnapshot, serverTimestamp,
+    query, orderBy
 } from 'firebase/firestore';
-// 🚨 CAMBIO DE RNG: Importación de funciones para el llamado seguro al backend
 import { httpsCallable } from 'firebase/functions';
-import { db, functions } from '../../firebase'; // Asegúrate de que 'functions' está exportado desde tu archivo firebase.js
+import { db, functions } from '../../firebase';
 
 const BingoAdmin = () => {
     const navigate = useNavigate();
-    const { currentUser, userData: currentUserData } = useContext(AuthContext); // Asumo que userData contiene el rol
+    const { currentUser, userData: currentUserData } = useContext(AuthContext);
     const [tournaments, setTournaments] = useState([]);
     const [loading, setLoading] = useState(true);
     const [activeTab, setActiveTab] = useState('tournaments');
     const [newTournament, setNewTournament] = useState({
         name: '',
-        startTime: ''
+        startTime: '',
+        autoStart: true,
+        showEstimatedTime: false
     });
+    const [creating, setCreating] = useState(false);
+    const [starting, setStarting] = useState(null);
+    const [autoStartEnabled, setAutoStartEnabled] = useState(true); // Estado para el interruptor
+    const [togglingAutoStart, setTogglingAutoStart] = useState(false); // Estado para el botón de toggle
 
-    // --- Estados para la nueva sección de Estadísticas ---
     const [selectedStatTournament, setSelectedStatTournament] = useState(null);
     const [selectedStatPlayer, setSelectedStatPlayer] = useState(null);
-    const [expandedCardNumber, setExpandedCardNumber] = useState(null); // Estado para el acordeón
+    const [expandedCardNumber, setExpandedCardNumber] = useState(null);
 
-    // ========================================================
-    // MODIFICACIÓN 1: Usar 'currentUserData' (asumiendo que se obtiene del AuthContext)
-    // Agrego una comprobación de correo como respaldo.
-    // ========================================================
     const isRoleAdmin = currentUserData?.role === "admin";
     const isHardcodedAdmin = currentUser?.email === "cristhianzxz@hotmail.com" || currentUser?.email === "admin@oriluck.com";
     const isAdmin = isRoleAdmin || isHardcodedAdmin;
-    // ========================================================
 
     useEffect(() => {
-        // Si currentUser es null, esperamos que se cargue para obtener currentUserData.
         if (currentUser === undefined) return;
 
-        // ========================================================
-        // MODIFICACIÓN 3: Redirigir a '/lobby' si no es admin
-        // ========================================================
         if (!isAdmin) {
             navigate('/lobby');
             return;
@@ -53,21 +48,64 @@ const BingoAdmin = () => {
             setTournaments(tournamentsData);
             setLoading(false);
         });
-        return () => unsubscribe();
+
+        // Listener para el estado del AutoStart
+        const configRef = doc(db, 'bingoSettings/autoStartConfig');
+        const unsubConfig = onSnapshot(configRef, (snap) => {
+             setAutoStartEnabled(snap.exists() ? snap.data().enabled : true); // Default true si no existe
+        });
+
+        return () => {
+             unsubscribe();
+             unsubConfig(); // Limpiar listener de config
+        };
     }, [isAdmin, navigate, currentUser]);
 
+    const handleNewTournamentChange = (e) => {
+        const { name, value, type, checked } = e.target;
+        setNewTournament(prev => ({
+            ...prev,
+            [name]: type === 'checkbox' ? checked : value
+        }));
+    };
+
+     useEffect(() => {
+         if (!newTournament.autoStart && !newTournament.showEstimatedTime) {
+             setNewTournament(prev => ({ ...prev, startTime: '' }));
+         }
+     }, [newTournament.autoStart, newTournament.showEstimatedTime]);
+
+
     const createTournament = async () => {
-        if (!newTournament.name || !newTournament.startTime) {
-            alert('Completa el nombre y la fecha/hora de inicio');
+        const requiresTime = newTournament.autoStart || newTournament.showEstimatedTime;
+        if (!newTournament.name || (requiresTime && !newTournament.startTime)) {
+            alert(`Completa el nombre ${requiresTime ? 'y la fecha/hora de inicio' : ''}`);
             return;
         }
+        setCreating(true);
         try {
             const rateDoc = await getDoc(doc(db, 'appSettings', 'exchangeRate'));
             const exchangeRate = rateDoc.exists() ? rateDoc.data().rate : 100;
-            const startTime = new Date(newTournament.startTime);
+            let startTimeValue = null;
+            if (requiresTime && newTournament.startTime) {
+                 try {
+                     startTimeValue = new Date(newTournament.startTime);
+                     if (isNaN(startTimeValue.getTime())) {
+                          throw new Error("Fecha/hora inválida");
+                     }
+                 } catch (dateError) {
+                      alert('❌ Formato de fecha/hora inválido.');
+                      setCreating(false);
+                      return;
+                 }
+            } else if (!requiresTime) {
+                 startTimeValue = null;
+            }
+
+
             const tournamentData = {
                 name: newTournament.name,
-                startTime: startTime,
+                startTime: startTimeValue,
                 pricePerCard: exchangeRate,
                 status: 'waiting',
                 availableCards: Array.from({ length: 100 }, (_, i) => i + 1),
@@ -75,39 +113,58 @@ const BingoAdmin = () => {
                 calledNumbers: [],
                 winners: [],
                 allowPurchases: true,
-                autoStart: true,
+                autoStart: newTournament.autoStart,
+                showEstimatedTime: newTournament.showEstimatedTime,
                 createdAt: serverTimestamp(),
                 createdBy: currentUser.email,
                 exchangeRate: exchangeRate
             };
             await addDoc(collection(db, 'bingoTournaments'), tournamentData);
             alert('✅ Torneo creado exitosamente!');
-            setNewTournament({ name: '', startTime: '' });
+            setNewTournament({ name: '', startTime: '', autoStart: true, showEstimatedTime: false });
         } catch (error) {
             console.error('Error creando torneo:', error);
-            alert('❌ Error al crear el torneo');
+            alert('❌ Error al crear el torneo: ' + error.message);
+        } finally {
+             setCreating(false);
         }
     };
 
-    // 🚨 CAMBIO DE RNG: La función de inicio llama al Cloud Function para generar la secuencia auditable.
-    const startTournament = async (tournamentId) => {
+    const startTournamentManually = async (tournamentId) => {
+        if (starting === tournamentId) return;
+        setStarting(tournamentId);
         try {
-            const callStartAuditable = httpsCallable(functions, 'startAuditableBingo');
-            
-            // Enviamos el ID del torneo para que el backend genere la semilla única basada en él
-            const result = await callStartAuditable({ tournamentId });
+            const startManualBingoFunc = httpsCallable(functions, 'startManualBingo');
+            const result = await startManualBingoFunc({ tournamentId });
 
             if (result.data && result.data.success) {
-                alert('✅ Sorteo generado y Torneo iniciado de forma auditable!');
+                alert('✅ Torneo iniciado manualmente!');
             } else {
-                // Manejo de errores de la Cloud Function
-                alert(`❌ Error al iniciar el torneo: ${result.data?.message || 'Error desconocido del servidor.'}`);
+                throw new Error(result.data?.message || 'Error desconocido del servidor al iniciar.');
             }
         } catch (error) {
-            console.error('Error iniciando torneo (via Cloud Function):', error);
+            console.error('Error iniciando torneo manualmente:', error);
             alert('❌ Error al iniciar el torneo: ' + error.message);
+        } finally {
+            setStarting(null);
         }
     };
+
+    const handleToggleAutoStart = async () => {
+         if (togglingAutoStart) return;
+         setTogglingAutoStart(true);
+         try {
+              const toggleFunc = httpsCallable(functions, 'toggleBingoAutoStart');
+              await toggleFunc();
+              // El estado local se actualizará automáticamente por el listener
+         } catch (error) {
+              console.error("Error al cambiar estado de AutoStart:", error);
+              alert("Error al cambiar estado: " + error.message);
+         } finally {
+              setTogglingAutoStart(false);
+         }
+    };
+
 
     const finishTournament = async (tournamentId) => {
     try {
@@ -116,7 +173,6 @@ const BingoAdmin = () => {
             manualStop: true,
             finishedAt: serverTimestamp()
         });
-
         alert('🏆 Torneo finalizado manualmente!');
     } catch (error) {
         console.error('Error finalizando torneo:', error);
@@ -143,7 +199,6 @@ const BingoAdmin = () => {
         }
     };
 
-    // --- Componente para la tarjeta de un cartón en Estadísticas (Sin cambios) ---
     const StatCardDetail = ({ cardMatrix, calledNumbers }) => {
         const calledSet = new Set(calledNumbers || []);
         const flatMatrix = Array.isArray(cardMatrix) ? cardMatrix.flat() : [];
@@ -166,9 +221,7 @@ const BingoAdmin = () => {
         );
     };
 
-    // --- Lógica para la nueva sección de Estadísticas (Sin cambios) ---
     const renderStatsContent = () => {
-        // Nivel 3: Vista de un jugador específico y sus cartones
         if (selectedStatTournament && selectedStatPlayer) {
             const tournament = selectedStatTournament;
             const player = selectedStatPlayer;
@@ -179,7 +232,7 @@ const BingoAdmin = () => {
                     <button
                         onClick={() => {
                             setSelectedStatPlayer(null);
-                            setExpandedCardNumber(null); // Reiniciar estado al volver
+                            setExpandedCardNumber(null);
                         }}
                         className="bg-gray-600 hover:bg-gray-500 text-white px-4 py-2 rounded-lg mb-4 text-sm"
                     >
@@ -216,19 +269,18 @@ const BingoAdmin = () => {
             );
         }
 
-        // Nivel 2: Vista de un torneo específico
         if (selectedStatTournament) {
             const tournament = selectedStatTournament;
             const players = Object.values(
                 Object.entries(tournament.soldCards || {}).reduce((acc, [key, cardData]) => {
-                    if (!cardData.userId) return acc; // Ignorar si no hay userId
+                    if (!cardData.userId) return acc;
                     const userId = cardData.userId;
                     if (!acc[userId]) {
                         acc[userId] = {
                             userId: userId,
                             userName: cardData.userName,
-                            email: cardData.userEmail, // Añadir email
-                            phoneNumber: cardData.userPhone, // Añadir teléfono
+                            email: cardData.userEmail,
+                            phoneNumber: cardData.userPhone,
                             cards: [],
                         };
                     }
@@ -254,7 +306,6 @@ const BingoAdmin = () => {
                     </button>
                     <h3 className="text-3xl font-bold text-white mb-4">{tournament.name}</h3>
 
-                    {/* Ganadores */}
                     <div className="bg-green-500/20 border border-green-500/30 rounded-xl p-6 mb-6">
                         <h4 className="text-2xl font-bold text-green-300 mb-3">🏆 Ganador(es)</h4>
                         {tournament.winners && tournament.winners.length > 0 ? (
@@ -272,7 +323,6 @@ const BingoAdmin = () => {
                         )}
                     </div>
 
-                    {/* Participantes */}
                     <div className="bg-white/5 rounded-xl p-6">
                         <h4 className="text-2xl font-bold text-white mb-4">👥 Participantes ({players.length})</h4>
                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -296,7 +346,6 @@ const BingoAdmin = () => {
             );
         }
 
-        // Nivel 1: Lista de todos los torneos
         return (
             <div>
                 <h2 className="text-2xl font-bold text-white mb-6">Selecciona un Torneo para ver sus Estadísticas</h2>
@@ -334,15 +383,11 @@ const BingoAdmin = () => {
         );
     };
 
-    // ========================================================
-    // MODIFICACIÓN 2: Lógica de Carga y Redirección
-    // ========================================================
     if (currentUser === undefined) {
         return <div className="min-h-screen flex items-center justify-center bg-gray-900 text-white">Cargando credenciales...</div>;
     }
 
     if (!isAdmin) {
-        // La redirección se maneja principalmente en el useEffect, pero esta es una capa de seguridad en el render.
         return null;
     }
 
@@ -357,7 +402,6 @@ const BingoAdmin = () => {
     return (
         <div className="min-h-screen bg-gradient-to-br from-gray-900 via-green-900 to-gray-900 p-6">
             <div className="max-w-7xl mx-auto">
-                {/* Header */}
                 <div className="flex justify-between items-center mb-8">
                     <div>
                         <h1 className="text-3xl font-bold text-white">🎯 ADMIN BINGO</h1>
@@ -373,14 +417,12 @@ const BingoAdmin = () => {
                     </div>
                 </div>
 
-                {/* Tabs */}
                 <div className="flex space-x-4 mb-6">
                     {['tournaments', 'create', 'stats'].map(tab => (
                         <button
                             key={tab}
                             onClick={() => {
                                 setActiveTab(tab);
-                                // Reiniciar estados de estadísticas al cambiar de pestaña
                                 setSelectedStatTournament(null);
                                 setSelectedStatPlayer(null);
                                 setExpandedCardNumber(null);
@@ -398,11 +440,27 @@ const BingoAdmin = () => {
                     ))}
                 </div>
 
-                {/* Contenido */}
                 <div className="bg-white/10 rounded-2xl p-6 backdrop-blur-lg border border-white/20">
                     {activeTab === 'tournaments' && (
                         <div>
-                            <h2 className="text-2xl font-bold text-white mb-6">Gestión de Torneos en Tiempo Real</h2>
+                            <div className="flex justify-between items-center mb-6">
+                                <h2 className="text-2xl font-bold text-white">Gestión de Torneos en Tiempo Real</h2>
+                                <div className="flex items-center space-x-3">
+                                     <span className={`px-3 py-1 rounded-full text-sm font-semibold ${autoStartEnabled ? 'bg-green-500/30 text-green-300' : 'bg-red-500/30 text-red-300'}`}>
+                                         Inicio Automático: {autoStartEnabled ? 'Activado' : 'Desactivado'}
+                                     </span>
+                                     <button
+                                          onClick={handleToggleAutoStart}
+                                          disabled={togglingAutoStart}
+                                          className={`px-4 py-2 rounded-lg text-sm font-semibold transition-colors ${
+                                               togglingAutoStart ? 'bg-gray-600 text-gray-400' :
+                                               autoStartEnabled ? 'bg-red-600 hover:bg-red-500 text-white' : 'bg-green-600 hover:bg-green-500 text-white'
+                                          }`}
+                                     >
+                                          {togglingAutoStart ? 'Cambiando...' : (autoStartEnabled ? 'Desactivar Auto' : 'Activar Auto')}
+                                     </button>
+                                </div>
+                            </div>
                             {tournaments.filter(t => t.status !== 'deleted').length === 0 ? (
                                 <div className="text-center py-12"><div className="text-6xl mb-4">📭</div><p className="text-white/70 text-lg">No hay torneos creados</p></div>
                             ) : (
@@ -412,12 +470,18 @@ const BingoAdmin = () => {
                                             <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 items-center">
                                                 <div>
                                                     <h3 className="font-bold text-white text-lg">{tournament.name}</h3>
-                                                    <div className="text-white/70 text-sm">{tournament.startTime?.toDate().toLocaleString('es-VE')}</div>
+                                                    <div className="text-white/70 text-sm">
+                                                        {tournament.autoStart ? tournament.startTime?.toDate().toLocaleString('es-VE') :
+                                                         tournament.showEstimatedTime ? `~ ${tournament.startTime?.toDate().toLocaleString('es-VE')}` : 'Al llenarse'}
+                                                    </div>
                                                     <span className={`px-2 py-1 rounded text-xs ${
                                                         tournament.status === 'active' ? 'bg-green-500/20 text-green-400' :
                                                             tournament.status === 'finished' ? 'bg-red-500/20 text-red-400' :
                                                                 'bg-yellow-500/20 text-yellow-400'
                                                         }`}>{tournament.status?.toUpperCase()}</span>
+                                                         <span className="ml-2 px-2 py-1 rounded text-xs bg-blue-500/20 text-blue-300">
+                                                             {tournament.autoStart ? 'Auto' : 'Manual'}
+                                                         </span>
                                                 </div>
                                                 <div>
                                                     <div className="text-white font-bold">{Object.keys(tournament.soldCards || {}).length}/100 cartones</div>
@@ -429,16 +493,24 @@ const BingoAdmin = () => {
                                                     <div className="text-white/70 text-sm">Actual: {tournament.currentNumber || '--'}</div>
                                                 </div>
                                                 <div className="space-y-2">
-                                                    {tournament.status === 'waiting' && (
-                                                        <button onClick={() => startTournament(tournament.id)} className="w-full bg-green-600 hover:bg-green-500 text-white py-2 px-4 rounded text-sm">▶️ Iniciar Ahora</button>
+                                                    {tournament.status === 'waiting' && !tournament.autoStart && (
+                                                        <button
+                                                             onClick={() => startTournamentManually(tournament.id)}
+                                                             disabled={starting === tournament.id}
+                                                             className={`w-full py-2 px-4 rounded text-sm ${starting === tournament.id ? 'bg-gray-500' : 'bg-green-600 hover:bg-green-500 text-white'}`}
+                                                         >
+                                                             {starting === tournament.id ? 'Iniciando...' : '▶️ Iniciar Manual'}
+                                                         </button>
                                                     )}
                                                     {tournament.status === 'active' && (
                                                         <>
-                                                            <button onClick={() => callNumberManually()} className="w-full bg-blue-600 hover:bg-blue-500 text-white py-2 px-4 rounded text-sm">🔢 Llamar Número (Auto)</button>
+                                                            <button onClick={() => callNumberManually()} className="w-full bg-blue-600 hover:bg-blue-500 text-white py-2 px-4 rounded text-sm opacity-50 cursor-not-allowed">🔢 Llamar Número (Auto)</button>
                                                             <button onClick={() => finishTournament(tournament.id)} className="w-full bg-red-600 hover:bg-red-500 text-white py-2 px-4 rounded text-sm">⏹️ Finalizar Manual</button>
                                                         </>
                                                     )}
-                                                    <button onClick={() => deleteTournament(tournament.id)} className="w-full bg-gray-600 hover:bg-gray-500 text-white py-2 px-4 rounded text-sm">🗑️ Eliminar</button>
+                                                    {tournament.status !== 'active' && (
+                                                         <button onClick={() => deleteTournament(tournament.id)} className="w-full bg-gray-600 hover:bg-gray-500 text-white py-2 px-4 rounded text-sm">🗑️ Eliminar</button>
+                                                    )}
                                                 </div>
                                             </div>
                                             {tournament.winners && tournament.winners.length > 0 && (
@@ -464,21 +536,64 @@ const BingoAdmin = () => {
                             <div className="space-y-4">
                                 <div>
                                     <label className="block text-white font-semibold mb-2">🎯 Nombre del Torneo</label>
-                                    <input type="text" value={newTournament.name} onChange={(e) => setNewTournament({ ...newTournament, name: e.target.value })} className="w-full p-3 rounded-lg bg-white/10 border border-white/20 text-white" placeholder="Ej: Torneo VIP Nocturno" />
+                                    <input type="text" name="name" value={newTournament.name} onChange={handleNewTournamentChange} className="w-full p-3 rounded-lg bg-white/10 border border-white/20 text-white" placeholder="Ej: Torneo VIP Nocturno" />
                                 </div>
-                                <div>
-                                    <label className="block text-white font-semibold mb-2">⏰ Fecha y Hora de Inicio</label>
-                                    <input type="datetime-local" value={newTournament.startTime} onChange={(e) => setNewTournament({ ...newTournament, startTime: e.target.value })} className="w-full p-3 rounded-lg bg-white/10 border border-white/20 text-white" />
+
+                                <div className="flex items-center space-x-3 bg-white/5 p-3 rounded-lg">
+                                     <input
+                                         type="checkbox"
+                                         id="autoStart"
+                                         name="autoStart"
+                                         checked={newTournament.autoStart}
+                                         onChange={handleNewTournamentChange}
+                                         className="h-5 w-5 accent-green-500"
+                                     />
+                                     <label htmlFor="autoStart" className="text-white font-semibold">🚀 Inicio Automático por Hora</label>
                                 </div>
+
+                                {!newTournament.autoStart && (
+                                    <div className="flex items-center space-x-3 bg-white/5 p-3 rounded-lg">
+                                        <input
+                                            type="checkbox"
+                                            id="showEstimatedTime"
+                                            name="showEstimatedTime"
+                                            checked={newTournament.showEstimatedTime}
+                                            onChange={handleNewTournamentChange}
+                                            className="h-5 w-5 accent-yellow-500"
+                                         />
+                                        <label htmlFor="showEstimatedTime" className="text-white font-semibold">🕰️ Mostrar Hora Estimada (Inicio Manual)</label>
+                                    </div>
+                                )}
+
+                                {(newTournament.autoStart || newTournament.showEstimatedTime) && (
+                                    <div>
+                                        <label className="block text-white font-semibold mb-2">
+                                             {newTournament.autoStart ? '⏰ Fecha y Hora de Inicio Automático' : '⏰ Fecha y Hora Estimada (Manual)'}
+                                        </label>
+                                        <input
+                                             type="datetime-local"
+                                             name="startTime"
+                                             value={newTournament.startTime}
+                                             onChange={handleNewTournamentChange}
+                                             className="w-full p-3 rounded-lg bg-white/10 border border-white/20 text-white"
+                                        />
+                                    </div>
+                                )}
+
                                 <div className="bg-blue-500/20 rounded-lg p-4 border border-blue-500/30">
                                     <h4 className="font-bold text-blue-300 mb-2">💡 Información Automática</h4>
                                     <div className="text-white/80 text-sm space-y-1">
                                         <div>• Precio por cartón: Se ajusta automáticamente a la tasa BCV del día</div>
-                                        <div>• Inicio: Automático a la hora programada</div>
                                         <div>• Compra: Se cierra automáticamente al iniciar</div>
                                     </div>
                                 </div>
-                                <button onClick={createTournament} className="w-full bg-green-600 hover:bg-green-500 text-white font-bold py-3 px-6 rounded-lg transition-all">🎯 Crear Torneo</button>
+                                <button
+                                     onClick={createTournament}
+                                     disabled={creating}
+                                     className={`w-full font-bold py-3 px-6 rounded-lg transition-all ${creating ? 'bg-gray-500' : 'bg-green-600 hover:bg-green-500 text-white'}`}
+                                >
+                                     {creating ? 'Creando...' : '🎯 Crear Torneo'}
+                                 </button>
                             </div>
                         </div>
                     )}
@@ -491,4 +606,3 @@ const BingoAdmin = () => {
 };
 
 export default BingoAdmin;
-// Total de líneas corregidas: 487 (incluyendo las correcciones de importación y la lógica de startTournament)

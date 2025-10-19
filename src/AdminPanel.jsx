@@ -40,9 +40,9 @@ const AdminPanel = () => {
     const navigate = useNavigate();
     const { currentUser, userData } = useContext(AuthContext);
 
-    // --- ESTADOS DEL PANEL ---
-    const [activeTab, setActiveTab] = useState(""); // Inicia vacío para la nueva lógica
+    const [activeTab, setActiveTab] = useState("");
     const [exchangeRate, setExchangeRate] = useState(100);
+    const [originalExchangeRate, setOriginalExchangeRate] = useState(100);
     const [requests, setRequests] = useState([]);
     const [users, setUsers] = useState([]);
     const [allRequests, setAllRequests] = useState([]);
@@ -62,11 +62,9 @@ const AdminPanel = () => {
     const [ownerPasswordInput, setOwnerPasswordInput] = useState("");
     const [ownerPasswordError, setOwnerPasswordError] = useState("");
 
-    // --- ESTADO DE CARGA Y PERMISOS ---
     const [verifyingAccess, setVerifyingAccess] = useState(true);
     const [permissions, setPermissions] = useState({});
 
-    // --- MANEJADOR DEL PANEL DE OWNER ---
     const handleOwnerAccess = () => {
         if (ownerPasswordInput === OWNER_PASSWORD) {
             localStorage.setItem('ownerAccess', 'true');
@@ -79,7 +77,6 @@ const AdminPanel = () => {
         }
     };
 
-    // --- USEEFFECT UNIFICADO PARA PERMISOS Y ACCESO ---
     useEffect(() => {
         if (userData === undefined) {
             setVerifyingAccess(true);
@@ -93,20 +90,19 @@ const AdminPanel = () => {
 
         const role = userData.role;
         
-        // LA "CONSTITUCIÓN" DE PERMISOS - VERSIÓN FINAL Y CORREGIDA
         const userPermissions = {
             canViewPanel: ['support_agent', 'moderator', 'supervisor', 'admin', 'owner'].includes(role),
             canViewRechargesTab: ['supervisor', 'admin', 'owner'].includes(role),
             canViewHistoryTab: ['supervisor', 'admin', 'owner'].includes(role),
-            canViewSettingsTab: ['moderator', 'supervisor', 'admin', 'owner'].includes(role), // <-- CORREGIDO: Moderador SÍ puede ver settings
+            canViewSettingsTab: ['moderator', 'supervisor', 'admin', 'owner'].includes(role),
             canViewUsersTab: ['moderator', 'supervisor', 'admin', 'owner'].includes(role),
             canViewSupportTab: ['support_agent', 'moderator', 'supervisor', 'admin', 'owner'].includes(role),
             canAccessOwnerZone: ['admin', 'owner'].includes(role),
             canApprovePayments: ['supervisor', 'admin', 'owner'].includes(role),
             canSuspendUsers: ['moderator', 'supervisor', 'admin', 'owner'].includes(role),
-            canEditBalances: ['admin', 'owner'].includes(role), // <-- Supervisor NO puede editar saldos
-            canEditRoles: ['admin', 'owner'].includes(role), // <-- Supervisor NO puede editar roles
-            canDeleteUsers: ['admin', 'owner'].includes(role) // <-- Supervisor NO puede eliminar usuarios
+            canEditBalances: ['admin', 'owner'].includes(role),
+            canEditRoles: ['admin', 'owner'].includes(role),
+            canDeleteUsers: ['admin', 'owner'].includes(role)
         };
         
         setPermissions(userPermissions);
@@ -114,7 +110,6 @@ const AdminPanel = () => {
         if (!userPermissions.canViewPanel) {
             navigate("/lobby", { replace: true });
         } else {
-            // Lógica de pestaña por defecto
             if (role === 'support_agent') setActiveTab("support");
             else if (role === 'moderator') setActiveTab("users");
             else if (role === 'supervisor') setActiveTab("recharges");
@@ -125,46 +120,36 @@ const AdminPanel = () => {
         }
     }, [userData, navigate]);
 
-    // >>>>> AÑADE ESTE BLOQUE COMPLETO PARA RESTAURAR LAS ACTUALIZACIONES EN VIVO <<<<<
-
-    // Listener para actualizar la lista de solicitudes en tiempo real
     useEffect(() => {
-        // Si el usuario no tiene permiso para ver la pestaña, no configurar los listeners.
         if (!permissions.canViewRechargesTab) return;
 
-        // Listener para solicitudes de recarga pendientes
         const qRecharge = query(collection(db, "rechargeRequests"), where("status", "==", "pending"));
         const unsubRecharge = onSnapshot(qRecharge, (snap) => {
             const rechargeReqs = snap.docs.map(doc => ({ id: doc.id, ...doc.data(), requestType: "recharge" }));
             
-            // Actualiza el estado de forma segura, manteniendo las solicitudes de retiro existentes
             setRequests(currentRequests => {
                 const otherRequests = currentRequests.filter(r => r.requestType !== "recharge");
                 return [...otherRequests, ...rechargeReqs];
             });
         });
 
-        // Listener para solicitudes de retiro pendientes
         const qWithdraw = query(collection(db, "withdrawRequests"), where("status", "==", "pending"));
         const unsubWithdraw = onSnapshot(qWithdraw, (snap) => {
             const withdrawReqs = snap.docs.map(doc => ({ id: doc.id, ...doc.data(), requestType: "withdraw" }));
 
-            // Actualiza el estado de forma segura, manteniendo las solicitudes de recarga existentes
             setRequests(currentRequests => {
                 const otherRequests = currentRequests.filter(r => r.requestType !== "withdraw");
                 return [...otherRequests, ...withdrawReqs];
             });
         });
 
-        // Función de limpieza: se ejecuta cuando el componente se desmonta para evitar fugas de memoria
         return () => {
             unsubRecharge();
             unsubWithdraw();
         };
-    }, [permissions.canViewRechargesTab]); // La dependencia clave es el permiso del usuario
+    }, [permissions.canViewRechargesTab]);
 
 
-    // Listener de notificaciones (simplificado)
     useEffect(() => {
         if (!permissions.canViewRechargesTab) return;
 
@@ -187,12 +172,8 @@ const AdminPanel = () => {
         };
     }, [permissions.canViewRechargesTab]);
 
-    // >>>>> REEMPLAZA TU FUNCIÓN loadData COMPLETA CON ESTA VERSIÓN <<<<<
     const loadData = async () => {
         try {
-            // Unificamos la carga de datos para asegurar que todo esté disponible si se necesita.
-            // La interfaz ya controla qué se muestra con los permisos.
-
             const [
                 rechargeReqs,
                 withdrawReqs,
@@ -209,7 +190,6 @@ const AdminPanel = () => {
                 getAllUsers()
             ]);
 
-            // Llenar estados como antes
             const requestsWithType = [
                 ...rechargeReqs.map(r => ({ ...r, requestType: "recharge" })),
                 ...withdrawReqs.map(r => ({ ...r, requestType: "withdraw" }))
@@ -220,9 +200,10 @@ const AdminPanel = () => {
                 ...allRechargeRequests.map(r => ({ ...r, requestType: "recharge" })),
                 ...allWithdrawRequests.map(r => ({ ...r, requestType: "withdraw" }))
             ];
-            setAllRequests(allRequestsWithType); // <-- ESTO ARREGLA EL HISTORIAL
+            setAllRequests(allRequestsWithType);
 
             setExchangeRate(rate);
+            setOriginalExchangeRate(rate);
 
             setUsers(usersList.map(u => ({
                 ...u,
@@ -239,7 +220,6 @@ const AdminPanel = () => {
     };
 
 
-    // --- FUNCIONES HANDLE ---
     const handleRequestAction = async (requestId, action) => {
         if (!permissions.canApprovePayments) {
             alert("❌ No tienes permiso para aprobar o rechazar pagos.");
@@ -251,7 +231,6 @@ const AdminPanel = () => {
 
             const adminEmail = currentUser?.email || 'Admin Desconocido';
 
-            // Eliminar cualquier transacción pendiente asociada a este requestId
             const q = query(
                 collection(db, "transactions"),
                 where("requestId", "==", request.id),
@@ -279,7 +258,6 @@ const AdminPanel = () => {
                     const success = await updateUserBalance(request.userId, request.amountBS);
                     if (!success) { alert("❌ Error al actualizar el saldo"); return; }
                     await updateRechargeRequest(request.id, "approved", adminEmail);
-                    // ✅ AUDITORÍA: Aprobación de recarga
                     await logAdminMovement({
                         actionType: "aprobar_recarga",
                         adminData: {
@@ -313,7 +291,6 @@ const AdminPanel = () => {
                         reference: request.reference
                     });
                     await updateRechargeRequest(request.id, "rejected", adminEmail);
-                    // ✅ AUDITORÍA: Rechazo de recarga
                     await logAdminMovement({
                         actionType: "rechazar_recarga",
                         adminData: {
@@ -356,7 +333,6 @@ const AdminPanel = () => {
                     }
                     await updateWithdrawRequest(request.id, "approved", adminEmail);
                     alert(`✅ Retiro de $${request.amountUSD} USD aprobado para ${request.username}`);
-                    // ✅ AUDITORÍA: Aprobación de retiro
                     await logAdminMovement({
                         actionType: "aprobar_retiro",
                         adminData: {
@@ -388,7 +364,6 @@ const AdminPanel = () => {
                         method: request.method
                     });
                     await updateWithdrawRequest(request.id, "rejected", adminEmail);
-                    // ✅ AUDITORÍA: Rechazo de retiro
                     await logAdminMovement({
                         actionType: "rechazar_retiro",
                         adminData: {
@@ -419,10 +394,9 @@ const AdminPanel = () => {
 
     const handleSaveExchangeRate = async () => {
         try {
-            const oldRate = exchangeRate;
+            const oldRate = originalExchangeRate;
             await updateExchangeRate(exchangeRate);
 
-            // 🚀 Actualiza la tasa en todos los torneos activos
             const q = query(
                 collection(db, 'bingoTournaments'),
                 where('status', 'in', ['waiting', 'active'])
@@ -436,10 +410,8 @@ const AdminPanel = () => {
             });
             await batch.commit();
 
-            // 🚀 Actualiza la tasa en la configuración específica de slots
             await updateSlotsExchangeRate(exchangeRate);
 
-            // ✅ AUDITORÍA: Cambio de tasa de cambio
             await logAdminMovement({
                 actionType: "cambiar_tasa_cambio",
                 adminData: {
@@ -453,8 +425,10 @@ const AdminPanel = () => {
                     valorAnterior: oldRate,
                     valorNuevo: exchangeRate
                 },
-                description: `Cambió la tasa de cambio general a ${exchangeRate} Bs y actualizó la configuración de slots`
+                description: `Cambió la tasa de ${oldRate} Bs a ${exchangeRate} Bs y actualizó la configuración de slots`
             });
+
+            setOriginalExchangeRate(exchangeRate);
 
             alert("✅ Tasa de cambio general actualizada correctamente (y aplicada a torneos de bingo y configuración de slots)");
         } catch (error) {
@@ -487,7 +461,6 @@ const AdminPanel = () => {
             }
             setUsers(users.map(u => u.id === userId ? { ...u, role: newRole, isAdmin: isAdminStatus } : u));
 
-            // ✅ AUDITORÍA: Cambio de rol
             await logAdminMovement({
                 actionType: "cambiar_rol_usuario",
                 adminData: {
@@ -529,7 +502,6 @@ const AdminPanel = () => {
             if (ok) {
                 setUsers(users.map(u => u.id === userId ? { ...u, suspended: !isSuspended } : u));
 
-                // ✅ AUDITORÍA: Suspensión o reactivación de usuario
                 await logAdminMovement({
                     actionType: isSuspended ? "reactivar_usuario" : "suspender_usuario",
                     adminData: {
@@ -572,7 +544,6 @@ const AdminPanel = () => {
             if (ok) {
                 setUsers(users.filter(u => u.id !== userId));
 
-                // ✅ AUDITORÍA: Eliminación de usuario
                 await logAdminMovement({
                     actionType: "eliminar_usuario",
                     adminData: {
@@ -606,7 +577,6 @@ const AdminPanel = () => {
             for (const document of querySnapshot.docs) {
                 await deleteDoc(doc(db, "transactions", document.id));
             }
-            // ✅ AUDITORÍA: Eliminación de todas las transacciones
             await logAdminMovement({
                 actionType: "eliminar_todas_transacciones",
                 adminData: {
@@ -631,7 +601,6 @@ const AdminPanel = () => {
         }
     };
 
-    // --- FUNCIONES AUXILIARES ---
     const usersActive = users.filter(u =>
         !u.suspended &&
         u.active &&
@@ -733,7 +702,6 @@ const AdminPanel = () => {
                 </div>
             </header>
 
-            {/* --- NAVEGACIÓN DE PESTAÑAS CON PERMISOS --- */}
             <div className="flex flex-wrap sm:flex-row gap-2 sm:gap-4 mb-8 px-4 sm:px-6 pt-6">
                 {permissions.canViewRechargesTab && (
                     <button
@@ -785,7 +753,6 @@ const AdminPanel = () => {
                 )}
             </div>
 
-            {/* MODAL DE CONTRASEÑA */}
             {showPasswordModal && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
                     <div className="bg-gray-900 rounded-2xl p-8 max-w-xs w-full border-2 border-purple-500 shadow-2xl relative">
@@ -830,7 +797,6 @@ const AdminPanel = () => {
                 </div>
             )}
 
-            {/* MODAL DE CONFIRMACIÓN PARA ELIMINAR TRANSACTIONS */}
             {showDeleteModal && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
                     <div className="bg-gray-900 rounded-2xl p-8 max-w-md w-full border-2 border-red-500 shadow-2xl relative">
@@ -906,7 +872,6 @@ const AdminPanel = () => {
                 <div className="max-w-7xl mx-auto">
                     <div className="bg-white/10 rounded-2xl p-2 sm:p-8 backdrop-blur-lg border border-white/20 panel-content">
                         
-                        {/* PESTAÑA: RECARGAS (con permiso) */}
                         {activeTab === "recharges" && permissions.canViewRechargesTab && (
                             <div>
                                 <h3 className="text-xl sm:text-2xl font-bold text-white mb-6">
@@ -996,7 +961,6 @@ const AdminPanel = () => {
                             </div>
                         )}
 
-                        {/* PESTAÑA: CONFIGURACIÓN GENERAL (con permiso) */}
                         {activeTab === "settings" && permissions.canViewSettingsTab && (
                             <div>
                                 <h3 className="text-2xl font-bold text-white mb-6">⚙️ Configuración General</h3>
@@ -1027,7 +991,6 @@ const AdminPanel = () => {
                             </div>
                         )}
 
-                        {/* PESTAÑA: HISTORIAL (con permiso) */}
                         {activeTab === "history" && permissions.canViewHistoryTab && (
                             <div>
                                 <h3 className="text-2xl font-bold text-white mb-6">📊 Historial de Solicitudes</h3>
@@ -1070,7 +1033,6 @@ const AdminPanel = () => {
                                     ))}
                                 </div>
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                                    {/* RECARGAS */}
                                     <div>
                                         <h4 className="text-xl font-bold text-green-300 mb-4 flex items-center gap-2">
                                             💳 Recargas ({rechargeHistory.length})
@@ -1125,7 +1087,6 @@ const AdminPanel = () => {
                                             )}
                                         </div>
                                     </div>
-                                    {/* RETIROS */}
                                     <div>
                                         <h4 className="text-xl font-bold text-yellow-300 mb-4 flex items-center gap-2">
                                             🏧 Retiros ({withdrawHistory.length})
@@ -1181,7 +1142,6 @@ const AdminPanel = () => {
                                         </div>
                                     </div>
                                 </div>
-                                {/* MODAL DE DETALLE */}
                                 {selectedRequest && (
                                     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
                                         <div className="bg-gray-900 rounded-2xl p-8 max-w-lg w-full border-2 border-purple-500 shadow-2xl relative">
@@ -1233,7 +1193,6 @@ const AdminPanel = () => {
                             </div>
                         )}
 
-                        {/* PESTAÑA: SOPORTE (con permiso) */}
                         {activeTab === "support" && permissions.canViewSupportTab && (
                             <div className="bg-gradient-to-br from-green-900/20 to-emerald-800/20 rounded-2xl p-8 backdrop-blur-lg border border-green-500/30">
                                 <div className="text-center py-8">
@@ -1273,7 +1232,6 @@ const AdminPanel = () => {
                             </div>
                         )}
 
-                        {/* PESTAÑA: USUARIOS (con permisos granulares) */}
                         {activeTab === "users" && permissions.canViewUsersTab && (
                             <div>
                                 <h3 className="text-2xl font-bold text-white mb-6">👥 Gestión de Usuarios</h3>
@@ -1332,26 +1290,24 @@ const AdminPanel = () => {
                                                             defaultValue={user.balance || 0}
                                                             readOnly={!permissions.canEditBalances}
                                                             onBlur={async (e) => {
-                                                                if (!permissions.canEditBalances) return; // Doble seguridad
+                                                                if (!permissions.canEditBalances) return;
                                                                 const newBalance = Number(e.target.value);
                                                                 const oldBalance = user.balance || 0;
                                                                 const difference = newBalance - oldBalance;
                                                                 const ok = await setUserBalance(user.id, newBalance);
                                                                 if (ok) {
                                                                     setUsers(users.map(u => u.id === user.id ? { ...u, balance: newBalance } : u));
-                                                                    // ✅ Registrar transacción en 'transactions'
                                                                     await createTransaction({
                                                                         userId: user.id,
                                                                         username: user.username || user.email,
                                                                         type: "admin_adjustment",
-                                                                        amount: difference, // Puede ser positivo o negativo
+                                                                        amount: difference,
                                                                         description: `Ajuste administrativo: ${difference > 0 ? 'Sumó' : 'Restó'} ${Math.abs(difference)} Bs`,
                                                                         status: "completed",
                                                                         admin: currentUser?.email || "Admin Desconocido",
                                                                         balanceBefore: oldBalance,
                                                                         balanceAfter: newBalance
                                                                     });
-                                                                    // ✅ AUDITORÍA: Cambio de saldo
                                                                     await logUserBalanceChange({
                                                                         adminData: {
                                                                             id: currentUser?.uid || '',

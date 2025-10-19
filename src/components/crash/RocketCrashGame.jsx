@@ -67,12 +67,24 @@ const HistoryPanel = ({ history }) => (
         <h2 className="text-lg font-bold mb-3 border-b border-gray-700 pb-2">Historial de Rondas</h2>
         <div id="history-list" className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-3 gap-2">
             {history.map((crashPoint, index) => {
-                let colorClass;
-                if (crashPoint < 2) { colorClass = 'text-red-500'; }
-                else if (crashPoint < 5) { colorClass = 'text-yellow-500'; }
-                else { colorClass = 'text-green-500'; }
+                let colorClass = '';
+                let textShadowStyle = {};
+
+                if (crashPoint < 3) { // 1.00x - 2.99x
+                    colorClass = 'text-green-500';
+                } else if (crashPoint < 10) { // 3.00x - 9.99x
+                    colorClass = 'text-purple-400';
+                    textShadowStyle = { textShadow: '0 0 5px rgba(192, 132, 252, 0.5)' }; // Soft purple glow
+                } else { // 10.00x+
+                    colorClass = 'text-red-500 font-bold'; // Make it bold too
+                    textShadowStyle = { textShadow: '0 0 8px rgba(239, 68, 68, 0.7)' }; // Stronger red glow
+                }
                 return (
-                    <span key={index} className={`bg-gray-800 px-3 py-1 rounded-md font-semibold text-center ${colorClass}`}>
+                    <span
+                        key={index}
+                        className={`bg-gray-800 px-3 py-1 rounded-md font-semibold text-center ${colorClass}`}
+                        style={textShadowStyle} // Apply neon effect style
+                    >
                         {formatCurrency(crashPoint)}x
                     </span>
                 );
@@ -600,8 +612,11 @@ const RightColumn = ({ myBets, activeBets, gameState }) => {
                         profitLossText = `- ${formatCurrency(bet.amount || 0)}`;
                         colorClass = 'text-red-400';
                     } else {
+                        // Assuming any other status implies a loss or pending loss of the bet amount for history display
                         profitLossText = `- ${formatCurrency(bet.amount || 0)}`;
+                        // Keep colorClass gray or decide based on more statuses if needed
                     }
+
 
                     return (
                         <div key={bet.id} className="grid grid-cols-3 gap-2 items-center bg-gray-900/50 p-2 rounded-md">
@@ -659,7 +674,7 @@ const RulesModal = ({ isOpen, onClose, limits }) => {
                         </div>
                         <p className="text-xs text-gray-400 mt-2">Nota: La apuesta máxima puede ser reducida temporalmente si el sistema entra en modo de recuperación financiera.</p>
                     </div>
-                     <div className="text-sm list-disc list-inside"><li>El juego opera con un Retorno Teórico al Jugador (RTP) objetivo del 97%. El sistema puede ajustar los resultados de las rondas para mantenerse cerca de este objetivo y asegurar la sostenibilidad del juego.</li></div>
+                     <div className="text-sm list-disc list-inside"><li>El juego opera con un Retorno Teórico al Jugador (RTP) objetivo del 95%. El sistema puede ajustar los resultados de las rondas para mantenerse cerca de este objetivo y asegurar la sostenibilidad del juego.</li></div>
                 </div>
             </div>
         </div>

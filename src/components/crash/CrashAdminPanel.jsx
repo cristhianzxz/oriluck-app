@@ -31,8 +31,8 @@ const CrashAdminPanel = () => {
     const updateCrashLimitsCallable = httpsCallable(functions, 'updateCrashLimits');
 
     const gameConfig = {
-        houseEdge: 3.0,
-        instantCrashProb: 1.0,
+        houseEdge: 5.0, // <-- CAMBIADO DE 3.0 a 5.0
+        instantCrashProb: 1.0, // Esto parece referirse a la probabilidad base de 1.00x, que depende del hash
     };
 
     const toDate = (ts) => {
@@ -86,8 +86,22 @@ const CrashAdminPanel = () => {
     
     const handleLimitsChange = (e) => {
         const { name, value } = e.target;
-        setLimits(prev => ({ ...prev, [name]: parseFloat(value.replace(',', '.')) || 0 }));
+        // Permitir entrada con coma o punto, convertir a número
+        let numericValue = 0;
+        if (value) {
+             const cleanedValue = value.replace(',', '.');
+             numericValue = parseFloat(cleanedValue);
+             if (isNaN(numericValue)) numericValue = 0; // Asegurar que sea número
+        }
+        setLimits(prev => ({ ...prev, [name]: numericValue }));
     };
+
+     const formatInputForDisplay = (value) => {
+          // Formatear el número para mostrarlo con coma decimal si es necesario
+          if (value === null || value === undefined || isNaN(value)) return '';
+          return value.toString().replace('.', ',');
+     };
+
 
     const handleSaveLimits = async () => {
         const numericLimits = {
@@ -101,6 +115,15 @@ const CrashAdminPanel = () => {
             alert('❌ Error: La apuesta mínima no puede ser mayor o igual a la máxima.');
             return;
         }
+         if(numericLimits.recoveryModeMaxBet < numericLimits.minBet || numericLimits.recoveryModeMaxBet > numericLimits.maxBet) {
+              alert('❌ Error: La apuesta máxima en recuperación debe estar entre la mínima y la máxima general.');
+              return;
+         }
+         if(numericLimits.minBet <= 0 || numericLimits.maxBet <= 0 || numericLimits.maxProfit <= 0 || numericLimits.recoveryModeMaxBet <=0) {
+              alert('❌ Error: Todos los límites deben ser mayores a cero.');
+              return;
+         }
+
         setIsSavingLimits(true);
         try {
             const result = await updateCrashLimitsCallable(numericLimits);
@@ -129,11 +152,24 @@ const CrashAdminPanel = () => {
         const unsubHistory = onSnapshot(historyQuery, (snap) => {
             const data = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
             setRoundHistory(data);
-            setLoading(false);
+            setLoading(false); // Marcar como cargado después de obtener historial
+        }, err => {
+             console.error("Error fetching history:", err);
+             setLoading(false); // Marcar como cargado incluso si hay error
         });
         const unsubLimits = onSnapshot(doc(db, 'appSettings', 'crashLimits'), (snap) => {
-            if (snap.exists()) setLimits(snap.data());
+            if (snap.exists()) {
+                 setLimits(snap.data());
+            } else {
+                 // Establecer valores predeterminados o indicar que no existen
+                 setLimits({ minBet: 0, maxBet: 0, maxProfit: 0, recoveryModeMaxBet: 0 });
+            }
+        }, err => {
+            console.error("Error fetching limits:", err);
+             // Manejar error de lectura de límites
+             setLimits({ minBet: 0, maxBet: 0, maxProfit: 0, recoveryModeMaxBet: 0 });
         });
+
 
         return () => {
             unsubLiveGame();
@@ -150,12 +186,16 @@ const CrashAdminPanel = () => {
         setLiveMetrics({ pot: totalPot, payout: totalPayout, profit: totalPot - totalPayout });
 
         const now = Date.now();
-        const last24hRounds = roundHistory.filter(r => (now - toDate(r.timestamp).getTime()) <= 24 * 60 * 60 * 1000);
+        const last24hRounds = roundHistory.filter(r => {
+             const roundDate = toDate(r.timestamp);
+             return roundDate && (now - roundDate.getTime()) <= 24 * 60 * 60 * 1000;
+        });
+
 
         if (last24hRounds.length > 0) {
             const totalNetProfit = last24hRounds.reduce((sum, r) => sum + Number(r?.netProfit || 0), 0);
             const totalBet = last24hRounds.reduce((sum, r) => sum + Number(r?.totalPot || 0), 0);
-            const rtp = totalBet > 0 ? ((totalBet - totalNetProfit) / totalBet) * 100 : 0;
+            const rtp = totalBet > 0 ? ((totalBet - totalNetProfit) / totalBet) * 100 : 0; // RTP = (TotalPagado / TotalApostado) * 100 = ((TotalApostado - GananciaNeta) / TotalApostado) * 100
             setGlobalMetrics({ totalProfit: totalNetProfit, rtp });
         } else {
             setGlobalMetrics({ totalProfit: 0, rtp: 0 });
@@ -201,7 +241,7 @@ const CrashAdminPanel = () => {
                         <h2 className="text-xl font-semibold mb-4">Control del Motor y Métricas</h2>
                         <div className="space-y-3">
                             <div className="flex justify-between text-sm">
-                                <span className="text-gray-400">Margen de la Casa:</span>
+                                <span className="text-gray-400">Margen de la Casa Objetivo:</span>
                                 <span className="font-mono bg-blue-500/20 text-blue-300 px-2 rounded">{formatCurrency(gameConfig.houseEdge)}%</span>
                             </div>
                             <div className="flex justify-between text-sm pt-2 border-t border-white/10">
@@ -218,7 +258,7 @@ const CrashAdminPanel = () => {
                     <div className="mt-6">
                         <div className="text-center mb-3">
                             <p className="text-gray-400">Estado del Motor</p>
-                            {engineStatus === 'loading' ? (<p className="font-bold text-lg text-yellow-400">Cargando...</p>) : 
+                            {engineStatus === 'loading' ? (<p className="font-bold text-lg text-yellow-400">Cargando...</p>) :
                             (<p className={`font-bold text-lg ${engineStatus === 'enabled' ? 'text-green-400' : 'text-red-400'}`}>{engineStatus === 'enabled' ? '● ACTIVADO' : '● DESACTIVADO'}</p>)}
                         </div>
                         <button onClick={handleToggleEngine} disabled={isToggling || engineStatus === 'loading'} className={`w-full font-bold py-3 rounded-lg shadow-lg transition-all transform hover:scale-105 disabled:opacity-50 disabled:cursor-wait ${engineStatus === 'enabled' ? 'bg-red-600 hover:bg-red-500' : 'bg-green-600 hover:bg-green-500'}`}>
@@ -229,67 +269,67 @@ const CrashAdminPanel = () => {
             </div>
 
              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
-                 <div className="bg-gray-800 p-6 rounded-lg border border-white/10">
-                    <h2 className="text-xl font-semibold mb-4">Configuración de Apuestas</h2>
-                    <div className="space-y-4">
-                        <div>
-                            <label className="block text-sm text-gray-400 mb-1">Apuesta Mínima (Bs.)</label>
-                            <input type="number" name="minBet" value={limits.minBet} onChange={handleLimitsChange} className="w-full bg-gray-900 p-2 rounded border border-white/20" />
-                        </div>
-                        <div>
-                            <label className="block text-sm text-gray-400 mb-1">Apuesta Máxima (Bs.)</label>
-                            <input type="number" name="maxBet" value={limits.maxBet} onChange={handleLimitsChange} className="w-full bg-gray-900 p-2 rounded border border-white/20" />
-                        </div>
-                        <div>
-                            <label className="block text-sm text-gray-400 mb-1">Ganancia Máxima por Apuesta (Bs.)</label>
-                            <input type="number" name="maxProfit" value={limits.maxProfit} onChange={handleLimitsChange} className="w-full bg-gray-900 p-2 rounded border border-white/20" />
-                        </div>
-                         <div>
-                            <label className="block text-sm text-gray-400 mb-1">Apuesta Máx. en Modo Recuperación (Bs.)</label>
-                            <input type="number" name="recoveryModeMaxBet" value={limits.recoveryModeMaxBet} onChange={handleLimitsChange} className="w-full bg-gray-900 p-2 rounded border border-white/20" />
-                        </div>
-                        <button onClick={handleSaveLimits} disabled={isSavingLimits} className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-3 rounded-lg transition-colors disabled:opacity-50">
-                            {isSavingLimits ? 'Guardando...' : 'Guardar Cambios'}
-                        </button>
+                  <div className="bg-gray-800 p-6 rounded-lg border border-white/10">
+                      <h2 className="text-xl font-semibold mb-4">Configuración de Apuestas</h2>
+                      <div className="space-y-4">
+                          <div>
+                              <label className="block text-sm text-gray-400 mb-1">Apuesta Mínima (Bs.)</label>
+                              <input type="text" inputMode="decimal" name="minBet" value={formatInputForDisplay(limits.minBet)} onChange={handleLimitsChange} className="w-full bg-gray-900 p-2 rounded border border-white/20" />
+                          </div>
+                          <div>
+                              <label className="block text-sm text-gray-400 mb-1">Apuesta Máxima (Bs.)</label>
+                              <input type="text" inputMode="decimal" name="maxBet" value={formatInputForDisplay(limits.maxBet)} onChange={handleLimitsChange} className="w-full bg-gray-900 p-2 rounded border border-white/20" />
+                          </div>
+                          <div>
+                              <label className="block text-sm text-gray-400 mb-1">Ganancia Máxima por Apuesta (Bs.)</label>
+                              <input type="text" inputMode="decimal" name="maxProfit" value={formatInputForDisplay(limits.maxProfit)} onChange={handleLimitsChange} className="w-full bg-gray-900 p-2 rounded border border-white/20" />
+                          </div>
+                           <div>
+                               <label className="block text-sm text-gray-400 mb-1">Apuesta Máx. en Modo Recuperación (Bs.)</label>
+                               <input type="text" inputMode="decimal" name="recoveryModeMaxBet" value={formatInputForDisplay(limits.recoveryModeMaxBet)} onChange={handleLimitsChange} className="w-full bg-gray-900 p-2 rounded border border-white/20" />
+                           </div>
+                          <button onClick={handleSaveLimits} disabled={isSavingLimits} className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-3 rounded-lg transition-colors disabled:opacity-50">
+                              {isSavingLimits ? 'Guardando...' : 'Guardar Cambios'}
+                          </button>
+                      </div>
+                  </div>
+
+                  <div className="bg-gray-800 p-6 rounded-lg border border-white/10">
+                        <h2 className="text-xl font-semibold mb-4">Historial de Rondas Recientes</h2>
+                            <div className="overflow-x-auto max-h-96"> {/* Added max-h-96 for scroll */}
+                                <table className="w-full text-sm">
+                                    <thead className="text-left text-gray-400 sticky top-0 bg-gray-800"> {/* Sticky header */}
+                                        <tr>
+                                            <th className="p-2">ID Ronda</th>
+                                            <th className="p-2">Punto de Crash</th>
+                                            <th className="p-2">Pozo Total</th>
+                                            <th className="p-2">Ganancia Neta</th>
+                                            <th className="p-2">Fecha</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {roundHistory.length === 0 && (
+                                            <tr><td className="p-4 text-center text-gray-500" colSpan={5}>No hay rondas registradas.</td></tr>
+                                        )}
+                                        {roundHistory.map((round) => {
+                                            const crashPoint = Number(round?.crashPoint ?? 0);
+                                            const totalPot = Number(round?.totalPot ?? 0);
+                                            const netProfit = Number(round?.netProfit ?? 0);
+                                            return (
+                                                <tr key={round.id} className="border-t border-white/10 hover:bg-white/5">
+                                                    <td className="p-2 font-mono text-xs text-gray-500">#{round.id}</td>
+                                                    <td className={`p-2 font-bold ${crashPoint < 2 ? 'text-red-400' : 'text-green-400'}`}>{formatCurrency(crashPoint)}x</td>
+                                                    <td className="p-2">{formatCurrency(totalPot)} Bs.</td>
+                                                    <td className={`p-2 font-bold ${netProfit >= 0 ? 'text-green-500' : 'text-red-500'}`}>{formatCurrency(netProfit)} Bs.</td>
+                                                    <td className="p-2 text-gray-400">{formatDateTime(round?.timestamp)}</td>
+                                                </tr>
+                                            );
+                                        })}
+                                    </tbody>
+                                </table>
+                            </div>
                     </div>
-                </div>
-                
-                 <div className="bg-gray-800 p-6 rounded-lg border border-white/10">
-                      <h2 className="text-xl font-semibold mb-4">Historial de Rondas Recientes</h2>
-                        <div className="overflow-x-auto max-h-96">
-                            <table className="w-full text-sm">
-                                <thead className="text-left text-gray-400">
-                                    <tr>
-                                        <th className="p-2">ID Ronda</th>
-                                        <th className="p-2">Punto de Crash</th>
-                                        <th className="p-2">Pozo Total</th>
-                                        <th className="p-2">Ganancia Neta</th>
-                                        <th className="p-2">Fecha</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {roundHistory.length === 0 && (
-                                        <tr><td className="p-4 text-center text-gray-500" colSpan={5}>No hay rondas registradas.</td></tr>
-                                    )}
-                                    {roundHistory.map((round) => {
-                                        const crashPoint = Number(round?.crashPoint ?? 0);
-                                        const totalPot = Number(round?.totalPot ?? 0);
-                                        const netProfit = Number(round?.netProfit ?? 0);
-                                        return (
-                                            <tr key={round.id} className="border-t border-white/10 hover:bg-white/5">
-                                                <td className="p-2 font-mono text-xs text-gray-500">#{round.id}</td>
-                                                <td className={`p-2 font-bold ${crashPoint < 2 ? 'text-red-400' : 'text-green-400'}`}>{formatCurrency(crashPoint)}x</td>
-                                                <td className="p-2">{formatCurrency(totalPot)} Bs.</td>
-                                                <td className={`p-2 font-bold ${netProfit >= 0 ? 'text-green-500' : 'text-red-500'}`}>{formatCurrency(netProfit)} Bs.</td>
-                                                <td className="p-2 text-gray-400">{formatDateTime(round?.timestamp)}</td>
-                                            </tr>
-                                        );
-                                    })}
-                                </tbody>
-                            </table>
-                        </div>
-                </div>
-            </div>
+             </div>
         </div>
     );
 };

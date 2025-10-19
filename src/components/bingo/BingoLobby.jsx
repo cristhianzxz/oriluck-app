@@ -9,17 +9,12 @@ import {
     query,
     where,
     orderBy,
-    runTransaction,
-    increment,
-    arrayRemove,
-    serverTimestamp,
     limit,
     updateDoc,
 } from 'firebase/firestore';
-import { db } from '../../firebase';
-import { addToBingoHouseFund, createBingoPurchaseTransaction } from '../../firestoreService';
+import { httpsCallable } from 'firebase/functions';
+import { db, functions } from '../../firebase';
 
-// Helper para construir la matriz del cartón
 const buildMatrix = (flatNumbers) => {
     if (!Array.isArray(flatNumbers) || flatNumbers.length !== 25) return [];
     const matrix = [];
@@ -29,7 +24,6 @@ const buildMatrix = (flatNumbers) => {
     return matrix;
 };
 
-// Generador de números de cartón de Bingo
 const generateBingoCardNumbers = () => {
     const ranges = [
         { min: 1, max: 15 }, { min: 16, max: 30 }, { min: 31, max: 45 },
@@ -52,25 +46,20 @@ const generateBingoCardNumbers = () => {
     return card;
 };
 
-// Componente para mostrar la previsualización en línea - AJUSTADO para estabilidad
 const CardInlinePreview = ({ cardNum, numbers, isVisible }) => {
     if (!isVisible || !numbers) return null;
     const matrix = buildMatrix(numbers);
-    
+
     return (
-        // AJUSTE: top-full, left-1/2, transform -translate-x-1/2 para centrar la previsualización debajo del botón padre. Ancho fijo para control.
         <div className="absolute top-full left-1/2 transform -translate-x-1/2 mt-1 w-52 sm:w-60 bg-gray-700 p-2 rounded-lg shadow-xl border border-purple-500 z-30 transition-all duration-300">
             <h4 className="text-xs font-bold text-white mb-1 text-center">Cartón #{cardNum}</h4>
             <div className="bg-white p-1 rounded-md">
-                {/* Encabezado BINGO más pequeño */}
                 <div className="grid grid-cols-5 gap-0.5 text-[0.6rem] font-bold mb-0.5">
                     {['B', 'I', 'N', 'G', 'O'].map(l => <div key={l} className="text-center text-purple-700">{l}</div>)}
                 </div>
-                {/* Cuadrícula de números más pequeña */}
                 <div className="grid grid-cols-5 gap-0.5">
                     {matrix.flat().map((val, idx) => (
-                        <div key={idx} 
-                             // Altura y texto minimizado para caber en móvil
+                        <div key={idx}
                              className={`h-4 sm:h-5 flex items-center justify-center rounded text-[0.6rem] sm:text-xs font-semibold ${val === 'FREE' ? 'bg-yellow-300 text-gray-800' : 'bg-gray-100 text-gray-800'}`}>
                             {val}
                         </div>
@@ -139,6 +128,7 @@ const BingoLobby = () => {
         const loadDetails = async () => {
             const tournamentRef = doc(db, 'bingoTournaments', selectedTournament.id);
             const snap = await getDoc(tournamentRef);
+            if (!snap.exists()) return; // Evitar error si el torneo fue eliminado mientras se cargaba
             const data = snap.data();
             const existingDetails = data?.cardDetails || {};
             await generateAndStoreCardDetails(selectedTournament.id, existingDetails);
@@ -192,7 +182,13 @@ const BingoLobby = () => {
             setTournaments(data);
             if (selectedTournament) {
                 const updated = data.find(t => t.id === selectedTournament.id);
-                setSelectedTournament(updated || null);
+                 if (!updated || (updated.status !== 'waiting' && updated.status !== 'active')) {
+                     setSelectedTournament(null);
+                     setSelectedCards([]);
+                     setCardBeingViewed(null);
+                 } else {
+                     setSelectedTournament(updated); // Mantener actualizado si sigue visible
+                 }
             }
             setLoading(false);
         }, err => { console.error('Error torneos activos:', err); setLoading(false); });
@@ -212,10 +208,10 @@ const BingoLobby = () => {
             unsubActive();
             unsubFinished();
         };
-    }, [currentUser, currentUserData, selectedTournament]);
+    }, [currentUser, currentUserData]);
 
     useEffect(() => {
-        if (!selectedTournament) return;
+        if (!selectedTournament?.id) return;
         const tournamentRef = doc(db, 'bingoTournaments', selectedTournament.id);
         const unsub = onSnapshot(tournamentRef, (snap) => {
             if (snap.exists()) {
@@ -226,24 +222,28 @@ const BingoLobby = () => {
                     prevSelected.filter(cardNum => !sold[`carton_${cardNum}`])
                 );
                 setCardDetails(newData.cardDetails || {});
+            } else {
+                 setSelectedTournament(null);
+                 setSelectedCards([]);
+                 setCardBeingViewed(null);
             }
         });
         return () => unsub();
     }, [selectedTournament?.id]);
 
     const handleCardToggle = (e, cardNumber) => {
-        e.stopPropagation(); 
+        e.stopPropagation();
         if (cardBeingViewed === cardNumber) {
-            setCardBeingViewed(null); // Ocultar
+            setCardBeingViewed(null);
         } else {
-            setCardBeingViewed(cardNumber); // Mostrar
+            setCardBeingViewed(cardNumber);
         }
     };
 
     const handleCardSelection = (cardNumber) => {
         const isSold = selectedTournament?.soldCards && selectedTournament.soldCards[`carton_${cardNumber}`];
-        if (!selectedTournament?.allowPurchases || isSold) {
-            alert(isSold ? "Este cartón fue comprado por otro usuario." : "Compra cerrada");
+        if (selectedTournament?.status !== 'waiting' || isSold) {
+            alert(isSold ? "Este cartón fue comprado por otro usuario." : "Compra cerrada para este torneo.");
             return;
         }
         setSelectedCards(prev => prev.includes(cardNumber)
@@ -257,236 +257,170 @@ const BingoLobby = () => {
         if (!currentUser || !selectedTournament) return;
         if (selectedCards.length === 0) { alert('Selecciona al menos un cartón'); return; }
         if (purchasing) return;
+
         const totalCost = calculateTotal();
-        setPurchasing(true);
-        try {
-            await runTransaction(db, async (tx) => {
-                const tournamentRef = doc(db, 'bingoTournaments', selectedTournament.id);
-                const userRef = doc(db, 'users', currentUser.uid);
-                const [tournamentSnap, userSnap] = await Promise.all([tx.get(tournamentRef), tx.get(userRef)]);
-                if (!tournamentSnap.exists()) throw new Error('Torneo no existe');
-                if (!userSnap.exists()) throw new Error('Perfil no encontrado');
-                const tournamentData = tournamentSnap.data();
-
-                if (tournamentData.status !== 'waiting' || tournamentData.allowPurchases === false) throw new Error('Compra cerrada');
-
-                const sold = tournamentData.soldCards || {};
-                const unavailable = selectedCards.filter(n => sold[`carton_${n}`]);
-                if (unavailable.length) throw new Error(`Cartones vendidos: ${unavailable.join(', ')}`);
-
-                const userProfile = userSnap.data();
-                const balance = userProfile.balance || 0;
-                if (balance < totalCost) throw new Error('Saldo insuficiente');
-
-                // 🔐 Obtener saldo antes de la operación
-                const balanceBefore = balance;
-
-                const userEmail = userProfile.email || currentUser.email || null;
-                const userPhone = userProfile.phoneNumber || userProfile.phone || null;
-
-                const cardNumbersMap = {};
-                selectedCards.forEach(n => {
-                    const numbers = cardDetails[n];
-                    if (!numbers) throw new Error(`Números del cartón ${n} no encontrados.`);
-                    cardNumbersMap[n] = numbers;
-                });
-
-                // Actualizar saldo
-                tx.update(userRef, { balance: increment(-totalCost) });
-
-                // 🔐 Obtener saldo después de la operación
-                const balanceAfter = balance - totalCost;
-
-                // Registrar en bingoTransactions (actual)
-                const bingoTxRef = doc(collection(db, 'bingoTransactions'));
-                tx.set(bingoTxRef, {
-                    userId: currentUser.uid,
-                    userName: userProfile.userName || userProfile.username || userProfile.displayName || userEmail,
-                    userEmail, userPhone,
-                    tournamentId: selectedTournament.id,
-                    tournamentName: tournamentData.name,
-                    cardsBought: selectedCards,
-                    cardDetails: selectedCards.map(n => ({ cardNumber: n, cardNumbers: cardNumbersMap[n] })),
-                    totalAmount: totalCost,
-                    purchaseTime: serverTimestamp(),
-                    status: 'completed'
-                });
-
-                // ✅ Registrar en transactions (nuevo)
-                const txRef = doc(collection(db, 'transactions'));
-                tx.set(txRef, {
-                    userId: currentUser.uid,
-                    username: userProfile.username || userProfile.displayName || userEmail,
-                    type: "bingo_purchase",
-                    amount: -Math.abs(totalCost), // Negativo porque es un gasto
-                    description: `Compra de ${selectedCards.length} cartón(es) a ${selectedTournament.pricePerCard} Bs c/u en "${tournamentData.name}"`,
-                    status: 'completed',
-                    createdAt: serverTimestamp(),
-                    quantity: selectedCards.length,
-                    pricePerCard: selectedTournament.pricePerCard,
-                    tournamentId: selectedTournament.id,
-                    tournamentName: tournamentData.name,
-                    balanceBefore,
-                    balanceAfter
-                });
-
-                const updates = {};
-                selectedCards.forEach(n => {
-                    updates[`soldCards.carton_${n}`] = {
-                        userId: currentUser.uid,
-                        userName: userProfile.userName || userProfile.username || userProfile.displayName || userEmail,
-                        userEmail, userPhone,
-                        purchaseTime: serverTimestamp(),
-                        cardNumbers: cardNumbersMap[n]
-                    };
-                });
-
-                tx.update(tournamentRef, { ...updates, availableCards: arrayRemove(...selectedCards) });
-            });
-            await addToBingoHouseFund(totalCost);
-            setPurchaseSuccessMsg(`✅ Compra realizada. Total Bs. ${totalCost.toLocaleString()}`);
-            setTimeout(() => setPurchaseSuccessMsg(""), 3000);
-            setSelectedCards([]);
-        } catch (e) {
-            console.error('Error comprando cartones:', e);
-            alert(`❌ ${e.message}`);
+        if (userBalance < totalCost) {
+            alert('❌ Saldo insuficiente');
+            return;
         }
-        finally { setPurchasing(false); }
+
+        setPurchasing(true);
+        setPurchaseSuccessMsg("");
+
+        try {
+            const buyBingoCardFunc = httpsCallable(functions, 'buyBingoCard_bingo');
+            const result = await buyBingoCardFunc({
+                tournamentId: selectedTournament.id,
+                cardNumbersToBuy: selectedCards
+            });
+
+            if (result.data.success) {
+                setPurchaseSuccessMsg(`✅ ${result.data.message || 'Compra realizada con éxito.'} Total: Bs. ${totalCost.toLocaleString()}`);
+                setTimeout(() => setPurchaseSuccessMsg(""), 4000);
+                setSelectedCards([]);
+            } else {
+                throw new Error(result.data.message || 'Error desconocido del servidor al comprar.');
+            }
+
+        } catch (error) {
+            console.error('Error comprando cartones (llamada a backend):', error);
+            alert(`❌ Error al comprar: ${error.message || 'Ocurrió un problema.'}`);
+        } finally {
+            setPurchasing(false);
+        }
     };
+
 
     if (currentUser === undefined || currentUserData === undefined || loading) {
         return <div className="min-h-screen flex items-center justify-center bg-gray-900 text-white">Cargando...</div>;
     }
 
-    // --- Historial (código omitido) ---
     if (showHistory) {
-        const t = selectedHistoryTournament;
-        const soldCount = t ? Object.keys(t.soldCards || {}).length : 0;
-        const percentHouse = typeof t?.percentageHouse === "number" ? t.percentageHouse : 30;
-        const percentPrize = 100 - percentHouse;
-        const computedPrizeTotal = soldCount * (t?.pricePerCard || 0) * (percentPrize / 100);
-        const prizeTotal = t?.prizeTotal && t.prizeTotal > 0 ? t.prizeTotal : computedPrizeTotal;
-        const winners = t?.winners || [];
-        const calledNumbers = t?.calledNumbers || [];
-        const isMarked = (val) => val === 'FREE' || calledNumbers.includes(val);
+         const t = selectedHistoryTournament;
+         const soldCount = t ? Object.keys(t.soldCards || {}).length : 0;
+         const percentHouse = typeof t?.percentageHouse === "number" ? t.percentageHouse : 30;
+         const percentPrize = 100 - percentHouse;
+         const computedPrizeTotal = soldCount * (t?.pricePerCard || 0) * (percentPrize / 100);
+         const prizeTotal = t?.prizeTotal && t.prizeTotal > 0 ? t.prizeTotal : computedPrizeTotal;
+         const winners = t?.winners || [];
+         const calledNumbers = t?.calledNumbers || [];
+         const isMarked = (val) => val === 'FREE' || calledNumbers.includes(val);
 
-        return (
-            <div className="min-h-screen bg-gradient-to-br from-gray-900 via-purple-900 to-gray-900 p-6 text-white">
-                <div className="max-w-7xl mx-auto">
-                    <div className="flex justify-between items-center mb-6">
-                        <h1 className="text-3xl font-bold">📜 Historial de Torneos</h1>
-                        <button onClick={() => { setShowHistory(false); setSelectedHistoryTournament(null); }} className="bg-gray-600 hover:bg-gray-500 px-4 py-2 rounded-lg">
-                            ← Volver al Lobby
-                        </button>
-                    </div>
+         return (
+             <div className="min-h-screen bg-gradient-to-br from-gray-900 via-purple-900 to-gray-900 p-6 text-white">
+                 <div className="max-w-7xl mx-auto">
+                     <div className="flex justify-between items-center mb-6">
+                         <h1 className="text-3xl font-bold">📜 Historial de Torneos</h1>
+                         <button onClick={() => { setShowHistory(false); setSelectedHistoryTournament(null); }} className="bg-gray-600 hover:bg-gray-500 px-4 py-2 rounded-lg">
+                             ← Volver al Lobby
+                         </button>
+                     </div>
 
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                        <div className="md:col-span-1 bg-black/20 p-4 rounded-xl max-h-[75vh] overflow-y-auto">
-                            <h2 className="text-xl font-semibold mb-3">Torneos Finalizados</h2>
-                            <div className="space-y-2">
-                                {finishedTournaments.length === 0 && (
-                                    <div className="text-white/60 text-center py-12">
-                                        No hay torneos finalizados para mostrar.
-                                    </div>
-                                )}
-                                {finishedTournaments
-                                    .sort((a, b) => (b.finishedAt?.toDate() || 0) - (a.finishedAt?.toDate() || 0))
-                                    .map(tourney => (
-                                        <button
-                                            key={tourney.id}
-                                            onClick={() => setSelectedHistoryTournament(tourney)}
-                                            className={`w-full text-left p-3 rounded-lg transition-colors ${selectedHistoryTournament?.id === tourney.id ? 'bg-purple-600' : 'bg-white/10 hover:bg-white/20'}`}
-                                        >
-                                            <p className="font-bold">{tourney.name}</p>
-                                            <p className="text-xs text-white/70">{tourney.finishedAt?.toDate().toLocaleString('es-VE')}</p>
-                                            <div className="text-xs text-green-300 font-semibold mt-1">
-                                                Premio total ({100 - (typeof tourney.percentageHouse === "number" ? tourney.percentageHouse : 30)}%): Bs. {((tourney.prizeTotal && tourney.prizeTotal > 0) ? tourney.prizeTotal : Object.keys(tourney.soldCards || {}).length * (tourney.pricePerCard || 0) * ((100 - (typeof tourney.percentageHouse === "number" ? tourney.percentageHouse : 30))/100)).toLocaleString()}
-                                            </div>
-                                        </button>
-                                    ))}
-                            </div>
-                        </div>
-                        <div className="md:col-span-2 bg-black/20 p-6 rounded-xl">
-                            {!t ? (
-                                <div className="flex items-center justify-center h-full text-white/50">
-                                    Selecciona un torneo para ver sus detalles.
-                                </div>
-                            ) : (
-                                <div className="space-y-6">
-                                    <h2 className="text-2xl font-bold">{t.name}</h2>
-                                    <div className="font-semibold mb-2 text-green-400">
-                                        Premio total ({percentPrize}%): Bs. {prizeTotal.toLocaleString()}
-                                    </div>
+                     <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                         <div className="md:col-span-1 bg-black/20 p-4 rounded-xl max-h-[75vh] overflow-y-auto">
+                             <h2 className="text-xl font-semibold mb-3">Torneos Finalizados</h2>
+                             <div className="space-y-2">
+                                 {finishedTournaments.length === 0 && (
+                                     <div className="text-white/60 text-center py-12">
+                                         No hay torneos finalizados para mostrar.
+                                     </div>
+                                 )}
+                                 {finishedTournaments
+                                     .sort((a, b) => (b.finishedAt?.toDate() || 0) - (a.finishedAt?.toDate() || 0))
+                                     .map(tourney => (
+                                         <button
+                                             key={tourney.id}
+                                             onClick={() => setSelectedHistoryTournament(tourney)}
+                                             className={`w-full text-left p-3 rounded-lg transition-colors ${selectedHistoryTournament?.id === tourney.id ? 'bg-purple-600' : 'bg-white/10 hover:bg-white/20'}`}
+                                         >
+                                             <p className="font-bold">{tourney.name}</p>
+                                             <p className="text-xs text-white/70">{tourney.finishedAt?.toDate().toLocaleString('es-VE')}</p>
+                                             <div className="text-xs text-green-300 font-semibold mt-1">
+                                                 Premio total ({100 - (typeof tourney.percentageHouse === "number" ? tourney.percentageHouse : 30)}%): Bs. {((tourney.prizeTotal && tourney.prizeTotal > 0) ? tourney.prizeTotal : Object.keys(tourney.soldCards || {}).length * (tourney.pricePerCard || 0) * ((100 - (typeof tourney.percentageHouse === "number" ? tourney.percentageHouse : 30))/100)).toLocaleString()}
+                                             </div>
+                                         </button>
+                                     ))}
+                             </div>
+                         </div>
+                         <div className="md:col-span-2 bg-black/20 p-6 rounded-xl">
+                             {!t ? (
+                                 <div className="flex items-center justify-center h-full text-white/50">
+                                     Selecciona un torneo para ver sus detalles.
+                                 </div>
+                             ) : (
+                                 <div className="space-y-6">
+                                     <h2 className="text-2xl font-bold">{t.name}</h2>
+                                     <div className="font-semibold mb-2 text-green-400">
+                                         Premio total ({percentPrize}%): Bs. {prizeTotal.toLocaleString()}
+                                     </div>
 
-                                    {winners.length > 0 ? (
-                                        <div className="space-y-6">
-                                            {winners.map((winner, index) => {
-                                                const winnerCardNumber = winner?.cards?.[0];
-                                                const winnerCardData = winnerCardNumber ? t?.soldCards?.[`carton_${winnerCardNumber}`] : null;
-                                                const cardMatrix = winnerCardData ? buildMatrix(winnerCardData.cardNumbers) : [];
+                                     {winners.length > 0 ? (
+                                         <div className="space-y-6">
+                                             {winners.map((winner, index) => {
+                                                 const winnerCardNumber = winner?.cards?.[0];
+                                                 const winnerCardData = winnerCardNumber ? t?.soldCards?.[`carton_${winnerCardNumber}`] : null;
+                                                 const cardMatrix = winnerCardData ? buildMatrix(winnerCardData.cardNumbers) : [];
 
-                                                return (
-                                                    <div key={index} className="bg-black/20 p-4 rounded-lg border border-yellow-500/30">
-                                                        <h3 className="text-lg font-semibold text-yellow-300 mb-3">🏆 Ganador {winners.length > 1 ? `#${index + 1}` : ''}</h3>
-                                                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                                                            <div className="space-y-2">
-                                                                <p><strong>Usuario:</strong> {winner.userName}</p>
-                                                                <p><strong>Cartón Ganador:</strong> #{winnerCardNumber}</p>
-                                                                <p><strong>Premio:</strong> <span className="font-bold text-green-400">Bs. {winner.prizeAmount?.toLocaleString('es-VE', { minimumFractionDigits: 2 })}</span></p>
-                                                            </div>
-                                                            {cardMatrix.length > 0 && (
-                                                                <div>
-                                                                    <div className="grid grid-cols-5 gap-1 text-xs font-bold">
-                                                                        {['B', 'I', 'N', 'G', 'O'].map(l => <div key={l} className="text-center text-pink-300">{l}</div>)}
-                                                                    </div>
-                                                                    <div className="grid grid-cols-5 gap-0.5">
-                                                                        {cardMatrix.flat().map((val, idx) => (
-                                                                            <div key={idx} className={`h-9 flex items-center justify-center rounded text-sm ${isMarked(val) ? 'bg-green-500' : 'bg-white/10'}`}>
-                                                                                {val}
-                                                                            </div>
-                                                                        ))}
-                                                                    </div>
-                                                                </div>
-                                                            )}
-                                                        </div>
-                                                    </div>
-                                                );
-                                            })}
-                                        </div>
-                                    ) : (
-                                        <p className="text-yellow-400">Este torneo finalizó sin ganadores.</p>
-                                    )}
-                                    <div>
-                                        <h3 className="text-lg font-semibold mb-2">Números Cantados ({calledNumbers.length})</h3>
-                                        <div className="flex flex-wrap gap-2 bg-black/30 p-3 rounded-lg">
-                                            {calledNumbers.map(n => <div key={n} className="w-8 h-8 flex items-center justify-center rounded-full bg-purple-500/50 text-sm">{n}</div>)}
-                                        </div>
-                                    </div>
-                                    {t?.bingoSeedFinalHash && (
-  <div className="bg-black/30 rounded-lg p-3 mb-2 border border-yellow-300/40">
-    <span className="font-bold text-yellow-200">Semilla de sorteo (RNG):</span>
-    <span className="ml-2 text-white font-mono break-all">{t.bingoSeedFinalHash}</span>
-    <button
-      className="ml-2 bg-yellow-400/20 hover:bg-yellow-400/40 px-2 py-1 rounded text-xs"
-      onClick={() => navigator.clipboard.writeText(t.bingoSeedFinalHash)}
-    >
-      Copiar
-    </button>
-    <div className="text-xs text-yellow-200/80 mt-1">
-      Esta es la semilla que garantiza la legalidad y transparencia del sorteo. Cualquier usuario puede verificar el orden de los números llamados.
-    </div>
-  </div>
-)}
-                                </div>
-                            )}
-                        </div>
-                    </div>
-                </div>
-            </div>
-        );
+                                                 return (
+                                                     <div key={index} className="bg-black/20 p-4 rounded-lg border border-yellow-500/30">
+                                                         <h3 className="text-lg font-semibold text-yellow-300 mb-3">🏆 Ganador {winners.length > 1 ? `#${index + 1}` : ''}</h3>
+                                                         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                                                             <div className="space-y-2">
+                                                                 <p><strong>Usuario:</strong> {winner.userName}</p>
+                                                                 <p><strong>Cartón Ganador:</strong> #{winnerCardNumber}</p>
+                                                                 <p><strong>Premio:</strong> <span className="font-bold text-green-400">Bs. {winner.prizeAmount?.toLocaleString('es-VE', { minimumFractionDigits: 2 })}</span></p>
+                                                             </div>
+                                                             {cardMatrix.length > 0 && (
+                                                                 <div>
+                                                                     <div className="grid grid-cols-5 gap-1 text-xs font-bold">
+                                                                         {['B', 'I', 'N', 'G', 'O'].map(l => <div key={l} className="text-center text-pink-300">{l}</div>)}
+                                                                     </div>
+                                                                     <div className="grid grid-cols-5 gap-0.5">
+                                                                         {cardMatrix.flat().map((val, idx) => (
+                                                                             <div key={idx} className={`h-9 flex items-center justify-center rounded text-sm ${isMarked(val) ? 'bg-green-500' : 'bg-white/10'}`}>
+                                                                                 {val}
+                                                                             </div>
+                                                                         ))}
+                                                                     </div>
+                                                                 </div>
+                                                             )}
+                                                         </div>
+                                                     </div>
+                                                 );
+                                             })}
+                                         </div>
+                                     ) : (
+                                         <p className="text-yellow-400">Este torneo finalizó sin ganadores.</p>
+                                     )}
+                                     <div>
+                                         <h3 className="text-lg font-semibold mb-2">Números Cantados ({calledNumbers.length})</h3>
+                                         <div className="flex flex-wrap gap-2 bg-black/30 p-3 rounded-lg">
+                                             {calledNumbers.map(n => <div key={n} className="w-8 h-8 flex items-center justify-center rounded-full bg-purple-500/50 text-sm">{n}</div>)}
+                                         </div>
+                                     </div>
+                                      {t?.bingoSeedFinalHash && (
+                                         <div className="bg-black/30 rounded-lg p-3 mb-2 border border-yellow-300/40">
+                                             <span className="font-bold text-yellow-200">Semilla de sorteo (RNG):</span>
+                                             <span className="ml-2 text-white font-mono break-all">{t.bingoSeedFinalHash}</span>
+                                             <button
+                                                 className="ml-2 bg-yellow-400/20 hover:bg-yellow-400/40 px-2 py-1 rounded text-xs"
+                                                 onClick={() => navigator.clipboard.writeText(t.bingoSeedFinalHash)}
+                                             >
+                                                 Copiar
+                                             </button>
+                                             <div className="text-xs text-yellow-200/80 mt-1">
+                                                 Esta es la semilla que garantiza la legalidad y transparencia del sorteo. Cualquier usuario puede verificar el orden de los números llamados.
+                                             </div>
+                                         </div>
+                                     )}
+                                 </div>
+                             )}
+                         </div>
+                     </div>
+                 </div>
+             </div>
+         );
     }
-    // --- Fin Historial ---
-
 
     return (
         <div className="min-h-screen bg-gradient-to-br from-gray-900 via-purple-900 to-gray-900 p-6">
@@ -516,8 +450,7 @@ const BingoLobby = () => {
                     </div>
                 </div>
             </div>
-            
-            {/* Renderizado de Torneos */}
+
             {tournaments.length === 0 && !selectedTournament && (
                 <div className="text-center mb-8 bg-yellow-500/20 rounded-xl p-6 border border-yellow-500/30">
                     <div className="text-6xl mb-4">🎯</div>
@@ -535,23 +468,46 @@ const BingoLobby = () => {
                         const prizeTotal = t.prizeTotal && t.prizeTotal > 0
                             ? t.prizeTotal
                             : soldCount * (t.pricePerCard || 0) * (percentPrize / 100);
+
+                        let startTimeDisplay = '';
+                        if (t.status === 'waiting') {
+                             if (t.autoStart && t.startTime?.toDate) {
+                                  startTimeDisplay = `Inicia: ${t.startTime.toDate().toLocaleString('es-VE')}`;
+                             } else if (!t.autoStart && t.showEstimatedTime && t.startTime?.toDate) {
+                                  startTimeDisplay = `Inicio Manual (Admin) ~ ${t.startTime.toDate().toLocaleString('es-VE')}`;
+                             } else if (!t.autoStart && !t.showEstimatedTime) {
+                                  startTimeDisplay = `Inicio Manual (Admin) - Al llenarse`;
+                             }
+                        } else if (t.status === 'active' && t.startedAt?.toDate) {
+                             startTimeDisplay = `Iniciado: ${t.startedAt.toDate().toLocaleString('es-VE')}`;
+                        } else if (t.status === 'finished' && t.finishedAt?.toDate) {
+                             startTimeDisplay = `Finalizado: ${t.finishedAt.toDate().toLocaleString('es-VE')}`;
+                        }
+
+
                         return (
-                            <div 
-                                key={t.id} 
-                                className={`bg-white/10 rounded-xl p-6 border-2 cursor-pointer transition-all 
-                                    ${selectedTournament?.id === t.id ? 'border-green-500 bg-green-500/20' : 'border-white/20 hover:border-white/40'} 
-                                    ${!t.allowPurchases ? 'opacity-80' : ''}`} 
-                                onClick={() => { setSelectedTournament(t); setSelectedCards([]); setCardBeingViewed(null); }}
+                            <div
+                                key={t.id}
+                                className={`bg-white/10 rounded-xl p-6 border-2 transition-all
+                                    ${selectedTournament?.id === t.id ? 'border-green-500 bg-green-500/20 cursor-default' : 'border-white/20 hover:border-white/40'}
+                                    ${(t.status !== 'waiting' && t.status !== 'active') ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer'} `}
+                                onClick={() => {
+                                    if (t.status === 'waiting' || t.status === 'active') { // Permitir seleccionar si está esperando O activo
+                                        setSelectedTournament(t);
+                                        setSelectedCards([]);
+                                        setCardBeingViewed(null);
+                                    }
+                                }}
                             >
                                 <h3 className="text-xl font-bold text-white mb-2">{t.name}</h3>
-                                <div className="text-white/70 mb-2">{t.startTime?.toDate?.().toLocaleString('es-VE')}</div>
+                                <div className="text-white/70 mb-2 text-sm">{startTimeDisplay}</div>
                                 <div className="flex justify-between text-sm mb-2">
                                     <span className={t.allowPurchases ? 'text-green-400' : 'text-red-400'}>{t.allowPurchases ? '🟢 COMPRA ABIERTA' : '🔴 COMPRA CERRADA'}</span>
                                     <span className="text-yellow-400">Bs. {(t.pricePerCard || exchangeRate).toLocaleString()} / cartón</span>
                                 </div>
                                 <div className="flex justify-between text-sm">
                                     <span className="text-blue-400">{soldCount}/100 cartones</span>
-                                    <span className={`px-2 py-1 rounded text-xs ${t.status === 'active' ? 'bg-green-500/20 text-green-400' : 'bg-yellow-500/20 text-yellow-400'}`}>{t.status === 'active' ? '🎮 JUGANDO' : '⏳ ESPERA'}</span>
+                                    <span className={`px-2 py-1 rounded text-xs ${t.status === 'active' ? 'bg-green-500/20 text-green-400' : t.status === 'finished' ? 'bg-red-500/20 text-red-400' : 'bg-yellow-500/20 text-yellow-400'}`}>{t.status === 'active' ? '🎮 JUGANDO' : t.status === 'finished' ? '🏁 FINALIZADO' : '⏳ ESPERA'}</span>
                                 </div>
                                 <div className="mt-2 text-center bg-purple-500/20 rounded-lg py-1">
                                     <span className="text-white font-bold text-sm">
@@ -570,47 +526,41 @@ const BingoLobby = () => {
                         <h3 className="text-2xl font-bold text-white">Cartones - {selectedTournament.name}</h3>
                         <span className={`px-3 py-1 rounded-full text-sm font-semibold ${selectedTournament.allowPurchases ? 'bg-green-500/20 text-green-400 border border-green-500/30' : 'bg-red-500/20 text-red-400 border border-red-500/30'}`}>{selectedTournament.allowPurchases ? '🟢 COMPRA ABIERTA' : '🔴 COMPRA CERRADA'}</span>
                     </div>
-                    {!selectedTournament.allowPurchases && <div className="bg-red-500/20 border border-red-500/30 rounded-lg p-3 mb-4 text-center text-red-300">Compra de cartones cerrada.</div>}
+                    {!selectedTournament.allowPurchases && selectedTournament.status === 'waiting' && <div className="bg-red-500/20 border border-red-500/30 rounded-lg p-3 mb-4 text-center text-red-300">Compra de cartones cerrada.</div>}
                     
-                    {/* Contenedor de Cartones: 4 columnas en móvil, 6 en md, 10 en lg (PC) */}
-                    <div className="grid grid-cols-4 md:grid-cols-6 lg:grid-cols-10 gap-2 mb-6"> 
+                    {selectedTournament.status === 'waiting' && ( // Solo mostrar grid si está en espera
+                      <div className="grid grid-cols-4 md:grid-cols-6 lg:grid-cols-10 gap-2 mb-6">
                         {Array.from({ length: 100 }, (_, i) => i + 1).map(num => {
                             const isSold = selectedTournament.soldCards && selectedTournament.soldCards[`carton_${num}`];
                             const isSelected = selectedCards.includes(num);
                             const isAvailable = !isSold && selectedTournament.allowPurchases;
                             const cardNumbersForPreview = cardDetails[num];
                             const isCurrentView = cardBeingViewed === num;
-                            
-                            // Muestra la flecha si es disponible O si está vendido
+
                             const showToggle = cardNumbersForPreview && (isAvailable || isSold);
 
                             return (
-                                <div key={num} className="relative col-span-1"> 
-                                    
-                                    {/* CONTENEDOR AJUSTADO: Utilizamos FLEX y ASPEC-SQUARE para la alineación perfecta */}
+                                <div key={num} className="relative col-span-1">
+
                                     <div className="flex items-stretch gap-1 h-full">
-                                        
-                                        {/* Botón de Cartón: Usa aspecto cuadrado y flex para centrar. */}
-                                        <button 
-                                            disabled={!isAvailable} 
-                                            onClick={() => handleCardSelection(num)} 
-                                            // CLAVE: w-full y aspect-square garantizan la proporción
-                                            className={`flex-grow w-full aspect-square flex flex-col items-center justify-center p-1 rounded-lg text-center transition-all font-bold text-lg lg:text-xs relative z-10 
-                                                ${isSelected ? 'bg-green-500 text-white shadow-lg shadow-green-500/50' : 
-                                                isAvailable ? 'bg-white/20 text-white hover:bg-white/30 hover:scale-[1.02]' : 
+
+                                        <button
+                                            disabled={!isAvailable}
+                                            onClick={() => handleCardSelection(num)}
+                                            className={`flex-grow w-full aspect-square flex flex-col items-center justify-center p-1 rounded-lg text-center transition-all font-bold text-lg lg:text-xs relative z-10
+                                                ${isSelected ? 'bg-green-500 text-white shadow-lg shadow-green-500/50' :
+                                                isAvailable ? 'bg-white/20 text-white hover:bg-white/30 hover:scale-[1.02]' :
                                                 'bg-red-500/20 text-red-300 cursor-not-allowed'}`}
                                         >
                                             <div className="flex flex-col items-center justify-center">
                                                 <span>{num}</span>
-                                                {isSold && <span className="text-xs text-red-400 font-normal mt-[-2px]">❌</span>} 
+                                                {isSold && <span className="text-xs text-red-400 font-normal mt-[-2px]">❌</span>}
                                             </div>
                                         </button>
-                                        
-                                        {/* Flecha de Previsualización: Ancho y alto fijos para no interferir con el botón */}
+
                                         {showToggle && (
-                                            <button 
+                                            <button
                                                 onClick={(e) => handleCardToggle(e, num)}
-                                                // CLAVE: h-full para que ocupe toda la altura y quede alineado al lado
                                                 className={`bg-purple-600 hover:bg-purple-500 text-white w-6 h-full flex-shrink-0 rounded-lg flex items-center justify-center text-xs z-20 shadow-md transition-transform ${isCurrentView ? 'transform rotate-180' : ''}`}
                                                 title={isCurrentView ? "Ocultar cartón" : "Ver cartón"}
                                             >
@@ -618,20 +568,19 @@ const BingoLobby = () => {
                                             </button>
                                         )}
                                     </div>
-                                    
-                                    {/* Previsualización en Línea */}
-                                    <CardInlinePreview 
-                                        cardNum={num} 
-                                        numbers={cardNumbersForPreview} 
-                                        isVisible={isCurrentView} 
+
+                                    <CardInlinePreview
+                                        cardNum={num}
+                                        numbers={cardNumbersForPreview}
+                                        isVisible={isCurrentView}
                                     />
                                 </div>
                             );
                         })}
-                    </div>
+                      </div>
+                    )}
                     
-                    {/* Sección de Compra */}
-                    {selectedCards.length > 0 && selectedTournament.allowPurchases && (
+                    {selectedCards.length > 0 && selectedTournament.allowPurchases && selectedTournament.status === 'waiting' && (
                         <div className="bg-green-500/20 rounded-lg p-4 border border-green-500/30">
                             <div className="flex flex-col md:flex-row justify-between items-center">
                                 <p className="text-xl font-bold text-white mb-2 md:mb-0">
@@ -655,9 +604,11 @@ const BingoLobby = () => {
                         </div>
                     )}
 
-                    <div className="mt-6 text-center">
-                        <button onClick={() => navigate('/bingo/game', { state: { tournament: selectedTournament } })} className="bg-red-600 hover:bg-red-500 text-white font-bold py-4 px-12 rounded-lg text-lg transition-all transform hover:scale-105 shadow-lg shadow-red-500/25">Entrar al Juego</button>
-                    </div>
+                    {selectedTournament.status === 'active' && ( // Mostrar solo si está activo
+                        <div className="mt-6 text-center">
+                            <button onClick={() => navigate('/bingo/game', { state: { tournament: selectedTournament } })} className="bg-red-600 hover:bg-red-500 text-white font-bold py-4 px-12 rounded-lg text-lg transition-all transform hover:scale-105 shadow-lg shadow-red-500/25">Entrar al Juego</button>
+                        </div>
+                    )}
                 </div>
             )}
         </div>
