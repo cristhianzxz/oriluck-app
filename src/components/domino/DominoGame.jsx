@@ -87,11 +87,11 @@ function calculateBoardLayout(board, containerWidth, containerHeight) {
     if (!board || board.length === 0 || containerWidth === 0) {
         return { layout: [], ends: { start: null, end: null } };
     }
-    
+
     const chain = new Array(board.length);
     const midIndex = Math.floor(board.length / 2);
     const openerTile = board[midIndex];
-    
+
     const limits = {
         minX: BOARD_PADDING,
         maxX: containerWidth - BOARD_PADDING,
@@ -101,156 +101,91 @@ function calculateBoardLayout(board, containerWidth, containerHeight) {
 
     const getTileProps = (tile, dir) => {
         const isDouble = tile.top === tile.bottom;
-        let w, h, rotation, orientationClass;
-        
         const isHorizontalLine = dir[0] !== 0;
+        let rotation = 0;
+        const orientationClass = isDouble ? 'double' : 'normal';
 
         if (isDouble) {
-            // Doble en línea horizontal -> se pone Vertical (rotado 90)
-            // Doble en línea vertical -> se pone Horizontal (rotado 0)
-            w = isHorizontalLine ? TILE_WIDTH_DOUBLE : TILE_WIDTH_NORMAL;
-            h = isHorizontalLine ? TILE_HEIGHT_DOUBLE : TILE_HEIGHT_NORMAL;
             rotation = isHorizontalLine ? 90 : 0;
-            orientationClass = isHorizontalLine ? 'double' : 'normal';
         } else {
-            // Normal en línea horizontal -> se pone Horizontal (rotado 0)
-            // Normal en línea vertical -> se pone Vertical (rotado 90)
-            w = isHorizontalLine ? TILE_WIDTH_NORMAL : TILE_WIDTH_DOUBLE;
-            h = isHorizontalLine ? TILE_HEIGHT_NORMAL : TILE_HEIGHT_DOUBLE;
             rotation = isHorizontalLine ? 0 : 90;
-            orientationClass = isHorizontalLine ? 'normal' : 'double';
         }
 
-        return { w, h, rotation, isDouble, orientationClass };
+        const w = (orientationClass === 'double') ? TILE_WIDTH_DOUBLE : TILE_WIDTH_NORMAL;
+        const h = (orientationClass === 'double') ? TILE_HEIGHT_DOUBLE : TILE_HEIGHT_NORMAL;
+
+        const isRotated = rotation === 90 || rotation === -90;
+        const renderedW = isRotated ? h : w;
+        const renderedH = isRotated ? w : h;
+
+        return { w, h, rotation, isDouble, orientationClass, renderedW, renderedH };
     };
-    
-    const openerProps = getTileProps(openerTile, [1, 0]); // Opener siempre se considera en línea horizontal
+
+    const placeTile = (head, tile) => {
+        let props = getTileProps(tile, head.dir);
+        const prevLayout = head.prevLayout;
+
+        let anchorX = head.x + head.dir[0] * (prevLayout.renderedW / 2);
+        let anchorY = head.y + head.dir[1] * (prevLayout.renderedH / 2);
+
+        let nextX = anchorX + head.dir[0] * (props.renderedW / 2 + TILE_GAP);
+        let nextY = anchorY + head.dir[1] * (props.renderedH / 2 + TILE_GAP);
+
+        const boundingBox = {
+            left: nextX - props.renderedW / 2, right: nextX + props.renderedW / 2,
+            top: nextY - props.renderedH / 2, bottom: nextY + props.renderedH / 2,
+        };
+
+        const isGoingRight = head.dir[0] === 1;
+        const isGoingLeft = head.dir[0] === -1;
+
+        let turn = null;
+        if (isGoingRight && boundingBox.right > limits.maxX) turn = [0, -1]; // Turn Up
+        if (isGoingLeft && boundingBox.left < limits.minX) turn = [0, 1]; // Turn Down
+
+        if (turn) {
+            if (props.isDouble) {
+                 prevLayout.y += TILE_HEIGHT_NORMAL / 4;
+                 head.y = prevLayout.y;
+            }
+
+            head.dir = turn;
+            props = getTileProps(tile, head.dir);
+
+            const halfPrevWidth = prevLayout.orientationClass === 'double' ? (prevLayout.h / 2) : (prevLayout.w / 2);
+            const quarterPrevWidth = halfPrevWidth / 2;
+
+            anchorX = head.x + (isGoingRight ? quarterPrevWidth : -quarterPrevWidth);
+            anchorY = head.y + head.dir[1] * -(prevLayout.renderedH / 2);
+
+            nextX = anchorX;
+            nextY = anchorY + head.dir[1] * (props.renderedH / 2 + TILE_GAP);
+        }
+
+        return { ...props, tile, x: nextX, y: nextY };
+    };
+
+    const openerProps = getTileProps(openerTile, [1, 0]);
     const midLayout = {
+        ...openerProps,
         tile: openerTile,
         x: containerWidth / 2,
         y: containerHeight / 2,
-        ...openerProps,
     };
     chain[midIndex] = midLayout;
 
-    // --- Crecer hacia el 'end' (derecha) ---
-    let endHead = {
-        x: midLayout.x,
-        y: midLayout.y,
-        dir: [1, 0], // Iniciar hacia la derecha
-        prevLayout: midLayout,
-    };
-
+    let endHead = { x: midLayout.x, y: midLayout.y, dir: [1, 0], prevLayout: midLayout };
     for (let i = midIndex + 1; i < board.length; i++) {
-        const tile = board[i];
-        let { w, h, rotation, orientationClass, isDouble } = getTileProps(tile, endHead.dir);
-        let prevLayout = endHead.prevLayout;
-        
-        let anchorX = endHead.x;
-        let anchorY = endHead.y;
-        
-        const prevIsHorizontal = prevLayout.rotation === 0;
-        const currentIsHorizontal = rotation === 0;
-
-        // Ajustar ancla al borde correcto de la ficha anterior
-        if (prevIsHorizontal) {
-            anchorX += endHead.dir[0] * (prevLayout.w / 2);
-        } else {
-            anchorY += endHead.dir[1] * (prevLayout.h / 2);
-        }
-
-        let nextX = anchorX + endHead.dir[0] * (w / 2 + TILE_GAP);
-        let nextY = anchorY + endHead.dir[1] * (h / 2 + TILE_GAP);
-
-        const boundingBox = {
-            left: nextX - w / 2, right: nextX + w / 2,
-            top: nextY - h / 2, bottom: nextY + h / 2,
-        };
-
-        const willTurnRight = boundingBox.right > limits.maxX && endHead.dir[0] === 1;
-
-        if (willTurnRight && isDouble) {
-            const prevTileIndex = i - 1;
-            if (chain[prevTileIndex]) {
-                chain[prevTileIndex].y += TILE_HEIGHT_NORMAL / 3;
-                endHead.y = chain[prevTileIndex].y;
-                prevLayout = chain[prevTileIndex];
-            }
-        }
-
-        if (willTurnRight) {
-            endHead.dir = [0, -1]; // Girar hacia ARRIBA
-            ({ w, h, rotation, orientationClass, isDouble } = getTileProps(tile, endHead.dir));
-
-            anchorX = endHead.x + (prevLayout.w / 4);
-            anchorY = endHead.y - (prevLayout.h / 2);
-
-            nextX = anchorX;
-            nextY = anchorY - (h / 2 + TILE_GAP);
-        }
-        
-        const finalLayout = { tile, x: nextX, y: nextY, w, h, rotation, orientationClass, isDouble };
+        const finalLayout = placeTile(endHead, board[i]);
         chain[i] = finalLayout;
-        endHead = { x: nextX, y: nextY, dir: endHead.dir, prevLayout: finalLayout };
+        endHead = { x: finalLayout.x, y: finalLayout.y, dir: endHead.dir, prevLayout: finalLayout };
     }
-    
-    // --- Crecer hacia el 'start' (izquierda) ---
-    let startHead = {
-        x: midLayout.x,
-        y: midLayout.y,
-        dir: [-1, 0],
-        prevLayout: midLayout,
-    };
-    
+
+    let startHead = { x: midLayout.x, y: midLayout.y, dir: [-1, 0], prevLayout: midLayout };
     for (let i = midIndex - 1; i >= 0; i--) {
-        const tile = board[i];
-        let { w, h, rotation, orientationClass, isDouble } = getTileProps(tile, startHead.dir);
-        let prevLayout = startHead.prevLayout;
-
-        let anchorX = startHead.x;
-        let anchorY = startHead.y;
-
-        const prevIsHorizontal = prevLayout.rotation === 0;
-        
-        if (prevIsHorizontal) {
-            anchorX += startHead.dir[0] * (prevLayout.w / 2);
-        } else {
-            anchorY += startHead.dir[1] * (prevLayout.h / 2);
-        }
-
-        let nextX = anchorX + startHead.dir[0] * (w / 2 + TILE_GAP);
-        let nextY = anchorY + startHead.dir[1] * (h / 2 + TILE_GAP);
-        
-        const boundingBox = {
-            left: nextX - w / 2, right: nextX + w / 2,
-            top: nextY - h / 2, bottom: nextY + h / 2,
-        };
-
-        const willTurnLeft = boundingBox.left < limits.minX && startHead.dir[0] === -1;
-
-        if (willTurnLeft && isDouble) {
-            const prevTileIndex = i + 1;
-            if (chain[prevTileIndex]) {
-                chain[prevTileIndex].y += TILE_HEIGHT_NORMAL / 3;
-                startHead.y = chain[prevTileIndex].y;
-                prevLayout = chain[prevTileIndex];
-            }
-        }
-
-        if (willTurnLeft) {
-            startHead.dir = [0, 1]; // Girar hacia ABAJO
-            ({ w, h, rotation, orientationClass, isDouble } = getTileProps(tile, startHead.dir));
-
-            anchorX = startHead.x - (prevLayout.w / 4);
-            anchorY = startHead.y + (prevLayout.h / 2);
-
-            nextX = anchorX;
-            nextY = anchorY + (h / 2 + TILE_GAP);
-        }
-        
-        const finalLayout = { tile, x: nextX, y: nextY, w, h, rotation, orientationClass, isDouble };
+        const finalLayout = placeTile(startHead, board[i]);
         chain[i] = finalLayout;
-        startHead = { x: nextX, y: nextY, dir: startHead.dir, prevLayout: finalLayout };
+        startHead = { x: finalLayout.x, y: finalLayout.y, dir: startHead.dir, prevLayout: finalLayout };
     }
 
     // --- Calcular extremos (Highlights) ---
