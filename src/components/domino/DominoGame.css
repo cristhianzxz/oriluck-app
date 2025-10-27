@@ -300,19 +300,6 @@ body {
     gap: 1px;
 }
 
-/* Corregir espaciado de pips en fichas de 6 puntos según la orientación */
-.tile.normal .pips-6.pipContainer {
-    gap: 1px 4px; /* Espaciado correcto para fichas horizontales */
-}
-.tile.double .pips-6.pipContainer, .tile.inHand .pips-6.pipContainer {
-    grid-template-rows: 1fr 1fr 1fr;
-    gap: 15px 1px; /* Espaciado para fichas verticales */
-}
-
-/* Ajuste específico para fichas en mano para evitar overflow */
-.tile.inHand .pips-6.pipContainer {
-    gap: 1px 25px;
-}
 
 .pip {
     width: 6px;
