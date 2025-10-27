@@ -82,31 +82,70 @@ const GameLobby = () => {
         setIsMenuOpen(false);
     };
 
-    // =======================================================================
-    // --- INICIO DE LA ACTUALIZACIÓN ---
-    // =======================================================================
+// =======================================================================
+// --- INICIO DE LA ACTUALIZACIÓN ---
+// =======================================================================
+
+    // Icono de Dominó SVG (Doble Seis Horizontal con patrón 3x2 y separación central aumentada)
+    const DominoIcon = (
+        <svg
+            viewBox="0 0 170 110" // Mantenemos el tamaño
+            width="1em" // Hereda el tamaño del texto
+            height="1em"
+            style={{ filter: 'drop-shadow(0 4px 6px rgba(0,0,0,0.4))' }}
+        >
+            <rect x="5" y="5" width="160" height="100" rx="12" fill="white" />
+            <line x1="85" y1="10" x2="85" y2="100" stroke="#333" strokeWidth="4" />
+            
+            {/* Izquierda: 6 puntos (Alejados de la línea central) */}
+            <circle cx="25" cy="35" r="7" fill="#333" />
+            <circle cx="45" cy="35" r="7" fill="#333" />
+            <circle cx="65" cy="35" r="7" fill="#333" />
+            <circle cx="25" cy="75" r="7" fill="#333" />
+            <circle cx="45" cy="75" r="7" fill="#333" />
+            <circle cx="65" cy="75" r="7" fill="#333" />
+            
+            {/* Derecha: 6 puntos (Alejados de la línea central) */}
+            <circle cx="105" cy="35" r="7" fill="#333" />
+            <circle cx="125" cy="35" r="7" fill="#333" />
+            <circle cx="145" cy="35" r="7" fill="#333" />
+            <circle cx="105" cy="75" r="7" fill="#333" />
+            <circle cx="125" cy="75" r="7" fill="#333" />
+            <circle cx="145" cy="75" r="7" fill="#333" />
+        </svg>
+    );
+
     const games = [
         { id: 1, name: "BINGO", icon: "🎯", status: "active", description: "Juega al clásico Bingo con premios millonarios.", color: "from-red-500 to-pink-500", glow: "shadow-lg shadow-red-500/30", path: "/bingo" },
         { id: 2, name: "TRAGAMONEDAS", icon: "🎰", status: "active", description: "Máquinas exclusivas con jackpots progresivos.", color: "from-blue-500 to-purple-500", glow: "shadow-lg shadow-blue-500/20", path: "/slots" },
-        { id: 3, name: "RULETA", icon: "🎡", status: "construction", description: "Próximamente - Ruleta europea premium.", color: "from-green-500 to-teal-500", glow: "shadow-lg shadow-green-500/20" },
+        {
+            id: 3,
+            name: "DOMINO",
+            icon: DominoIcon, // Ícono con separación central corregida
+            status: "active",
+            description: "Juega al clásico Dominó contra otros jugadores.",
+            color: "from-yellow-500 to-amber-500", // Color Amarillo Dorado
+            glow: "shadow-lg shadow-yellow-500/30",
+            path: "/domino"
+        },
         { id: 4, name: "ASCENSO ESTELAR", icon: "🚀", status: "active", description: "¿Hasta dónde llegará tu codicia antes del CRASH?", color: "from-cyan-500 to-indigo-500", glow: "shadow-lg shadow-cyan-500/20", path: "/crash" },
-        { id: 5, name: "BLACKJACK", icon: "🃏", status: "construction", description: "Próximamente - 21 contra crupieres expertos.", color: "from-gray-700 to-gray-800", glow: "shadow-lg shadow-gray-500/20" },
+        { id: 5, name: "BLACKJACK", icon: "🃏", status: "construction", description: "Próximamente - 21 contra crupieres expertos.", color: "from-purple-800 to-indigo-800", glow: "shadow-lg shadow-purple-500/20" },
         { id: 6, name: "LOTERÍA", icon: "🎫", status: "construction", description: "Próximamente - Sorteos millonarios exclusivos.", color: "from-purple-500 to-pink-500", glow: "shadow-lg shadow-purple-500/20" }
     ];
+
+// =======================================================================
+// --- FIN DE LA ACTUALIZACIÓN ---
+// =======================================================================
 
     const handleGameClick = (game) => {
         if (game.status === 'construction') {
             alert("🚧 Este juego premium estará disponible próximamente");
             return;
         }
-        // Navegamos dinámicamente usando la propiedad 'path' del objeto del juego.
         if (game.path) {
             navigate(game.path);
         }
     };
-    // =======================================================================
-    // --- FIN DE LA ACTUALIZACIÓN ---
-    // =======================================================================
 
     if (loading) {
         return (
@@ -232,14 +271,19 @@ const GameLobby = () => {
                             className={`group relative bg-gradient-to-br ${game.color} rounded-2xl p-6 sm:p-8 text-white cursor-pointer transform transition-all duration-500 hover:scale-[1.02] hover:rotate-0 sm:hover:rotate-1 ${game.glow} border border-white/10 overflow-hidden`}
                         >
                             <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent transform -skew-x-12 translate-x-[-100%] group-hover:translate-x-[100%] transition-transform duration-1000"></div>
-                            <div className="text-5xl sm:text-6xl mb-4 sm:mb-6 text-center filter drop-shadow-2xl">{game.icon}</div>
+                            
+                            <div className="h-12 sm:h-16 mb-4 sm:mb-6 flex items-center justify-center text-5xl sm:text-6xl">
+                                {game.icon}
+                            </div>
+                            
                             <div className="relative z-10 text-center">
                                 <h3 className="text-xl sm:text-2xl font-bold mb-1 sm:mb-2">{game.name}</h3>
                                 <p className="text-white/80 text-sm mb-3 font-light">{game.description}</p>
+                                
                                 <div className={`inline-flex items-center px-3 py-1 sm:px-4 sm:py-2 rounded-full text-xs font-semibold ${
                                     game.status === "active" 
-                                        ? "bg-green-500/20 text-green-300 border border-green-500/30" 
-                                        : "bg-gray-500/20 text-gray-300 border border-gray-500/30"
+                                        ? "bg-white/20 text-white backdrop-blur-sm border border-white/30" 
+                                        : "bg-black/20 text-gray-300 backdrop-blur-sm border border-gray-500/30"
                                 }`}>
                                     {game.status === "active" ? "🟢 DISPONIBLE" : "🕐 PRÓXIMAMENTE"}
                                 </div>

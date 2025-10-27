@@ -21,14 +21,15 @@ import SlotsLobby from './components/slots/SlotsLobby';
 import SlotsGame from './components/slots/SlotsGame';
 import SlotsAdmin from './components/slots/SlotsAdmin';
 
-// >>>>> IMPORTA EL NUEVO COMPONENTE CORRECTAMENTE <<<<<
 import RocketCrashGame from './components/crash/RocketCrashGame.jsx';
 import CrashAdminPanel from './components/crash/CrashAdminPanel';
 
-// Contexto de autenticación
+import DominoLobby from './components/domino/DominoLobby.jsx';
+import DominoGame from './components/domino/DominoGame.jsx';
+import DominoAdmin from './components/domino/DominoAdmin.jsx';
+
 export const AuthContext = createContext(null);
 
-// Modal de inactividad global
 const InactivityModal = () => {
   const { inactiveWarning, setInactiveWarning } = useContext(AuthContext);
   const location = useLocation();
@@ -55,13 +56,11 @@ const InactivityModal = () => {
   );
 };
 
-// Proveedor de autenticación con lógica de inactividad
 const AuthProvider = ({ children }) => {
   const [currentUser, setCurrentUser] = useState(null);
   const [userData, setUserData] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  // Inactividad global
   const [inactiveWarning, setInactiveWarning] = useState(false);
   const [inactiveTimeout, setInactiveTimeout] = useState(null);
 
@@ -87,7 +86,6 @@ const AuthProvider = ({ children }) => {
     return unsubscribe;
   }, []);
 
-  // Mantén registro de la última actividad en Firestore (cada 1 min)
   useEffect(() => {
     if (!currentUser) return;
     const interval = setInterval(() => {
@@ -96,7 +94,6 @@ const AuthProvider = ({ children }) => {
     return () => clearInterval(interval);
   }, [currentUser]);
 
-  // Lógica de inactividad (solo logueado)
   useEffect(() => {
     if (!currentUser) return;
     let lastActivity = Date.now();
@@ -114,7 +111,6 @@ const AuthProvider = ({ children }) => {
       if (Date.now() - lastActivity > 5 * 60 * 1000) {
         setInactiveWarning(true);
         const timeout = setTimeout(async () => {
-          // Marcar usuario como inactivo antes de desconectar
           await updateDoc(doc(db, "users", currentUser.uid), { active: false });
           await signOut(auth);
           window.location.href = "/";
@@ -132,8 +128,8 @@ const AuthProvider = ({ children }) => {
     };
   }, [currentUser, inactiveWarning, inactiveTimeout]);
 
-  const value = { 
-    currentUser, 
+  const value = {
+    currentUser,
     userData,
     loading,
     inactiveWarning,
@@ -143,12 +139,11 @@ const AuthProvider = ({ children }) => {
   return (
     <AuthContext.Provider value={value}>
       <InactivityModal />
-      {children}
+      {!loading && children}
     </AuthContext.Provider>
   );
 };
 
-// Rutas protegidas
 const ProtectedRoute = ({ children }) => {
   const { currentUser, userData, loading } = useContext(AuthContext);
   if (loading) {
@@ -164,7 +159,6 @@ const ProtectedRoute = ({ children }) => {
   return children;
 };
 
-// >>>>> RUTA PROTEGIDA PARA ADMINISTRADORES <<<<<
 const AdminRoute = ({ children }) => {
   const { currentUser, userData, loading } = useContext(AuthContext);
   
@@ -176,7 +170,6 @@ const AdminRoute = ({ children }) => {
     );
   }
   
-  // Verificar si el usuario tiene permisos de administrador
   const isAdmin = userData?.role === 'admin' || userData?.role === 'supervisor' || userData?.role === 'moderator' || userData?.role === 'owner';
   
   if (!currentUser || userData?.suspended || !isAdmin) {
@@ -186,7 +179,6 @@ const AdminRoute = ({ children }) => {
   return children;
 };
 
-// Pantalla de login/register
 const AuthPage = () => {
   const navigate = useNavigate();
   const { currentUser, userData, loading } = useContext(AuthContext);
@@ -208,7 +200,6 @@ const AuthPage = () => {
   const [justRegistered, setJustRegistered] = useState(false);
   const [registering, setRegistering] = useState(false);
 
-  // Países
   const countryCodes = [
     { value: "+58", label: "+58 Venezuela", maxLength: 10, example: "4123456789" },
     { value: "+57", label: "+57 Colombia", maxLength: 10, example: "3001234567" },
@@ -270,7 +261,6 @@ const AuthPage = () => {
     } else setPasswordStrength("");
   }, [password]);
 
-  // Login
   const handleLogin = async (e) => {
     e.preventDefault();
     setFormLoading(true);
@@ -283,7 +273,6 @@ const AuthPage = () => {
     }
   };
 
-  // Register
   const handleRegister = async (e) => {
     e.preventDefault();
     if (!acceptedTerms) {
@@ -358,7 +347,6 @@ const AuthPage = () => {
     }
   };
 
-  // Suspensión
   if (loading) {
     return (
       <div className="flex flex-col items-center justify-center min-h-screen">
@@ -380,7 +368,7 @@ const AuthPage = () => {
               Si deseas apelar, comunícate con soporte.
             </div>
           </div>
-          <button 
+          <button
             onClick={async () => {
               await updateDoc(doc(db, "users", currentUser.uid), { active: false });
               await signOut(auth);
@@ -402,7 +390,6 @@ const AuthPage = () => {
     );
   }
 
-  // Pantalla principal Auth
   return (
     <div
       className="flex flex-col items-center justify-center min-h-screen relative bg-cover bg-no-repeat"
@@ -426,20 +413,20 @@ const AuthPage = () => {
         }
       `}</style>
       <img
-        src="https://upload.wikimedia.org/wikipedia/commons/0/06/Flag_of_Venezuela.svg    "
+        src="https://upload.wikimedia.org/wikipedia/commons/0/06/Flag_of_Venezuela.svg"
         alt="Bandera de Venezuela"
         className="absolute bottom-4 right-4 w-30 h-38 object-contain"
       />
       <div className="glass-effect p-8 rounded-2xl shadow-2xl w-full max-w-md z-10 border border-white/30">
         {initialScreen ? (
           <div className="flex flex-col space-y-4">
-            <button 
+            <button
               onClick={() => { setShowLogin(true); setInitialScreen(false); }}
               className="w-full bg-gradient-to-r from-blue-600 to-blue-500 text-white py-4 rounded-xl font-semibold hover:from-blue-500 hover:to-blue-400 transition-all duration-300 transform hover:scale-105 shadow-lg"
             >
               🚀 Iniciar Sesión
             </button>
-            <button 
+            <button
               onClick={() => { setShowLogin(false); setInitialScreen(false); }}
               className="w-full bg-gradient-to-r from-green-600 to-green-500 text-white py-4 rounded-xl font-semibold hover:from-green-500 hover:to-green-400 transition-all duration-300 transform hover:scale-105 shadow-lg"
             >
@@ -547,7 +534,7 @@ const AuthPage = () => {
                   />
                 </div>
                 <p className="text-xs text-gray-600 bg-yellow-50 p-2 rounded-lg">
-                  💡 <strong>Formato correcto:</strong> {currentCountry.example} 
+                  💡 <strong>Formato correcto:</strong> {currentCountry.example}
                 </p>
                 {phone.length > 0 && phone.length !== currentCountry.maxLength && (
                   <p className="text-red-600 text-xs">❌ Debe tener {currentCountry.maxLength} dígitos</p>
@@ -564,8 +551,8 @@ const AuthPage = () => {
                 />
                 {passwordStrength && (
                   <p className={`text-sm mt-1 ${
-                    passwordStrength.includes("Excelente") ? 'text-green-600' : 
-                    passwordStrength.includes("Buena") ? 'text-blue-600' : 
+                    passwordStrength.includes("Excelente") ? 'text-green-600' :
+                    passwordStrength.includes("Buena") ? 'text-blue-600' :
                     passwordStrength.includes("Débil") ? 'text-orange-600' : 'text-red-600'
                   }`}>
                     {passwordStrength}
@@ -625,7 +612,7 @@ const AuthPage = () => {
         )}
         {message && (
           <div className={`mt-4 p-3 rounded-lg text-center font-semibold ${
-            message.includes("✅") ? 'bg-green-100 text-green-800 border border-green-200' : 
+            message.includes("✅") ? 'bg-green-100 text-green-800 border border-green-200' :
             'bg-red-100 text-red-800 border border-red-200'
           }`}>
             {message}
@@ -656,7 +643,6 @@ const AuthPage = () => {
   );
 };
 
-// App principal
 function App() {
   return (
     <AuthProvider>
@@ -677,11 +663,18 @@ function App() {
         <Route path="/slots/game" element={<ProtectedRoute><SlotsGame /></ProtectedRoute>} />
         <Route path="/admin/slots" element={<ProtectedRoute><SlotsAdmin /></ProtectedRoute>} />
         
-        {/* >>>>> RUTA DE CRASH GAME ACTUALIZADA <<<<< */}
         <Route path="/crash" element={<ProtectedRoute><RocketCrashGame /></ProtectedRoute>} />
         <Route path="/admin/crash" element={
             <AdminRoute>
-                <CrashAdminPanel />
+              <CrashAdminPanel />
+            </AdminRoute>
+        } />
+        
+        <Route path="/domino" element={<ProtectedRoute><DominoLobby /></ProtectedRoute>} />
+        <Route path="/domino/game/:gameId" element={<ProtectedRoute><DominoGame /></ProtectedRoute>} />
+        <Route path="/admin/domino" element={
+            <AdminRoute>
+              <DominoAdmin />
             </AdminRoute>
         } />
       </Routes>

@@ -1,3 +1,6 @@
+/*
+* filepath: index.js
+*/
 const { onCall, HttpsError, onRequest } = require("firebase-functions/v2/https");
 const { onSchedule } = require("firebase-functions/v2/scheduler");
 const { logger } = require("firebase-functions");
@@ -24,24 +27,39 @@ module.exports.sleep = sleep;
 const { startManualBingo, checkAutoStartBingo, processBingoTurn, buyBingoCard_bingo, toggleBingoAutoStart } = require('./bingoEngine');
 const { buySlotsChipsCallable, requestSlotSpin, executeSlotSpin, slotsJackpotProcessor } = require('./slotsEngine');
 const { processCrashRound, startCrashEngineLoop, toggleCrashEngine, updateCrashLimits, placeBet_crash, updateAutoCashout_crash, cashOut_crash, cancelBet_crash, sendChatMessage } = require('./crashEngine');
+const domino = require('./dominoEngine');
 
 Object.assign(module.exports, {
-  startManualBingo,
-  checkAutoStartBingo,
-  processBingoTurn,
-  buyBingoCard_bingo,
-  toggleBingoAutoStart,
-  buySlotsChipsCallable,
-  requestSlotSpin,
-  executeSlotSpin,
-  slotsJackpotProcessor,
-  processCrashRound,
-  startCrashEngineLoop,
-  toggleCrashEngine,
-  updateCrashLimits,
-  placeBet_crash,
-  updateAutoCashout_crash,
-  cashOut_crash,
-  cancelBet_crash,
-  sendChatMessage
+    startManualBingo,
+    checkAutoStartBingo,
+    processBingoTurn,
+    buyBingoCard_bingo,
+    toggleBingoAutoStart,
+
+    buySlotsChipsCallable,
+    requestSlotSpin,
+    executeSlotSpin,
+    slotsJackpotProcessor,
+
+    processCrashRound,
+    startCrashEngineLoop,
+    toggleCrashEngine,
+    updateCrashLimits,
+    placeBet_crash,
+    updateAutoCashout_crash,
+    cashOut_crash,
+    cancelBet_crash,
+    sendChatMessage,
+
+    createTournamentTemplate: domino.createTournamentTemplate,
+    updateDominoSettings: domino.updateDominoSettings,
+    buyTournamentEntry: domino.buyTournamentEntry,
+    refundTournamentEntry: domino.refundTournamentEntry,
+    playDominoTile: domino.playDominoTile,
+    passDominoTurn: domino.passDominoTurn,
+    sendDominoMessage: domino.sendDominoMessage,
+    deleteTournamentTemplate: domino.deleteTournamentTemplate,
+    handleReadyToggle: domino.handleReadyToggle,
+    startGameTrigger: domino.startGameTrigger,
+    turnTimeoutTrigger: domino.turnTimeoutTrigger,
 });
