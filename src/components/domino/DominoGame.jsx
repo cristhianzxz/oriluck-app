@@ -80,10 +80,8 @@ function getValidMoves(hand, board) {
 
 
 /**
- * (Petición 6, 1, 2)
- * Calcula la posición (x, y, rotación) de cada ficha en el tablero.
- * (Petición 2) Crece desde el centro (ficha media) hacia los extremos.
- * (Petición 1) Fichas dobles siempre son verticales (rotation 90).
+ * Calcula la posición (x, y, rotación) de cada ficha en el tablero, corrigiendo
+ * la lógica de giros, alineación, espaciado y orientación de dobles.
  */
 function calculateBoardLayout(board, containerWidth, containerHeight) {
     if (!board || board.length === 0 || containerWidth === 0) {
@@ -101,170 +99,156 @@ function calculateBoardLayout(board, containerWidth, containerHeight) {
         maxY: containerHeight - BOARD_PADDING,
     };
 
-    // --- Helpers ---
-    // Gira 90 grados a la derecha (sentido horario)
-    // [1,0] (E) -> [0,1] (S) -> [-1,0] (W) -> [0,-1] (N) -> [1,0] (E)
-    const turnRight = (dir) => (dir[0] === 1 ? [0, 1] : dir[0] === -1 ? [0, -1] : dir[1] === 1 ? [-1, 0] : [1, 0]);
-    // Gira 90 grados a la izquierda (sentido anti-horario)
-    // [1,0] (E) -> [0,-1] (N) -> [-1,0] (W) -> [0,1] (S) -> [1,0] (E)
-    const turnLeft = (dir) => (dir[0] === 1 ? [0, -1] : dir[0] === -1 ? [0, 1] : dir[1] === 1 ? [1, 0] : [-1, 0]);
-
-    // (Petición 1 y 2) Calcula w, h, rotation, orientationClass
     const getTileProps = (tile, dir) => {
         const isDouble = tile.top === tile.bottom;
         let w, h, rotation, orientationClass;
         
+        const isHorizontalLine = dir[0] !== 0;
+
         if (isDouble) {
-            // (Petición 1 Fix) Force vertical by using 'normal' base (70x35) and rotating 90.
-            w = TILE_WIDTH_NORMAL;
-            h = TILE_HEIGHT_NORMAL;
-            rotation = 90;
-            orientationClass = 'normal'; 
+            // Doble en línea horizontal -> se pone Vertical (rotado 90)
+            // Doble en línea vertical -> se pone Horizontal (rotado 0)
+            w = isHorizontalLine ? TILE_WIDTH_DOUBLE : TILE_WIDTH_NORMAL;
+            h = isHorizontalLine ? TILE_HEIGHT_DOUBLE : TILE_HEIGHT_NORMAL;
+            rotation = isHorizontalLine ? 90 : 0;
+            orientationClass = isHorizontalLine ? 'double' : 'normal';
+        } else {
+            // Normal en línea horizontal -> se pone Horizontal (rotado 0)
+            // Normal en línea vertical -> se pone Vertical (rotado 90)
+            w = isHorizontalLine ? TILE_WIDTH_NORMAL : TILE_WIDTH_DOUBLE;
+            h = isHorizontalLine ? TILE_HEIGHT_NORMAL : TILE_HEIGHT_DOUBLE;
+            rotation = isHorizontalLine ? 0 : 90;
+            orientationClass = isHorizontalLine ? 'normal' : 'double';
         }
-        else if (dir[0] !== 0) { // Normal, Horizontal (E or W)
-            w = TILE_WIDTH_NORMAL;
-            h = TILE_HEIGHT_NORMAL;
-            // (Petición 2 Fix) Rotation is always 0. The backend `board` array is already
-            // oriented (T,B). We just render [T|B] consistently.
-            rotation = 0;
-            orientationClass = 'normal';
-        } else { // Normal, Vertical (S or N)
-            w = TILE_WIDTH_NORMAL;
-            h = TILE_HEIGHT_NORMAL;
-            rotation = (dir[1] === 1) ? 90 : -90;
-            orientationClass = 'normal'; // 70x35 base, rotated
-        }
+
         return { w, h, rotation, isDouble, orientationClass };
     };
     
-    // (Petición 2) Colocar la ficha del medio (opener)
-    const openerIsDouble = openerTile.top === openerTile.bottom;
-    const openerProps = {
-        w: TILE_WIDTH_NORMAL, // Base width
-        h: TILE_HEIGHT_NORMAL, // Base height
-        rotation: openerIsDouble ? 90 : 0, // (Petición 1 Fix) Opener double is 90
-        isDouble: openerIsDouble,
-        orientationClass: 'normal' // Opener base is *always* normal (70x35)
-    };
-    
+    const openerProps = getTileProps(openerTile, [1, 0]); // Opener siempre se considera en línea horizontal
     const midLayout = {
         tile: openerTile,
         x: containerWidth / 2,
         y: containerHeight / 2,
-        ...openerProps
+        ...openerProps,
     };
     chain[midIndex] = midLayout;
 
-    // --- (Petición 2) Crecer hacia el 'end' (derecha) ---
+    // --- Crecer hacia el 'end' (derecha) ---
     let endHead = {
         x: midLayout.x,
         y: midLayout.y,
         dir: [1, 0], // Iniciar hacia la derecha
-        prevLayout: midLayout
+        prevLayout: midLayout,
     };
 
     for (let i = midIndex + 1; i < board.length; i++) {
         const tile = board[i];
-        let { w, h, rotation, orientationClass } = getTileProps(tile, endHead.dir); // MODIFIED
+        let { w, h, rotation, orientationClass, isDouble } = getTileProps(tile, endHead.dir);
         let prevLayout = endHead.prevLayout;
         
-        // Calcular mitades (previo y nuevo)
-        let halfPrev = (prevLayout.rotation === 90 || prevLayout.rotation === -90) ? prevLayout.h / 2 : prevLayout.w / 2;
-        let halfNew = (rotation === 90 || rotation === -90) ? h / 2 : w / 2;
+        let anchorX = endHead.x;
+        let anchorY = endHead.y;
         
-        // Corrección si la orientación cambia
-        if ((prevLayout.rotation === 90 || prevLayout.rotation === -90) !== (rotation === 90 || rotation === -90)) {
-            if (prevLayout.rotation === 90 || prevLayout.rotation === -90) { // Prev V, New H
-                halfPrev = prevLayout.h / 2; halfNew = w / 2;
-            } else { // Prev H, New V
-                halfPrev = prevLayout.w / 2; halfNew = h / 2;
+        const prevIsHorizontal = prevLayout.rotation === 0;
+        const currentIsHorizontal = rotation === 0;
+
+        // Ajustar ancla al borde correcto de la ficha anterior
+        if (prevIsHorizontal) {
+            anchorX += endHead.dir[0] * (prevLayout.w / 2);
+        } else {
+            anchorY += endHead.dir[1] * (prevLayout.h / 2);
+        }
+
+        let nextX = anchorX + endHead.dir[0] * (w / 2 + TILE_GAP);
+        let nextY = anchorY + endHead.dir[1] * (h / 2 + TILE_GAP);
+
+        const boundingBox = {
+            left: nextX - w / 2, right: nextX + w / 2,
+            top: nextY - h / 2, bottom: nextY + h / 2,
+        };
+
+        const willTurnRight = boundingBox.right > limits.maxX && endHead.dir[0] === 1;
+
+        if (willTurnRight && isDouble) {
+            const prevTileIndex = i - 1;
+            if (chain[prevTileIndex]) {
+                chain[prevTileIndex].y += TILE_HEIGHT_NORMAL / 3;
+                endHead.y = chain[prevTileIndex].y;
+                prevLayout = chain[prevTileIndex];
             }
         }
 
-        let nextX = endHead.x + endHead.dir[0] * (halfPrev + halfNew + TILE_GAP);
-        let nextY = endHead.y + endHead.dir[1] * (halfPrev + halfNew + TILE_GAP);
+        if (willTurnRight) {
+            endHead.dir = [0, -1]; // Girar hacia ARRIBA
+            ({ w, h, rotation, orientationClass, isDouble } = getTileProps(tile, endHead.dir));
 
-        // Comprobar límites
-        let nextLeft = nextX - (w / 2); let nextRight = nextX + (w / 2);
-        let nextTop = nextY - (h / 2); let nextBottom = nextY + (h / 2);
+            anchorX = endHead.x + (prevLayout.w / 4);
+            anchorY = endHead.y - (prevLayout.h / 2);
 
-        if (nextRight > limits.maxX || nextLeft < limits.minX || nextBottom > limits.maxY || nextTop < limits.minY) {
-            endHead.dir = turnRight(endHead.dir); // Girar
-            
-            // Recalcular props con nueva dirección
-            ({ w, h, rotation, orientationClass } = getTileProps(tile, endHead.dir)); // MODIFIED
-            
-            // Recalcular mitades
-            halfPrev = (prevLayout.rotation === 90 || prevLayout.rotation === -90) ? prevLayout.h / 2 : prevLayout.w / 2;
-            halfNew = (rotation === 90 || rotation === -90) ? h / 2 : w / 2;
-            if ((prevLayout.rotation === 90 || prevLayout.rotation === -90) !== (rotation === 90 || rotation === -90)) {
-                if (prevLayout.rotation === 90 || prevLayout.rotation === -90) { halfPrev = prevLayout.h / 2; halfNew = w / 2; } 
-                else { halfPrev = prevLayout.w / 2; halfNew = h / 2; }
-            }
-
-            // Recalcular posición
-            nextX = endHead.x + endHead.dir[0] * (halfPrev + halfNew + TILE_GAP);
-            nextY = endHead.y + endHead.dir[1] * (halfPrev + halfNew + TILE_GAP);
+            nextX = anchorX;
+            nextY = anchorY - (h / 2 + TILE_GAP);
         }
         
-        const finalLayout = { tile, x: nextX, y: nextY, w, h, rotation, orientationClass }; // MODIFIED
+        const finalLayout = { tile, x: nextX, y: nextY, w, h, rotation, orientationClass, isDouble };
         chain[i] = finalLayout;
         endHead = { x: nextX, y: nextY, dir: endHead.dir, prevLayout: finalLayout };
     }
     
-    // --- (Petición 2) Crecer hacia el 'start' (izquierda) ---
+    // --- Crecer hacia el 'start' (izquierda) ---
     let startHead = {
         x: midLayout.x,
         y: midLayout.y,
-        dir: [-1, 0], // Iniciar hacia la izquierda
-        prevLayout: midLayout
+        dir: [-1, 0],
+        prevLayout: midLayout,
     };
     
     for (let i = midIndex - 1; i >= 0; i--) {
         const tile = board[i];
-        let { w, h, rotation, orientationClass } = getTileProps(tile, startHead.dir); // MODIFIED
+        let { w, h, rotation, orientationClass, isDouble } = getTileProps(tile, startHead.dir);
         let prevLayout = startHead.prevLayout;
 
-        // Calcular mitades (previo y nuevo)
-        let halfPrev = (prevLayout.rotation === 90 || prevLayout.rotation === -90) ? prevLayout.h / 2 : prevLayout.w / 2;
-        let halfNew = (rotation === 90 || rotation === -90) ? h / 2 : w / 2;
+        let anchorX = startHead.x;
+        let anchorY = startHead.y;
+
+        const prevIsHorizontal = prevLayout.rotation === 0;
         
-        // Corrección si la orientación cambia
-        if ((prevLayout.rotation === 90 || prevLayout.rotation === -90) !== (rotation === 90 || rotation === -90)) {
-            if (prevLayout.rotation === 90 || prevLayout.rotation === -90) { // Prev V, New H
-                halfPrev = prevLayout.h / 2; halfNew = w / 2;
-            } else { // Prev H, New V
-                halfPrev = prevLayout.w / 2; halfNew = h / 2;
+        if (prevIsHorizontal) {
+            anchorX += startHead.dir[0] * (prevLayout.w / 2);
+        } else {
+            anchorY += startHead.dir[1] * (prevLayout.h / 2);
+        }
+
+        let nextX = anchorX + startHead.dir[0] * (w / 2 + TILE_GAP);
+        let nextY = anchorY + startHead.dir[1] * (h / 2 + TILE_GAP);
+        
+        const boundingBox = {
+            left: nextX - w / 2, right: nextX + w / 2,
+            top: nextY - h / 2, bottom: nextY + h / 2,
+        };
+
+        const willTurnLeft = boundingBox.left < limits.minX && startHead.dir[0] === -1;
+
+        if (willTurnLeft && isDouble) {
+            const prevTileIndex = i + 1;
+            if (chain[prevTileIndex]) {
+                chain[prevTileIndex].y += TILE_HEIGHT_NORMAL / 3;
+                startHead.y = chain[prevTileIndex].y;
+                prevLayout = chain[prevTileIndex];
             }
         }
 
-        let nextX = startHead.x + startHead.dir[0] * (halfPrev + halfNew + TILE_GAP);
-        let nextY = startHead.y + startHead.dir[1] * (halfPrev + halfNew + TILE_GAP);
-        
-        // Comprobar límites
-        let nextLeft = nextX - (w / 2); let nextRight = nextX + (w / 2);
-        let nextTop = nextY - (h / 2); let nextBottom = nextY + (h / 2);
+        if (willTurnLeft) {
+            startHead.dir = [0, 1]; // Girar hacia ABAJO
+            ({ w, h, rotation, orientationClass, isDouble } = getTileProps(tile, startHead.dir));
 
-        if (nextRight > limits.maxX || nextLeft < limits.minX || nextBottom > limits.maxY || nextTop < limits.minY) {
-            startHead.dir = turnLeft(startHead.dir); // Girar (anti-horario)
-            
-            // Recalcular props con nueva dirección
-            ({ w, h, rotation, orientationClass } = getTileProps(tile, startHead.dir)); // MODIFIED
-            
-            // Recalcular mitades
-            halfPrev = (prevLayout.rotation === 90 || prevLayout.rotation === -90) ? prevLayout.h / 2 : prevLayout.w / 2;
-            halfNew = (rotation === 90 || rotation === -90) ? h / 2 : w / 2;
-            if ((prevLayout.rotation === 90 || prevLayout.rotation === -90) !== (rotation === 90 || rotation === -90)) {
-                if (prevLayout.rotation === 90 || prevLayout.rotation === -90) { halfPrev = prevLayout.h / 2; halfNew = w / 2; } 
-                else { halfPrev = prevLayout.w / 2; halfNew = h / 2; }
-            }
+            anchorX = startHead.x - (prevLayout.w / 4);
+            anchorY = startHead.y + (prevLayout.h / 2);
 
-            // Recalcular posición
-            nextX = startHead.x + startHead.dir[0] * (halfPrev + halfNew + TILE_GAP);
-            nextY = startHead.y + startHead.dir[1] * (halfPrev + halfNew + TILE_GAP);
+            nextX = anchorX;
+            nextY = anchorY + (h / 2 + TILE_GAP);
         }
         
-        const finalLayout = { tile, x: nextX, y: nextY, w, h, rotation, orientationClass }; // MODIFIED
+        const finalLayout = { tile, x: nextX, y: nextY, w, h, rotation, orientationClass, isDouble };
         chain[i] = finalLayout;
         startHead = { x: nextX, y: nextY, dir: startHead.dir, prevLayout: finalLayout };
     }
