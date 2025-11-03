@@ -1,0 +1,183 @@
+/* --- ESTILO DE FONDO --- */
+/* (Este es el contenedor principal del lobby) */
+.dominoLobbyContainer {
+    /* Fondo de pantalla */
+    background-image: url('/fondodomino.jpg');
+    background-size: cover;
+    background-position: center center;
+    background-repeat: no-repeat;
+    
+    /* Velo oscuro (mismo que el juego) */
+    background-color: rgba(0, 0, 0, 0.4); 
+    background-blend-mode: multiply; 
+}
+
+/* --- ESTILO DE NEÓN PARA LA BARRA SUPERIOR --- */
+.lobbyHeader {
+    /* Fondo degradado oscuro (Morado -> Vinotinto -> Morado) */
+    background: linear-gradient(90deg, #300533, #5a0101 50%, #300533 100%);
+    
+    /* Borde inferior de neón (Magenta/Fucsia) */
+    border-bottom: 1px solid #ff007f;
+    
+    /* Sombra de brillo de neón */
+    box-shadow: 0 2px 15px rgba(255, 0, 127, 0.4), 0 1px 3px rgba(0, 0, 0, 0.3);
+
+    /* Mantenemos el padding original */
+    padding: 0.75rem 1.5rem; /* p-3 en el original era 12px, pero p-6 en el main es 24px. 1.5rem (24px) se ve mejor. */
+}
+
+/* Título neón del Lobby */
+.lobbyHeader h1 {
+    color: #fce7f3; /* Rosa muy pálido */
+    text-shadow: 0 0 4px #fff, 
+                 0 0 10px #ff007f, 
+                 0 0 18px #ff007f;
+}
+
+/* Título neón de "Torneos Disponibles" */
+.lobbySectionTitle {
+    color: #fce7f3;
+    text-shadow: 0 0 2px #fff, 
+                 0 0 8px #ff007f;
+}
+
+/* --- ESTILO DE NEÓN PARA EL PANEL DE TORNEOS --- */
+.lobbyPanel {
+    /* Fondo de mesa oscuro (mismo que el juego) */
+    background: radial-gradient(circle, #290222, #1a010c);
+    
+    /* Borde de neón fucsia (más sutil que el de la mesa) */
+    border: 2px solid #ff007f;
+    
+    /* Sombra de neón */
+    box-shadow: inset 0 0 20px rgba(87, 0, 54, 0.5), 0 0 10px rgba(255, 0, 127, 0.3);
+    
+    border-radius: 0.75rem; /* 12px */
+    padding: 1.5rem; /* 24px */
+    backdrop-filter: blur(10px);
+}
+
+/* --- ESTILO PARA LAS TARJETAS DE TORNEO --- */
+.tournamentCard {
+    /* Fondo oscuro semi-transparente (como los avatares) */
+    background: linear-gradient(to bottom, rgba(40, 40, 40, 0.65), rgba(20, 20, 20, 0.75));
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 0.5rem; /* rounded-lg */
+    transition: all 0.2s ease-out;
+}
+
+.tournamentCard:hover {
+    background: linear-gradient(to bottom, rgba(55, 55, 55, 0.7), rgba(35, 35, 35, 0.8));
+    border-color: rgba(255, 255, 255, 0.2);
+}
+
+/* Estilo para tarjetas inactivas */
+.tournamentCard.disabled {
+    opacity: 0.6;
+    background: rgba(30, 30, 30, 0.5);
+    border-color: rgba(255, 255, 255, 0.05);
+}
+
+.tournamentCard.disabled:hover {
+    background: rgba(30, 30, 30, 0.5);
+    border-color: rgba(255, 255, 255, 0.05);
+}
+
+
+/* --- NUEVO SISTEMA DE BOTONES DEL LOBBY --- */
+
+.lobbyButton {
+    /* "Más flaco" */
+    padding: 0.25rem 1rem; /* Era 0.5rem 1rem */
+    
+    font-weight: bold;
+    font-size: 0.875rem; /* text-sm */
+    border-radius: 0.5rem; /* rounded-lg */
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    border: 2px solid transparent;
+    transition: all 0.2s ease-out;
+    cursor: pointer;
+    text-align: center; 
+    
+    /* --- LÍNEA CORREGIDA --- */
+    white-space: nowrap;     /* No partir el texto */
+    /* QUITADAS: min-width: 0, overflow: hidden, text-overflow: ellipsis */
+}
+
+/* Botón de "Comprar entrada" (CTA - Call to Action) */
+.lobbyButton-cta {
+    background-color: #0ea5e9; /* cyan-600 */
+    border-color: #0ea5e9;
+    color: white;
+    box-shadow: 0 0 10px rgba(14, 165, 233, 0.7), 0 0 15px rgba(14, 165, 233, 0.5);
+}
+.lobbyButton-cta:hover:not(:disabled) {
+    background-color: #0284c7; /* cyan-700 */
+    border-color: #0284c7;
+    box-shadow: 0 0 12px rgba(14, 165, 233, 0.9), 0 0 20px rgba(14, 165, 233, 0.6);
+}
+
+/* Botón de "Entrar a la sala" (Primario - Verde) */
+.lobbyButton-primary {
+    background-color: #16a34a; /* green-600 */
+    border-color: #16a34a;
+    color: white;
+    box-shadow: 0 0 10px rgba(34, 197, 94, 0.7), 0 0 15px rgba(34, 197, 94, 0.5);
+}
+.lobbyButton-primary:hover:not(:disabled) {
+    background-color: #15803d; /* green-700 */
+    border-color: #15803d;
+    box-shadow: 0 0 12px rgba(34, 197, 94, 0.9), 0 0 20px rgba(34, 197, 94, 0.6);
+}
+
+/* Botón de "Reembolsar" (Secundario - Rojo Contorno) */
+.lobbyButton-secondary {
+    background-color: transparent;
+    border-color: #dc2626; /* red-600 */
+    color: #f87171; /* red-400 */
+    box-shadow: 0 0 8px rgba(220, 38, 38, 0.6);
+}
+.lobbyButton-secondary:hover:not(:disabled) {
+    background-color: rgba(220, 38, 38, 0.1);
+    color: #ef4444; /* red-500 */
+    border-color: #ef4444;
+    box-shadow: 0 0 10px rgba(220, 38, 38, 0.8);
+}
+
+/* Botón de "Ver" (Neutral - Gris Contorno) */
+.lobbyButton-neutral {
+    background-color: transparent;
+    border-color: #6b7280; /* gray-500 */
+    color: #9ca3af; /* gray-400 */
+}
+.lobbyButton-neutral:hover:not(:disabled) {
+    background-color: rgba(107, 114, 128, 0.1);
+    color: #d1d5db; /* gray-300 */
+    border-color: #9ca3af; /* gray-400 */
+}
+
+/* --- NUEVO ESTILO --- */
+/* Botón "Partida Iniciada" (Deshabilitado - Gris Sólido) */
+.lobbyButton-disabled {
+    background-color: #4b5563; /* gray-600 */
+    border-color: #4b5563; /* gray-600 */
+    color: #9ca3af; /* gray-400 */
+    opacity: 0.7;
+    cursor: not-allowed;
+}
+
+/* Estado Deshabilitado (para todos) */
+.lobbyButton:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    box-shadow: none;
+    filter: grayscale(40%);
+}
+/* Específico para el CTA deshabilitado */
+.lobbyButton-cta:disabled {
+    background-color: #6b7280;
+    border-color: #6b7280;
+    color: #d1d5db;
+}

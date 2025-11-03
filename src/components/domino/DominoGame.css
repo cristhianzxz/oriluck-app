@@ -1,12 +1,11 @@
-/*
-* filepath: DominoGame.css
-*/
+/* --- ESTILO DE FONDO MODIFICADO --- */
 body {
     font-family: 'Roboto', 'Montserrat', sans-serif;
-    background-color: #1a1a1a;
+    /* Color de fondo base para TODA la aplicación (ya no tiene la imagen) */
+    background-color: #1a010c; 
     margin: 0;
     padding: 0;
-    overflow: auto; /* (Petición 6) Evitar scroll general */
+    overflow: auto;
 }
 
 .gameContainer {
@@ -16,27 +15,93 @@ body {
     height: 100vh;
     position: relative;
     overflow: hidden;
+    
+    /* --- IMAGEN DE FONDO MOVIDA AQUÍ --- */
+    background-image: url('/fondodomino.jpg');
+    background-size: cover;
+    background-position: center center;
+    background-repeat: no-repeat;
+    
+    /* Velo oscuro sobre la imagen de fondo para que resalten los neones */
+    background-color: rgba(0, 0, 0, 0.4); 
+    /* Usamos 'background-blend-mode' para aplicar el velo sobre la imagen */
+    background-blend-mode: multiply; 
 }
 
+/* --- ESTILOS DE NEÓN PARA LA BARRA SUPERIOR --- */
 .topBar {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: 8px 20px;
-    background: rgba(0, 0, 0, 0.6);
+    padding: 8px 15px;
     color: white;
     z-index: 10;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
     flex-shrink: 0;
     height: 50px;
     box-sizing: border-box;
+
+    /* Fondo degradado oscuro (Morado -> Vinotinto -> Morado) */
+    background: linear-gradient(90deg, #300533, #5a0101 50%, #300533 100%);
+    
+    /* Borde inferior de neón (Magenta/Fucsia) */
+    border-bottom: 1px solid #ff007f;
+    
+    /* Sombra de brillo de neón */
+    box-shadow: 0 2px 15px rgba(255, 0, 127, 0.4), 0 1px 3px rgba(0, 0, 0, 0.3);
 }
 
-.gameGoal {
+.topLeftControls {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+    flex: 1; /* Ocupa 1/3 de espacio */
+    min-width: 0; /* Para que text-overflow funcione */
+}
+
+.gameTitle {
     font-size: 1rem;
-    font-weight: 500;
-    text-shadow: 1px 1px 2px #000;
+    font-weight: 600; /* Más grueso */
     white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    
+    /* Efecto Neón para el Título */
+    color: #fce7f3; /* Rosa muy pálido */
+    text-shadow: 0 0 4px #fff, 
+                 0 0 10px #ff007f, 
+                 0 0 18px #ff007f;
+}
+
+.gameBackToLobbyButton {
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    color: white;
+    width: 34px;
+    height: 34px;
+    border-radius: 50%;
+    padding: 0;
+    cursor: pointer;
+    transition: background 0.2s ease;
+    flex-shrink: 0; /* Evita que se encoja */
+    position: relative; /* Clave para posicionar la flecha CSS */
+}
+
+.gameBackToLobbyButton:hover {
+    background: rgba(255, 255, 255, 0.2);
+}
+
+/* La flecha CSS (Chevron) */
+.gameBackToLobbyButton::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 53%; /* Ligeramente a la derecha del centro para compensar */
+    width: 10px; /* Tamaño */
+    height: 10px; /* Tamaño */
+    border-left: 3px solid white; /* Grosor */
+    border-bottom: 3px solid white; /* Grosor */
+    transform: translate(-50%, -50%) rotate(45deg); /* La magia */
+    transition: border-color 0.2s ease;
 }
 
 .topRightInfo {
@@ -44,45 +109,88 @@ body {
     align-items: center;
     gap: 15px;
     font-size: 0.9rem;
+    flex: 1; /* Ocupa 1/3 de espacio */
+    justify-content: flex-end; /* Alinear a la derecha */
+    
+    /* Efecto Neón para el Pozo */
+    font-weight: 600;
+    color: #fce7f3;
+    text-shadow: 0 0 4px #fff, 
+                 0 0 10px #ff007f, 
+                 0 0 18px #ff007f;
 }
+/* --- FIN DE ESTILOS DE NEÓN --- */
 
 .turnTimerDisplay {
     color: #ffd700;
     font-weight: bold;
     font-size: 0.9rem;
     text-align: center;
-    flex-grow: 1;
+    flex: 1; /* Ocupa 1/3 de espacio */
     margin: 0 10px;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+    /* Sombra para destacar sobre el fondo oscuro */
+    text-shadow: 0 0 5px rgba(0,0,0,0.7), 0 0 8px #ffd700;
 }
 
-/* Indicador (P) para turno corto */
 .passIndicator {
-    color: #ff9900; /* Naranja para destacar */
+    color: #ff9900;
     font-size: 0.75rem;
     margin-left: 4px;
     font-style: italic;
 }
 
+.playerArea {
+    display: flex;
+    position: relative;
+    flex-shrink: 0;
+    z-index: 1;
+}
 
-.gameBoard {
+.playerAreaTop, .playerAreaBottom {
+    justify-content: center;
+    align-items: center;
+    height: 30px;
+    padding: 5px 0;
+}
+
+.middleArea {
+    display: flex;
+    flex-direction: row;
     flex-grow: 1;
-    /* (Petición 3) Gradiente sutil */
-    background: radial-gradient(circle, #005f73, #004c5c);
-    /* (Petición 6) Borde dorado estético */
-    border: 10px solid transparent;
-    border-image: linear-gradient(145deg, #b8860b, #daa520, #b8860b) 1;
-    box-shadow: inset 0 0 20px rgba(0,0,0,0.6), 0 0 15px rgba(218, 165, 32, 0.3);
-    margin: 10px 20px 150px 20px;
+    min-height: 0;
+    overflow: hidden;
+}
+
+.playerAreaLeft, .playerAreaRight {
+    justify-content: center;
+    align-items: center;
+    width: var(--side-area-width, 190px);
+    padding: 0 5px;
+    transition: width 0.3s ease-out;
+}
+
+/* --- ESTILO DE NEÓN PARA LA MESA --- */
+.gameBoard {
+    flex-grow: 3;
+    /* Fondo de mesa oscuro, color vino tinto/púrpura muy oscuro */
+    background: radial-gradient(circle, #290222, #1a010c);
+    border: 8px solid transparent;
+    /* Borde de neón fucsia */
+    border-image: linear-gradient(145deg, #ff007f, #e60073, #ff007f) 1;
+    /* Sombra de neón fucsia */
+    box-shadow: inset 0 0 30px rgba(87, 0, 54, 0.7), 0 0 20px rgba(255, 0, 127, 0.4);
+    margin: 0;
     border-radius: 10px;
     position: relative;
-    overflow: hidden; /* (Petición 6) Ocultar scroll y giros */
-    display: flex; /* Mantenido para centrar el watermark */
+    overflow: hidden;
+    display: flex;
     justify-content: center;
     align-items: center;
 }
+/* --- FIN ESTILO MESA --- */
 
 .watermark {
     position: absolute;
@@ -98,79 +206,62 @@ body {
 }
 
 .boardTilesContainer {
-    /* (Petición 6) Cambiado de Flexbox a Posicionamiento Relativo */
     position: relative;
     width: 100%;
     height: 100%;
-    overflow: hidden; /* (Petición 6) Scroll eliminado */
+    overflow: hidden;
     z-index: 2;
-    /* (Petición 3) Gradiente muy sutil para el tablero */
+    /* Velo sutil sobre la mesa para dar profundidad */
     background: linear-gradient(rgba(255, 255, 255, 0.03), rgba(255, 255, 255, 0.01));
 }
 
 
 .boardTileWrapper {
-    /* (Petición 6) Fichas ahora posicionadas absolutamente por React */
     position: absolute;
-    /* (Petición 3) Transición suave para movimiento */
     transition: left 0.3s ease-out, top 0.3s ease-out, transform 0.3s ease-out;
 }
 
-/* Estilos para resaltar extremos del tablero */
 .boardEndHighlight {
-    position: absolute; /* (Petición 6) Posicionado por JS */
-    width: 40px; /* Ancho del área clickeable */
-    height: 80px; /* Alto del área clickeable */
-    z-index: 3; /* Encima de las fichas del tablero */
+    position: absolute;
+    width: 40px;
+    height: 80px;
+    z-index: 3;
     cursor: pointer;
-    border: 3px dashed transparent; /* Borde punteado oculto */
+    border: 3px dashed transparent;
     border-radius: 8px;
     transition: border-color 0.2s ease-out, background-color 0.2s ease-out;
-    pointer-events: none; /* Desactivado por defecto */
+    pointer-events: none;
 }
-/* (Petición 6) Selectores .start y .end eliminados, JS maneja la posición */
 
 .boardEndHighlight.active {
-    border-color: #ffeb3b; /* Amarillo brillante */
-    background-color: rgba(255, 235, 59, 0.2); /* Fondo amarillo semitransparente */
-    pointer-events: all; /* Activar clics cuando está activo */
+    border-color: #ffeb3b;
+    background-color: rgba(255, 235, 59, 0.2);
+    pointer-events: all;
 }
 .boardEndHighlight.active:hover {
-    background-color: rgba(255, 235, 59, 0.4); /* Más intenso al pasar el mouse */
+    background-color: rgba(255, 235, 59, 0.4);
 }
 
-
-.playersArea {
-    position: absolute;
-    top: 50px;
-    left: 0;
-    width: 100%;
-    height: calc(100vh - 50px - 140px);
-    pointer-events: none;
-    z-index: 1;
-}
-
-.playerTop { position: absolute; top: 15px; left: 50%; transform: translateX(-50%); }
-.playerLeft { position: absolute; top: 50%; left: 15px; transform: translateY(-50%); }
-.playerRight { position: absolute; top: 50%; right: 15px; transform: translateY(-50%); }
-.playerBottom { position: absolute; bottom: 15px; left: 50%; transform: translateX(-50%); }
-
+/* --- ESTILO DE NEÓN PARA LA BARRA DE FICHAS --- */
 .playerHandTray {
-    position: absolute;
-    bottom: 0;
-    left: 0;
-    right: 0;
+    flex-shrink: 0;
     height: 140px;
-    background: linear-gradient(to bottom, #8B4513, #5A2D0C);
-    border-top: 5px solid #4a250a;
-    box-shadow: 0 -5px 15px rgba(0, 0, 0, 0.4);
+    /* Mismo fondo que la barra superior */
+    background: linear-gradient(90deg, #300533, #5a0101 50%, #300533 100%);
+    /* Borde de neón fucsia */
+    border-top: 2px solid #ff007f;
+    /* Sombra de neón */
+    box-shadow: 0 -2px 15px rgba(255, 0, 127, 0.4);
     display: flex;
     justify-content: center;
     align-items: center;
     padding: 0 80px;
     z-index: 20;
     box-sizing: border-box;
+    position: relative;
 }
+/* --- FIN ESTILO BARRA DE FICHAS --- */
+
 
 .handTiles {
     display: flex;
@@ -235,24 +326,35 @@ body {
     user-select: none;
 }
 
-/* (Petición 6) JS ahora controla la rotación. Estas clases definen las dimensiones base. */
-.tile.onBoard.normal { width: 70px; height: 35px; flex-direction: row; }
-.tile.onBoard.double { width: 35px; height: 70px; flex-direction: column; }
+.tile.onBoard {
+    border-radius: var(--tile-radius, 6px);
+}
+
+.tile.onBoard.normal {
+    width: var(--tile-w-normal, 70px);
+    height: var(--tile-h-normal, 35px);
+    flex-direction: row;
+}
+.tile.onBoard.double {
+    width: var(--tile-h-normal, 35px);
+    height: var(--tile-w-normal, 70px);
+    flex-direction: column;
+}
 .tile.onBoard.normal .half { width: 50%; height: 100%; }
 .tile.onBoard.double .half { width: 100%; height: 50%; }
-.tile.onBoard.normal .divider { height: 85%; width: 2px; margin: auto 1px; }
-.tile.onBoard.double .divider { height: 2px; width: 85%; margin: 1px auto; }
+.tile.onBoard.normal .divider { height: 85%; width: var(--divider-size, 2px); margin: auto 1px; }
+.tile.onBoard.double .divider { height: var(--divider-size, 2px); width: 85%; margin: 1px auto; }
 
 .tile.inHand {
-    width: 50px;
-    height: 100px;
-    border-radius: 6px;
+    width: 6.5vh;
+    height: 13vh;
+    border-radius: 0.8vh;
     box-shadow: 2px 2px 6px rgba(0, 0, 0, 0.5);
     flex-direction: column;
 }
 .tile.inHand .half { width: 100%; height: 50%; }
-.tile.inHand .divider { height: 2px; width: 90%; margin: 1px auto; }
-.tile.inHand:hover:not(.disabled) {
+.tile.inHand .divider { height: 0.25vh; min-height: 1px; width: 90%; margin: 0.1vh auto; }
+.tile.inHand:hover:not(:disabled) {
     transform: scale(1.05) translateY(-8px);
     z-index: 1;
 }
@@ -270,10 +372,10 @@ body {
     padding: 1px;
 }
 .tile.selectedHighlight {
-    border: 3px solid #ff9800; /* Naranja */
+    border: 3px solid #ff9800;
     box-shadow: 0 0 12px rgba(255, 152, 0, 0.8), 2px 2px 6px rgba(0, 0, 0, 0.5);
-    transform: scale(1.03) translateY(-6px); /* Ligeramente levantada */
-    padding: 0px; /* Ajustar padding por borde */
+    transform: scale(1.03) translateY(-6px);
+    padding: 0px;
 }
 
 
@@ -298,17 +400,8 @@ body {
     grid-template-columns: repeat(3, 1fr);
     grid-template-rows: repeat(3, 1fr);
     gap: 1px;
-}
-
-/* Separar solo las filas para fichas de seis puntos */
-.pips-6.pipContainer {
-    grid-template-rows: 1fr 1fr 1fr;
-    gap: 15px 1px;
-}
-
-/* Ajuste para fichas en mano para evitar overflow */
-.tile.inHand .pips-6.pipContainer {
-    gap: 1px 25px;
+    padding: 10%;
+    box-sizing: border-box;
 }
 
 .pip {
@@ -320,9 +413,15 @@ body {
     align-self: center;
     justify-self: center;
 }
-.inHand .pip { width: 7px; height: 7px; }
-.onBoard.normal .pip { width: 5px; height: 5px; }
-.onBoard.double .pip { width: 5px; height: 5px; }
+.inHand .pip {
+    width: 0.9vh;
+    height: 0.9vh;
+}
+
+.tile.onBoard .pip {
+    width: var(--pip-size, 5px);
+    height: var(--pip-size, 5px);
+}
 
 .pip-1 { grid-area: 1 / 1; }
 .pip-2 { grid-area: 1 / 2; }
@@ -334,44 +433,55 @@ body {
 .pip-8 { grid-area: 3 / 2; }
 .pip-9 { grid-area: 3 / 3; }
 
+.pips-6.pipContainer {
+    grid-template-rows: repeat(2, 1fr);
+    grid-template-columns: repeat(3, 1fr);
+    gap: 5% 10%;
+}
 .pips-6 .pip-1 { grid-area: 1 / 1; }
-.pips-6 .pip-3 { grid-area: 1 / 2; }
-.pips-6 .pip-6 { grid-area: 1 / 3; }
+.pips-6 .pip-2 { grid-area: 1 / 2; }
+.pips-6 .pip-3 { grid-area: 1 / 3; }
 .pips-6 .pip-4 { grid-area: 2 / 1; }
-.pips-6 .pip-7 { grid-area: 2 / 2; }
-.pips-6 .pip-9 { grid-area: 2 / 3; }
-.pips-6 .pip-5 { display: none; }
+.pips-6 .pip-5 { grid-area: 2 / 2; }
+.pips-6 .pip-6 { grid-area: 2 / 3; }
 
-/* (Petición del usuario) Override para pips-6 en fichas dobles (vertical) */
+.tile.inHand .pips-6.pipContainer,
+.tile.double .pips-6.pipContainer {
+    grid-template-columns: repeat(2, 1fr);
+    grid-template-rows: repeat(3, 1fr);
+    gap: 5% 20%;
+    padding: 15% 10%;
+}
+
+.tile.inHand .pips-6 .pip-1,
 .tile.double .pips-6 .pip-1 { grid-area: 1 / 1; }
-.tile.double .pips-6 .pip-3 { grid-area: 2 / 1; }
-.tile.double .pips-6 .pip-4 { grid-area: 3 / 1; }
-.tile.double .pips-6 .pip-6 { grid-area: 1 / 2; }
-.tile.double .pips-6 .pip-7 { grid-area: 2 / 2; }
-.tile.double .pips-6 .pip-9 { grid-area: 3 / 2; }
-.tile.double .pips-6 .pip-5 { display: none; }
 
-/* Override para pips-6 en fichas de la mano (verticales, así que pips verticales) */
-.tile.inHand .pips-6 .pip-1 { grid-area: 1 / 1; }
-.tile.inHand .pips-6 .pip-3 { grid-area: 2 / 1; }
-.tile.inHand .pips-6 .pip-4 { grid-area: 3 / 1; }
-.tile.inHand .pips-6 .pip-6 { grid-area: 1 / 2; }
-.tile.inHand .pips-6 .pip-7 { grid-area: 2 / 2; }
-.tile.inHand .pips-6 .pip-9 { grid-area: 3 / 2; }
-.tile.inHand .pips-6 .pip-5 { display: none; }
+.tile.inHand .pips-6 .pip-2,
+.tile.double .pips-6 .pip-2 { grid-area: 2 / 1; }
+
+.tile.inHand .pips-6 .pip-3,
+.tile.double .pips-6 .pip-3 { grid-area: 3 / 1; }
+
+.tile.inHand .pips-6 .pip-4,
+.tile.double .pips-6 .pip-4 { grid-area: 1 / 2; }
+
+.tile.inHand .pips-6 .pip-5,
+.tile.double .pips-6 .pip-5 { grid-area: 2 / 2; }
+
+.tile.inHand .pips-6 .pip-6,
+.tile.double .pips-6 .pip-6 { grid-area: 3 / 2; }
 
 
 .avatarContainer {
     display: flex;
     align-items: center;
     gap: 8px;
-    /* (Petición 3) Gradiente y borde mejorado */
     background: linear-gradient(to bottom, rgba(40, 40, 40, 0.65), rgba(20, 20, 20, 0.75));
     border: 1px solid rgba(255, 255, 255, 0.1);
     border-radius: 25px;
     padding: 4px;
     padding-right: 10px;
-    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.5); /* Sombra mejorada */
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.5);
     width: auto;
     min-width: 150px;
     pointer-events: all;
@@ -387,8 +497,9 @@ body {
     background: rgba(0, 0, 0, 0.7);
 }
 
+/* --- ESTILO CLAVE --- */
 .avatarImageWrapper {
-    position: relative;
+    position: relative; /* <-- ESTO ES VITAL */
     width: 38px;
     height: 38px;
     border-radius: 50%;
@@ -397,7 +508,10 @@ body {
     border: 1px solid #777;
     transition: all 0.2s ease-out;
     flex-shrink: 0;
+    overflow: hidden; /* <-- ESTO ES VITAL (recorta el contenido) */
 }
+/* --- FIN ESTILO CLAVE --- */
+
 .avatarImageWrapper.isReadyGlow {
     box-shadow: 0 0 6px #32cd32;
     background: #32cd32;
@@ -434,6 +548,7 @@ body {
     font-weight: bold;
     border: 1px solid white;
     box-shadow: 0 0 3px rgba(0,0,0,0.5);
+    z-index: 5; /* Asegura que esté sobre la imagen */
 }
 
 .playerInfo {
@@ -575,7 +690,7 @@ body {
 
 .readyButton {
     position: absolute;
-    top: calc(50% + 40px); /* Ajustar según sea necesario */
+    top: calc(50% + 40px);
     left: 50%;
     transform: translate(-50%, -50%);
     background: linear-gradient(45deg, #16a34a, #22c55e);
@@ -650,9 +765,9 @@ body {
     to { opacity: 1; transform: scale(1); }
 }
 
-.opponentHand.playerTop { top: 65px; left: 50%; transform: translateX(-50%); flex-direction: row; }
-.opponentHand.playerLeft { top: 50%; left: 180px; transform: translateY(-50%); flex-direction: column; }
-.opponentHand.playerRight { top: 50%; right: 180px; transform: translateY(-50%); flex-direction: column; }
+.opponentHand.playerTop { bottom: -10px; left: 50%; transform: translateX(-50%); flex-direction: row; }
+.opponentHand.playerLeft { right: -10px; top: 50%; transform: translateY(-50%); flex-direction: column; }
+.opponentHand.playerRight { left: -10px; top: 50%; transform: translateY(-50%); flex-direction: column; }
 
 .opponentTileWrapper {
     display: flex;
@@ -791,33 +906,100 @@ body {
     100% { opacity: 0; transform: scale(0.7) rotate(-5deg); }
 }
 
+.settingsButton {
+    position: absolute;
+    top: 8px;
+    left: 8px;
+    z-index: 20;
+    background: rgba(0,0,0,0.5);
+    border: 1px solid rgba(255,255,255,0.2);
+    color: white;
+    border-radius: 50%;
+    width: 30px;
+    height: 30px;
+    font-size: 1.2rem;
+    cursor: pointer;
+    display: grid;
+    place-items: center;
+    padding: 0;
+}
+.settingsButton:hover {
+    background: rgba(0,0,0,0.8);
+}
+
+.settingsPanel {
+    position: absolute;
+    top: 45px;
+    left: 8px;
+    z-index: 20;
+    background: rgba(10, 10, 10, 0.9);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 8px;
+    padding: 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    backdrop-filter: blur(4px);
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.4);
+}
+
+.settingsSection {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.settingsLabel {
+    font-size: 0.8rem;
+    color: #aaa;
+    text-align: center;
+}
+
+.settingsControls {
+    display: flex;
+    gap: 5px;
+}
+
+.settingsControls button {
+    background: #333;
+    border: 1px solid #555;
+    color: white;
+    border-radius: 4px;
+    width: 35px;
+    height: 30px;
+    font-size: 1rem;
+    cursor: pointer;
+}
+.settingsControls button:hover {
+    background: #444;
+}
+.settingsControls button:active {
+    background: #222;
+}
+
+
 @media (max-width: 768px) {
     body { overflow: auto; }
     .gameContainer { height: auto; min-height: 100vh; }
     .topBar { height: 45px; padding: 5px 10px; }
-    .gameGoal, .topRightInfo, .turnTimerDisplay { font-size: 0.8rem; }
-    .gameBoard { height: 50vh; margin: 5px 10px 115px 10px; border-width: 8px; }
+    .gameTitle, .topRightInfo, .turnTimerDisplay { font-size: 0.8rem; }
+    
+    .playerAreaTop, .playerAreaBottom { height: 60px; }
+    .playerAreaLeft, .playerAreaRight { width: var(--side-area-width, 140px); }
+    .gameBoard { height: 50vh; border-width: 8px; margin: 5px; }
+    
     .playerHandTray { height: 110px; padding: 0 50px; }
     
-    /* (Petición 3) Ajustes de responsividad */
-    .tile.inHand { width: 40px; height: 80px; border-radius: 4px; }
-    .inHand .pip { width: 6px; height: 6px; }
-    .tile.onBoard.normal { width: 56px; height: 28px; }
-    .tile.onBoard.double { width: 28px; height: 56px; }
-    .onBoard .pip { width: 4.5px; height: 4.5px; }
-    
     .boardEndHighlight { width: 30px; height: 60px; }
-    /* (Petición 6) Eliminados .start y .end */
 
-    .opponentHand.playerLeft { left: 155px; }
-    .opponentHand.playerRight { right: 155px; }
-    .opponentHand.playerTop { top: 55px; }
+    .opponentHand.playerLeft { right: 0; }
+    .opponentHand.playerRight { left: 0; }
+    .opponentHand.playerTop { bottom: 0; }
     .opponentHand .tile.opponentTile { width: 18px; height: 36px; }
     .opponentHand .tile.opponentTile .pip { width: 2.5px; height: 2.5px; }
     .opponentHand.playerTop .tile.opponentTile { width: 25px; height: 12px; }
     .opponentHand.playerTop .tile.opponentTile .pip { width: 2px; height: 2px; }
 
-    .playersArea { margin-top: -10px; }
     .avatarContainer { min-width: 130px; gap: 4px; padding: 3px; padding-right: 6px; }
     .avatarImageWrapper { width: 28px; height: 28px; }
     .readyIndicator { width: 10px; height: 10px; font-size: 0.5rem; bottom: -2px; right: -2px; }
@@ -846,31 +1028,30 @@ body {
     .finalScores h3 { font-size: 1rem; }
     .finalScores p { font-size: 0.9rem; }
     .backToLobbyButton { padding: 10px 25px; font-size: 0.9rem; }
+    
+    .gameBackToLobbyButton { width: 30px; height: 30px; }
+    .gameBackToLobbyButton::after { width: 8px; height: 8px; border-width: 2px; }
+    .topLeftControls { gap: 10px; }
 }
 
 @media (max-width: 480px) {
     .topBar { height: 40px; padding: 4px 8px; }
-    .gameGoal, .topRightInfo, .turnTimerDisplay { font-size: 0.7rem; }
-    .gameBoard { margin: 5px; margin-bottom: 105px; border-width: 6px; }
+    .gameTitle, .topRightInfo, .turnTimerDisplay { font-size: 0.7rem; }
+    .gameBoard { margin: 5px; border-width: 6px; }
     .playerHandTray { height: 100px; padding: 0 40px; }
     
-    /* (Petición 3) Fichas más pequeñas para móviles */
-    .tile.inHand { width: 32px; height: 64px; border-radius: 3px; }
-    .inHand .pip { width: 5px; height: 5px; }
-    .tile.onBoard.normal { width: 44px; height: 22px; }
-    .tile.onBoard.double { width: 22px; height: 44px; }
-    .onBoard .pip { width: 3.5px; height: 3.5px; }
+    .playerAreaTop, .playerAreaBottom { height: 55px; }
+    .playerAreaLeft, .playerAreaRight { width: var(--side-area-width, 125px); }
     
     .handTiles { gap: 2px; }
     .boardEndHighlight { width: 25px; height: 50px; }
-    /* (Petición 6) Eliminados .start y .end */
     
     .avatarContainer { min-width: 120px; }
     .bottomIcons { bottom: 5px; right: 5px; gap: 5px; }
     .iconButton { width: 30px; height: 30px; font-size: 1rem; }
     .chatContainer, .emojiPanel { bottom: 105px; height: 180px; }
-    .opponentHand.playerLeft { left: 140px; }
-    .opponentHand.playerRight { right: 140px; }
+    .opponentHand.playerLeft { right: 0; }
+    .opponentHand.playerRight { left: 0; }
     .opponentHand .tile.opponentTile { width: 16px; height: 32px; }
     .opponentHand .tile.opponentTile .pip { width: 2px; height: 2px; }
     .opponentHand.playerTop .tile.opponentTile { width: 22px; height: 11px; }
@@ -881,4 +1062,97 @@ body {
     .gameOverContent h2 { font-size: 1.8rem; }
     .winnerAnnouncement { font-size: 0.9rem; }
     .winnerNames { font-size: 1.3rem; }
+    
+    .gameBackToLobbyButton { width: 28px; height: 28px; }
+    .gameBackToLobbyButton::after { width: 7px; height: 7px; border-width: 2px; }
+    .topLeftControls { gap: 8px; }
+}
+
+/* --- ESTILOS MODIFICADOS/NUEVOS --- */
+
+@keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+/* Overlay oscuro sobre el avatar */
+.avatarImageOverlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.6);
+    /* No necesita border-radius, el padre (.avatarImageWrapper) lo recorta */
+    z-index: 11; /* Encima de la imagen, debajo del botón */
+    animation: fadeIn 0.2s ease;
+    pointer-events: none; /* Deja pasar el clic al botón */
+}
+
+/* Botón '+' DENTRO del avatar */
+.addFriendButton {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 12; /* Encima del overlay */
+    background: transparent;
+    border: none;
+    color: white;
+    font-size: 1.8rem; /* Tamaño del '+' */
+    font-weight: 300; /* Un '+' más fino */
+    cursor: pointer;
+    padding: 0;
+    display: grid;
+    place-items: center;
+    /* No necesita border-radius, el padre (.avatarImageWrapper) lo recorta */
+    transition: background 0.2s ease;
+    animation: fadeIn 0.2s ease;
+    opacity: 0.9;
+    text-shadow: 0 1px 2px rgba(0,0,0,0.7);
+}
+
+.addFriendButton:hover {
+    background: rgba(255, 255, 255, 0.1);
+    opacity: 1;
+}
+
+/* Toast de notificación (Arriba a la derecha) */
+.friendRequestToast {
+    position: absolute;
+    top: 60px; /* Debajo de la barra superior */
+    right: 20px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    background-color: #22c55e; /* Verde brillante */
+    color: white;
+    padding: 12px 20px;
+    border-radius: 8px;
+    font-size: 0.9rem;
+    font-weight: 500;
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+    z-index: 1000;
+    animation: toastAnimation 3s ease-out forwards;
+}
+
+/* Animación para el Toast (Fade in y rise, luego fade out y rise) */
+@keyframes toastAnimation {
+    0% {
+        transform: translateY(20px);
+        opacity: 0;
+    }
+    15% {
+        transform: translateY(0);
+        opacity: 1;
+    }
+    85% {
+        transform: translateY(0);
+        opacity: 1;
+    }
+    100% {
+        transform: translateY(-10px);
+        opacity: 0;
+    }
 }

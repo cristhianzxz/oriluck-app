@@ -1,6 +1,3 @@
-/*
-* filepath: DominoGame.jsx
-*/
 import React, { useState, useEffect, useContext, useRef, useMemo } from 'react';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import './DominoGame.css';
@@ -12,13 +9,8 @@ import {
 } from 'firebase/firestore';
 import { httpsCallable } from 'firebase/functions';
 
-const formatCurrency = (value) => {
-    const number = Number(value) || 0;
-    return new Intl.NumberFormat('es-VE', {
-        minimumFractionDigits: 2,
-        maximumFractionDigits: 2,
-    }).format(number);
-};
+// --- NUEVA LÍNEA DE IMPORTACIÓN ---
+import { PlayerAvatar } from './PlayerAvatar';
 
 const DOMINO_CONSTANTS = {
     TARGET_SCORE_TOURNAMENT: 100,
@@ -26,24 +18,11 @@ const DOMINO_CONSTANTS = {
 };
 
 const START_GAME_DELAY_SECONDS = 60;
-const TURN_TIMEOUT_SECONDS = 30; // Default, backend puede sobreescribir
-const PASS_TIMEOUT_SECONDS = 10; // Para referencia en frontend
+const TURN_TIMEOUT_SECONDS = 30;
+const PASS_TIMEOUT_SECONDS = 10;
 
 const EMOJI_REACTIONS = ['😂', '😎', '😠', '😢', '🔥', '👍'];
 
-// --- INICIO LÓGICA DE POSICIONAMIENTO DEL TABLERO (PETICIÓN 6, 1, 2) ---
-const TILE_WIDTH_NORMAL = 70;
-const TILE_HEIGHT_NORMAL = 35;
-const TILE_WIDTH_DOUBLE = 35;
-const TILE_HEIGHT_DOUBLE = 70;
-const TILE_GAP = 5; // Espacio entre fichas
-const BOARD_PADDING = 15; // Padding estético dentro del contenedor
-
-/**
- * (Petición 2)
- * Función getValidMoves sincronizada con el backend (dominoEngine.js)
- * para evitar inconsistencias de UI.
- */
 function getValidMoves(hand, board) {
     const validMoves = [];
     if (!hand || !Array.isArray(hand)) return [];
@@ -55,7 +34,6 @@ function getValidMoves(hand, board) {
     }
     const firstTile = board[0];
     const lastTile = board[board.length - 1];
-    // Se usa console.error en lugar de logger.error y se chequea la propiedad
     if (typeof firstTile?.top !== 'number' || typeof lastTile?.bottom !== 'number') {
         console.error("Board tiles missing or invalid top/bottom properties:", {first: firstTile, last: lastTile});
         return [];
@@ -64,7 +42,6 @@ function getValidMoves(hand, board) {
     const endValue = lastTile.bottom;
 
     hand.forEach((tile, index) => {
-        // Se usa chequeo de tipo 'number' como en el backend
         if (!tile || typeof tile.top !== 'number' || typeof tile.bottom !== 'number') return;
         const canPlayStart = tile.top === startValue || tile.bottom === startValue;
         const canPlayEnd = tile.top === endValue || tile.bottom === endValue;
@@ -78,14 +55,17 @@ function getValidMoves(hand, board) {
     return validMoves;
 }
 
+/*
+* =======================================================================
+* FUNCIÓN calculateBoardLayout CORREGIDA (V8)
+* =======================================================================
+*/
+function calculateBoardLayout(board, containerWidth, containerHeight, tileScale, selectedTile) {
+    const TILE_HEIGHT_NORMAL = Math.max(20, Math.floor(containerHeight / tileScale));
+    const TILE_WIDTH_NORMAL = TILE_HEIGHT_NORMAL * 2;
+    const TILE_GAP = Math.max(2, Math.floor(TILE_HEIGHT_NORMAL / 10));
+    const BOARD_PADDING = Math.max(5, Math.floor(TILE_HEIGHT_NORMAL / 3));
 
-/**
- * (Petición 6, 1, 2)
- * Calcula la posición (x, y, rotación) de cada ficha en el tablero.
- * (Petición 2) Crece desde el centro (ficha media) hacia los extremos.
- * (Petición 1) Fichas dobles siempre son verticales (rotation 90).
- */
-function calculateBoardLayout(board, containerWidth, containerHeight) {
     if (!board || board.length === 0 || containerWidth === 0) {
         return { layout: [], ends: { start: null, end: null } };
     }
@@ -101,209 +81,458 @@ function calculateBoardLayout(board, containerWidth, containerHeight) {
         maxY: containerHeight - BOARD_PADDING,
     };
 
-    // --- Helpers ---
-    // Gira 90 grados a la derecha (sentido horario)
-    // [1,0] (E) -> [0,1] (S) -> [-1,0] (W) -> [0,-1] (N) -> [1,0] (E)
     const turnRight = (dir) => (dir[0] === 1 ? [0, 1] : dir[0] === -1 ? [0, -1] : dir[1] === 1 ? [-1, 0] : [1, 0]);
-    // Gira 90 grados a la izquierda (sentido anti-horario)
-    // [1,0] (E) -> [0,-1] (N) -> [-1,0] (W) -> [0,1] (S) -> [1,0] (E)
     const turnLeft = (dir) => (dir[0] === 1 ? [0, -1] : dir[0] === -1 ? [0, 1] : dir[1] === 1 ? [1, 0] : [-1, 0]);
 
-    // (Petición 1 y 2) Calcula w, h, rotation, orientationClass
+    // --- LÓGICA V8: Restaurada a la lógica ORIGINAL que te gusta (la "T") ---
     const getTileProps = (tile, dir) => {
         const isDouble = tile.top === tile.bottom;
         let w, h, rotation, orientationClass;
         
+        w = TILE_WIDTH_NORMAL;
+        h = TILE_HEIGHT_NORMAL;
+        orientationClass = 'normal';
+
         if (isDouble) {
-            // (Petición 1 Fix) Force vertical by using 'normal' base (70x35) and rotating 90.
-            w = TILE_WIDTH_NORMAL;
-            h = TILE_HEIGHT_NORMAL;
-            rotation = 90;
-            orientationClass = 'normal'; 
+            if (dir[0] !== 0) { // Si la línea es horizontal
+                rotation = 90; // Poner doble vertical (cruzado)
+            } else { // Si la línea es vertical
+                rotation = 0; // Poner doble horizontal (acostado)
+            }
         }
-        else if (dir[0] !== 0) { // Normal, Horizontal (E or W)
-            w = TILE_WIDTH_NORMAL;
-            h = TILE_HEIGHT_NORMAL;
-            // (Petición 2 Fix) Rotation is always 0. The backend `board` array is already
-            // oriented (T,B). We just render [T|B] consistently.
-            rotation = 0;
-            orientationClass = 'normal';
-        } else { // Normal, Vertical (S or N)
-            w = TILE_WIDTH_NORMAL;
-            h = TILE_HEIGHT_NORMAL;
-            rotation = (dir[1] === 1) ? 90 : -90;
-            orientationClass = 'normal'; // 70x35 base, rotated
+        else if (dir[0] !== 0) { // Ficha normal, línea horizontal
+            rotation = 0; 
+        } else { // Ficha normal, línea vertical
+            rotation = -90; 
         }
         return { w, h, rotation, isDouble, orientationClass };
     };
     
-    // (Petición 2) Colocar la ficha del medio (opener)
     const openerIsDouble = openerTile.top === openerTile.bottom;
     const openerProps = {
-        w: TILE_WIDTH_NORMAL, // Base width
-        h: TILE_HEIGHT_NORMAL, // Base height
-        rotation: openerIsDouble ? 90 : 0, // (Petición 1 Fix) Opener double is 90
+        w: TILE_WIDTH_NORMAL,
+        h: TILE_HEIGHT_NORMAL,
+        rotation: openerIsDouble ? 90 : 0,
         isDouble: openerIsDouble,
-        orientationClass: 'normal' // Opener base is *always* normal (70x35)
+        orientationClass: 'normal'
     };
     
+    const openerIsVertical = (openerProps.rotation === 90 || openerProps.rotation === -90);
+    const openerRenderedW = openerIsVertical ? openerProps.h : openerProps.w;
+    const openerRenderedH = openerIsVertical ? openerProps.w : openerProps.h;
+
     const midLayout = {
         tile: openerTile,
         x: containerWidth / 2,
         y: containerHeight / 2,
-        ...openerProps
+        ...openerProps,
+        renderedW: openerRenderedW,
+        renderedH: openerRenderedH
     };
     chain[midIndex] = midLayout;
 
-    // --- (Petición 2) Crecer hacia el 'end' (derecha) ---
+    // --- RAMA "END" (Hacia adelante) ---
     let endHead = {
         x: midLayout.x,
         y: midLayout.y,
-        dir: [1, 0], // Iniciar hacia la derecha
+        dir: [1, 0],
         prevLayout: midLayout
     };
+    let hasTurnedEnd = false;
 
     for (let i = midIndex + 1; i < board.length; i++) {
         const tile = board[i];
-        let { w, h, rotation, orientationClass } = getTileProps(tile, endHead.dir); // MODIFIED
+        let { w, h, rotation, isDouble, orientationClass } = getTileProps(tile, endHead.dir);
         let prevLayout = endHead.prevLayout;
         
-        // Calcular mitades (previo y nuevo)
-        let halfPrev = (prevLayout.rotation === 90 || prevLayout.rotation === -90) ? prevLayout.h / 2 : prevLayout.w / 2;
-        let halfNew = (rotation === 90 || rotation === -90) ? h / 2 : w / 2;
-        
-        // Corrección si la orientación cambia
-        if ((prevLayout.rotation === 90 || prevLayout.rotation === -90) !== (rotation === 90 || rotation === -90)) {
-            if (prevLayout.rotation === 90 || prevLayout.rotation === -90) { // Prev V, New H
-                halfPrev = prevLayout.h / 2; halfNew = w / 2;
-            } else { // Prev H, New V
-                halfPrev = prevLayout.w / 2; halfNew = h / 2;
-            }
+        if (hasTurnedEnd && endHead.dir[0] !== 0 && !isDouble) {
+            rotation = 180;
         }
 
-        let nextX = endHead.x + endHead.dir[0] * (halfPrev + halfNew + TILE_GAP);
-        let nextY = endHead.y + endHead.dir[1] * (halfPrev + halfNew + TILE_GAP);
+        let prevRenderedW = prevLayout.renderedW;
+        let prevRenderedH = prevLayout.renderedH;
 
-        // Comprobar límites
-        let nextLeft = nextX - (w / 2); let nextRight = nextX + (w / 2);
-        let nextTop = nextY - (h / 2); let nextBottom = nextY + (h / 2);
+        let newIsVertical = (rotation === 90 || rotation === -90);
+        let newRenderedW = newIsVertical ? h : w;
+        let newRenderedH = newIsVertical ? w : h;
+        // --- CORRECCIÓN V8: Incluir dobles acostados (rotation 0) en las dimensiones (w,h) ---
+        if (rotation === 180 || (isDouble && rotation === 0)) {
+             newRenderedW = w;
+             newRenderedH = h;
+        }
 
-        if (nextRight > limits.maxX || nextLeft < limits.minX || nextBottom > limits.maxY || nextTop < limits.minY) {
-            endHead.dir = turnRight(endHead.dir); // Girar
-            
-            // Recalcular props con nueva dirección
-            ({ w, h, rotation, orientationClass } = getTileProps(tile, endHead.dir)); // MODIFIED
-            
-            // Recalcular mitades
-            halfPrev = (prevLayout.rotation === 90 || prevLayout.rotation === -90) ? prevLayout.h / 2 : prevLayout.w / 2;
-            halfNew = (rotation === 90 || rotation === -90) ? h / 2 : w / 2;
-            if ((prevLayout.rotation === 90 || prevLayout.rotation === -90) !== (rotation === 90 || rotation === -90)) {
-                if (prevLayout.rotation === 90 || prevLayout.rotation === -90) { halfPrev = prevLayout.h / 2; halfNew = w / 2; } 
-                else { halfPrev = prevLayout.w / 2; halfNew = h / 2; }
-            }
 
-            // Recalcular posición
+        let halfPrev, halfNew, nextX, nextY;
+        if (endHead.dir[0] !== 0) { // Moviendo en Horizontal
+            halfPrev = prevRenderedW / 2;
+            halfNew = newRenderedW / 2;
             nextX = endHead.x + endHead.dir[0] * (halfPrev + halfNew + TILE_GAP);
+            nextY = endHead.y;
+        } else { // Moviendo en Vertical
+            halfPrev = prevRenderedH / 2;
+            halfNew = newRenderedH / 2;
+            nextX = endHead.x;
             nextY = endHead.y + endHead.dir[1] * (halfPrev + halfNew + TILE_GAP);
         }
+
+        let didTurn = false;
+
+        // --- INICIO DE LÓGICA DE "GIRO PREVENTIVO" (V8 - AMBAS DIRECCIONES) ---
+        if (i < board.length - 1 && !hasTurnedEnd) {
+            const nextTileInList = board[i + 1];
+            const nextTileIsDouble = nextTileInList.top === nextTileInList.bottom;
+
+            if (nextTileIsDouble) {
+                let currentTile_X = nextX, currentTile_Y = nextY;
+                let currentTile_RenderedW = newRenderedW, currentTile_RenderedH = newRenderedH;
+                
+                let nextTileProps = getTileProps(nextTileInList, endHead.dir);
+                
+                let nextIsVertical_Simulated = (nextTileProps.rotation === 90 || nextTileProps.rotation === -90);
+                let nextTile_Simulated_W = nextIsVertical_Simulated ? nextTileProps.h : nextTileProps.w;
+                let nextTile_Simulated_H = nextIsVertical_Simulated ? nextTileProps.w : nextTileProps.h;
+                if (nextTileProps.isDouble && nextTileProps.rotation === 0) {
+                     nextTile_Simulated_W = nextTileProps.w;
+                     nextTile_Simulated_H = nextTileProps.h;
+                }
+                
+                let willCollide = false;
+
+                if (endHead.dir[0] !== 0) {
+                    // --- Chequeo H->V (Lados Izquierdo/Derecho) ---
+                    let nextTile_Simulated_X = currentTile_X + endHead.dir[0] * (currentTile_RenderedW / 2 + nextTile_Simulated_W / 2 + TILE_GAP);
+                    let nextLeft_Simulated = nextTile_Simulated_X - (nextTile_Simulated_W / 2);
+                    let nextRight_Simulated = nextTile_Simulated_X + (nextTile_Simulated_W / 2);
+                    
+                    if (nextRight_Simulated > limits.maxX || nextLeft_Simulated < limits.minX) {
+                        willCollide = true;
+                    }
+
+                } else {
+                    // --- Chequeo V->H (Arriba/Abajo) ---
+                    let nextTile_Simulated_Y = currentTile_Y + endHead.dir[1] * (currentTile_RenderedH / 2 + nextTile_Simulated_H / 2 + TILE_GAP);
+                    let nextTop_Simulated = nextTile_Simulated_Y - (nextTile_Simulated_H / 2);
+                    let nextBottom_Simulated = nextTile_Simulated_Y + (nextTile_Simulated_H / 2);
+
+                    if (nextBottom_Simulated > limits.maxY || nextTop_Simulated < limits.minY) {
+                        willCollide = true;
+                    }
+                }
+
+                if (willCollide) {
+                    // ¡SÍ! El doble va a chocar. Forzamos el giro AHORA.
+                    hasTurnedEnd = true;
+                    didTurn = true;
+                    const oldDir = [...endHead.dir];
+                    endHead.dir = turnLeft(endHead.dir);
+                    
+                    ({ w, h, rotation, isDouble, orientationClass } = getTileProps(tile, endHead.dir));
+                    newIsVertical = (rotation === 90 || rotation === -90);
+                    newRenderedW = newIsVertical ? h : w;
+                    newRenderedH = newIsVertical ? w : h;
+                    if(rotation === 180 || (isDouble && rotation === 0)) { newRenderedW = w; newRenderedH = h; }
+
+                    let prevIsVertical = (prevLayout.rotation === 90 || prevLayout.rotation === -90);
+                    prevRenderedW = prevIsVertical ? prevLayout.h : prevLayout.w;
+                    prevRenderedH = prevIsVertical ? prevLayout.w : prevLayout.h;
+
+                    // Recalculamos su posición (el "codo")
+                    if (oldDir[0] !== 0) { // Giro fue de Horizontal a Vertical
+                        nextX = endHead.x + oldDir[0] * (prevRenderedW / 4); 
+                        nextY = endHead.y + endHead.dir[1] * (prevRenderedH / 2 + TILE_GAP + newRenderedH / 2);
+                    } else { // Giro fue de Vertical a Horizontal
+                        nextX = endHead.x + endHead.dir[0] * (prevRenderedW / 2 + TILE_GAP + newRenderedW / 2);
+                        nextY = endHead.y + oldDir[1] * (prevRenderedH / 4);
+                    }
+                }
+            }
+        }
+        // --- FIN DE LÓGICA DE "GIRO PREVENTIVO" ---
+
+        // --- INICIO DE LÓGICA DE "GIRO NORMAL" ---
+        let nextLeft = nextX - (newRenderedW / 2);
+        let nextRight = nextX + (newRenderedW / 2);
+        let nextTop = nextY - (newRenderedH / 2);
+        let nextBottom = nextY + (newRenderedH / 2);
+
+        if (!didTurn && (nextRight > limits.maxX || nextLeft < limits.minX || nextBottom > limits.maxY || nextTop < limits.minY)) {
+            // Giro normal (la ficha actual choca)
+            hasTurnedEnd = true;
+            didTurn = true;
+            const oldDir = [...endHead.dir];
+            endHead.dir = turnLeft(endHead.dir); // Gira a la izquierda
+            
+            ({ w, h, rotation, isDouble, orientationClass } = getTileProps(tile, endHead.dir));
+            
+            if (hasTurnedEnd && endHead.dir[0] !== 0 && !isDouble) {
+                rotation = 180;
+            }
+
+            newIsVertical = (rotation === 90 || rotation === -90);
+            newRenderedW = newIsVertical ? h : w;
+            newRenderedH = newIsVertical ? w : h;
+            if(rotation === 180 || (isDouble && rotation === 0)) { newRenderedW = w; newRenderedH = h; }
+            
+            let prevIsVertical = (prevLayout.rotation === 90 || prevLayout.rotation === -90);
+            prevRenderedW = prevIsVertical ? prevLayout.h : prevLayout.w;
+            prevRenderedH = prevIsVertical ? prevLayout.w : prevLayout.h;
+
+            if (oldDir[0] !== 0) { // Giro fue de Horizontal a Vertical
+                nextX = endHead.x + oldDir[0] * (prevRenderedW / 4); 
+                nextY = endHead.y + endHead.dir[1] * (prevRenderedH / 2 + TILE_GAP + newRenderedH / 2);
+            } else { // Giro fue de Vertical a Horizontal
+                nextX = endHead.x + endHead.dir[0] * (prevRenderedW / 2 + TILE_GAP + newRenderedW / 2);
+                nextY = endHead.y + oldDir[1] * (prevRenderedH / 4);
+            }
+        }
+        // --- FIN DE LÓGICA DE "GIRO NORMAL" ---
         
-        const finalLayout = { tile, x: nextX, y: nextY, w, h, rotation, orientationClass }; // MODIFIED
+        const finalLayout = { tile, x: nextX, y: nextY, w, h, rotation, isDouble, orientationClass, renderedW: newRenderedW, renderedH: newRenderedH };
         chain[i] = finalLayout;
         endHead = { x: nextX, y: nextY, dir: endHead.dir, prevLayout: finalLayout };
     }
     
-    // --- (Petición 2) Crecer hacia el 'start' (izquierda) ---
+    // --- RAMA "START" (Hacia atrás) ---
     let startHead = {
         x: midLayout.x,
         y: midLayout.y,
-        dir: [-1, 0], // Iniciar hacia la izquierda
+        dir: [-1, 0],
         prevLayout: midLayout
     };
+    let hasTurnedStart = false;
     
     for (let i = midIndex - 1; i >= 0; i--) {
         const tile = board[i];
-        let { w, h, rotation, orientationClass } = getTileProps(tile, startHead.dir); // MODIFIED
+        let { w, h, rotation, isDouble, orientationClass } = getTileProps(tile, startHead.dir);
         let prevLayout = startHead.prevLayout;
 
-        // Calcular mitades (previo y nuevo)
-        let halfPrev = (prevLayout.rotation === 90 || prevLayout.rotation === -90) ? prevLayout.h / 2 : prevLayout.w / 2;
-        let halfNew = (rotation === 90 || rotation === -90) ? h / 2 : w / 2;
-        
-        // Corrección si la orientación cambia
-        if ((prevLayout.rotation === 90 || prevLayout.rotation === -90) !== (rotation === 90 || rotation === -90)) {
-            if (prevLayout.rotation === 90 || prevLayout.rotation === -90) { // Prev V, New H
-                halfPrev = prevLayout.h / 2; halfNew = w / 2;
-            } else { // Prev H, New V
-                halfPrev = prevLayout.w / 2; halfNew = h / 2;
-            }
+        if (hasTurnedStart && startHead.dir[0] !== 0 && !isDouble) {
+            rotation = 180;
         }
 
-        let nextX = startHead.x + startHead.dir[0] * (halfPrev + halfNew + TILE_GAP);
-        let nextY = startHead.y + startHead.dir[1] * (halfPrev + halfNew + TILE_GAP);
-        
-        // Comprobar límites
-        let nextLeft = nextX - (w / 2); let nextRight = nextX + (w / 2);
-        let nextTop = nextY - (h / 2); let nextBottom = nextY + (h / 2);
+        let prevRenderedW = prevLayout.renderedW;
+        let prevRenderedH = prevLayout.renderedH;
 
-        if (nextRight > limits.maxX || nextLeft < limits.minX || nextBottom > limits.maxY || nextTop < limits.minY) {
-            startHead.dir = turnLeft(startHead.dir); // Girar (anti-horario)
-            
-            // Recalcular props con nueva dirección
-            ({ w, h, rotation, orientationClass } = getTileProps(tile, startHead.dir)); // MODIFIED
-            
-            // Recalcular mitades
-            halfPrev = (prevLayout.rotation === 90 || prevLayout.rotation === -90) ? prevLayout.h / 2 : prevLayout.w / 2;
-            halfNew = (rotation === 90 || rotation === -90) ? h / 2 : w / 2;
-            if ((prevLayout.rotation === 90 || prevLayout.rotation === -90) !== (rotation === 90 || rotation === -90)) {
-                if (prevLayout.rotation === 90 || prevLayout.rotation === -90) { halfPrev = prevLayout.h / 2; halfNew = w / 2; } 
-                else { halfPrev = prevLayout.w / 2; halfNew = h / 2; }
-            }
+        let newIsVertical = (rotation === 90 || rotation === -90);
+        let newRenderedW = newIsVertical ? h : w;
+        let newRenderedH = newIsVertical ? w : h;
+        if(rotation === 180 || (isDouble && rotation === 0)) {
+            newRenderedW = w;
+            newRenderedH = h;
+        }
 
-            // Recalcular posición
+        let halfPrev, halfNew, nextX, nextY;
+        if (startHead.dir[0] !== 0) {
+            halfPrev = prevRenderedW / 2;
+            halfNew = newRenderedW / 2;
             nextX = startHead.x + startHead.dir[0] * (halfPrev + halfNew + TILE_GAP);
+            nextY = startHead.y;
+        } else {
+            halfPrev = prevRenderedH / 2;
+            halfNew = newRenderedH / 2;
+            nextX = startHead.x;
             nextY = startHead.y + startHead.dir[1] * (halfPrev + halfNew + TILE_GAP);
         }
+
+        let didTurn = false;
+
+        // --- INICIO DE LÓGICA DE "GIRO PREVENTIVO" (TODAS LAS DIRECCIONES) ---
+        if (i > 0 && !hasTurnedStart) {
+            const nextTileInList = board[i - 1];
+            const nextTileIsDouble = nextTileInList.top === nextTileInList.bottom;
+
+            if (nextTileIsDouble) {
+                let currentTile_X = nextX, currentTile_Y = nextY;
+                let currentTile_RenderedW = newRenderedW, currentTile_RenderedH = newRenderedH;
+
+                let nextTileProps = getTileProps(nextTileInList, startHead.dir);
+                let nextIsVertical_Simulated = (nextTileProps.rotation === 90 || nextTileProps.rotation === -90);
+                let nextTile_Simulated_W = nextIsVertical_Simulated ? nextTileProps.h : nextTileProps.w;
+                let nextTile_Simulated_H = nextIsVertical_Simulated ? nextTileProps.w : nextTileProps.h;
+                if (nextTileProps.isDouble && nextTileProps.rotation === 0) {
+                     nextTile_Simulated_W = nextTileProps.w;
+                     nextTile_Simulated_H = nextTileProps.h;
+                }
+                
+                let willCollide = false;
+
+                if (startHead.dir[0] !== 0) {
+                    // --- Chequeo H->V (Lados Izquierdo/Derecho) ---
+                    let nextTile_Simulated_X = currentTile_X + startHead.dir[0] * (currentTile_RenderedW / 2 + nextTile_Simulated_W / 2 + TILE_GAP);
+                    let nextLeft_Simulated = nextTile_Simulated_X - (nextTile_Simulated_W / 2);
+                    let nextRight_Simulated = nextTile_Simulated_X + (nextTile_Simulated_W / 2);
+
+                    if (nextRight_Simulated > limits.maxX || nextLeft_Simulated < limits.minX) {
+                        willCollide = true;
+                    }
+                } else {
+                    // --- Chequeo V->H (Arriba/Abajo) ---
+                    let nextTile_Simulated_Y = currentTile_Y + startHead.dir[1] * (currentTile_RenderedH / 2 + nextTile_Simulated_H / 2 + TILE_GAP);
+                    let nextTop_Simulated = nextTile_Simulated_Y - (nextTile_Simulated_H / 2);
+                    let nextBottom_Simulated = nextTile_Simulated_Y + (nextTile_Simulated_H / 2);
+
+                    if (nextBottom_Simulated > limits.maxY || nextTop_Simulated < limits.minY) {
+                        willCollide = true;
+                    }
+                }
+
+                if (willCollide) {
+                    // ¡SÍ! El doble va a chocar. Forzamos el giro AHORA.
+                    hasTurnedStart = true;
+                    didTurn = true;
+                    const oldDir = [...startHead.dir];
+                    startHead.dir = turnLeft(startHead.dir);
+                    
+                    ({ w, h, rotation, isDouble, orientationClass } = getTileProps(tile, startHead.dir));
+                    
+                    newIsVertical = (rotation === 90 || rotation === -90);
+                    newRenderedW = newIsVertical ? h : w;
+                    newRenderedH = newIsVertical ? w : h;
+                    if(rotation === 180 || (isDouble && rotation === 0)) { newRenderedW = w; newRenderedH = h; }
+                    
+                    let prevIsVertical = (prevLayout.rotation === 90 || prevLayout.rotation === -90);
+                    prevRenderedW = prevIsVertical ? prevLayout.h : prevLayout.w;
+                    prevRenderedH = prevIsVertical ? prevLayout.w : prevLayout.h;
+                    
+                    // Recalculamos su posición (el "codo")
+                    if (oldDir[0] !== 0) { // Giro fue de Horizontal a Vertical
+                        nextX = startHead.x + oldDir[0] * (prevRenderedW / 4); 
+                        nextY = startHead.y + startHead.dir[1] * (prevRenderedH / 2 + TILE_GAP + newRenderedH / 2);
+                    } else { // Giro fue de Vertical a Horizontal
+                        nextX = startHead.x + startHead.dir[0] * (prevRenderedW / 2 + TILE_GAP + newRenderedW / 2);
+                        nextY = startHead.y + oldDir[1] * (prevRenderedH / 4);
+                    }
+                }
+            }
+        }
+        // --- FIN DE LÓGICA DE "GIRO PREVENTIVO" ---
         
-        const finalLayout = { tile, x: nextX, y: nextY, w, h, rotation, orientationClass }; // MODIFIED
+        // --- INICIO DE LÓGICA DE "GIRO NORMAL" ---
+        let nextLeft = nextX - (newRenderedW / 2);
+        let nextRight = nextX + (newRenderedW / 2);
+        let nextTop = nextY - (newRenderedH / 2);
+        let nextBottom = nextY + (newRenderedH / 2);
+
+        if (!didTurn && (nextRight > limits.maxX || nextLeft < limits.minX || nextBottom > limits.maxY || nextTop < limits.minY)) {
+            hasTurnedStart = true;
+            didTurn = true;
+            const oldDir = [...startHead.dir];
+            startHead.dir = turnLeft(startHead.dir);
+            
+            ({ w, h, rotation, isDouble, orientationClass } = getTileProps(tile, startHead.dir));
+            
+            if (hasTurnedStart && startHead.dir[0] !== 0 && !isDouble) {
+                rotation = 180;
+            }
+
+            newIsVertical = (rotation === 90 || rotation === -90);
+            newRenderedW = newIsVertical ? h : w;
+            newRenderedH = newIsVertical ? w : h;
+            if(rotation === 180 || (isDouble && rotation === 0)) { newRenderedW = w; newRenderedH = h; }
+            
+            let prevIsVertical = (prevLayout.rotation === 90 || prevLayout.rotation === -90);
+            prevRenderedW = prevIsVertical ? prevLayout.h : prevLayout.w;
+            prevRenderedH = prevIsVertical ? prevLayout.w : prevLayout.h;
+
+            if (oldDir[0] !== 0) { // Giro fue de Horizontal a Vertical
+                nextX = startHead.x + oldDir[0] * (prevRenderedW / 4); 
+                nextY = startHead.y + startHead.dir[1] * (prevRenderedH / 2 + TILE_GAP + newRenderedH / 2);
+            } else { // Giro fue de Vertical a Horizontal
+                nextX = startHead.x + startHead.dir[0] * (prevRenderedW / 2 + TILE_GAP + newRenderedW / 2);
+                nextY = startHead.y + oldDir[1] * (prevRenderedH / 4);
+            }
+        }
+        // --- FIN DE LÓGICA DE "GIRO NORMAL" ---
+        
+        const finalLayout = { tile, x: nextX, y: nextY, w, h, rotation, isDouble, orientationClass, renderedW: newRenderedW, renderedH: newRenderedH };
         chain[i] = finalLayout;
         startHead = { x: nextX, y: nextY, dir: startHead.dir, prevLayout: finalLayout };
     }
 
-    // --- Calcular extremos (Highlights) ---
     const startLayout = chain[0];
     const endLayout = chain[chain.length - 1];
     
-    const getEndHighlightProps = (layoutTile, isStart) => {
-        if (!layoutTile) return null;
-        // (Petición 1/2 Fix) w, h, rotation son de la *ficha base* (70x35)
-        const { x, y, w, h, rotation } = layoutTile; 
-        const highlightW = 40;
-        const highlightH = 80;
-        let endRotation = (rotation === 90 || rotation === -90) ? 90 : 0;
-        let offsetX = 0;
-        let offsetY = 0;
-        
-        if (rotation === 90 || rotation === -90) { // Ficha Renderizada Vertical (base 70x35)
-            // w = 70, h = 35. El offset es en el eje Y (del centro de la ficha base)
-            offsetY = (isStart ? -1 : 1) * (w / 4); // Usar w (70)
-        } else { // Ficha Renderizada Horizontal (base 70x35)
-            // w = 70, h = 35. El offset es en el eje X
-            // (Petición 2 Fix) rotation 180 fue eliminado, la lógica es simple.
-            offsetX = (isStart ? -1 : 1) * (w / 4); // Usar w (70)
-        }
+    const getEndHighlightProps = (layoutTile, isStart, endDir, selectedTile) => {
+        if (!layoutTile || !selectedTile) return null;
 
-        return { x: x + offsetX, y: y + offsetY, w: highlightW, h: highlightH, rotation: endRotation };
+        let tempDir = [...endDir];
+        let { w, h, rotation, isDouble, orientationClass } = getTileProps(selectedTile, tempDir);
+        
+        let prevLayout = isStart ? startLayout : endLayout;
+        let prevIsVertical = (prevLayout.rotation === 90 || prevLayout.rotation === -90);
+        let prevRenderedW = prevIsVertical ? prevLayout.h : prevLayout.w;
+        let prevRenderedH = prevIsVertical ? prevLayout.w : prevLayout.h;
+
+        let newIsVertical = (rotation === 90 || rotation === -90);
+        let newRenderedW = newIsVertical ? h : w;
+        let newRenderedH = newIsVertical ? w : h;
+        if (rotation === 180 || (isDouble && rotation === 0)) {
+             newRenderedW = w;
+             newRenderedH = h;
+        }
+        
+        let nextX, nextY;
+
+        if (tempDir[0] !== 0) { // Siguiente movimiento es Horizontal
+            halfPrev = prevRenderedW / 2;
+            halfNew = newRenderedW / 2;
+            nextX = prevLayout.x + tempDir[0] * (halfPrev + halfNew + TILE_GAP);
+            nextY = prevLayout.y;
+        } else { // Siguiente movimiento es Vertical
+            halfPrev = prevRenderedH / 2;
+            halfNew = newRenderedH / 2;
+            nextX = prevLayout.x;
+            nextY = prevLayout.y + tempDir[1] * (halfPrev + halfNew + TILE_GAP);
+        }
+        
+        let nextLeft = nextX - (newRenderedW / 2);
+        let nextRight = nextX + (newRenderedW / 2);
+        let nextTop = nextY - (newRenderedH / 2);
+        let nextBottom = nextY + (newRenderedH / 2);
+
+        if (nextRight > limits.maxX || nextLeft < limits.minX || nextBottom > limits.maxY || nextTop < limits.minY) {
+            const oldDir = [...tempDir];
+            tempDir = turnLeft(tempDir);
+            
+            ({ w, h, rotation, isDouble, orientationClass } = getTileProps(selectedTile, tempDir));
+            
+            if ( (isStart ? hasTurnedStart : hasTurnedEnd) && tempDir[0] !== 0 && !isDouble) {
+                rotation = 180;
+            }
+
+            newIsVertical = (rotation === 90 || rotation === -90);
+            newRenderedW = newIsVertical ? h : w;
+            newRenderedH = newIsVertical ? w : h;
+            if(rotation === 180 || (isDouble && rotation === 0)) {
+                newRenderedW = w;
+                newRenderedH = h;
+            }
+
+            if (oldDir[0] !== 0) { // Giro fue de Horizontal a Vertical
+                nextX = prevLayout.x + oldDir[0] * (prevRenderedW / 4);
+                nextY = prevLayout.y + tempDir[1] * (prevRenderedH / 2 + TILE_GAP + newRenderedH / 2);
+            } else { // Giro fue de Vertical a Horizontal
+                nextX = prevLayout.x + tempDir[0] * (prevRenderedW / 2 + TILE_GAP + newRenderedW / 2);
+                nextY = prevLayout.y + oldDir[1] * (prevRenderedH / 4);
+            }
+        }
+        
+        return { x: nextX, y: nextY, w: newRenderedW, h: newRenderedH, rotation: rotation };
     };
 
     return {
         layout: chain,
         ends: {
-            start: getEndHighlightProps(startLayout, true),
-            end: getEndHighlightProps(endLayout, false)
+            start: getEndHighlightProps(startLayout, true, startHead.dir, selectedTile),
+            end: getEndHighlightProps(endLayout, false, endHead.dir, selectedTile)
         }
     };
 }
-// --- FIN LÓGICA DE POSICIONAMIENTO DEL TABLERO ---
+/*
+* =======================================================================
+* FIN DE LA FUNCIÓN calculateBoardLayout CORREGIDA
+* =======================================================================
+*/
 
 
 const calculateRemainingTime = (startTime, durationSeconds) => {
@@ -313,44 +542,12 @@ const calculateRemainingTime = (startTime, durationSeconds) => {
     return Math.max(0, Math.ceil(durationSeconds - elapsed));
 };
 
-const PlayerAvatar = ({ player, className, entryFee, gameData }) => {
-    const { username, name = 'En espera', score = 0, avatar, flag = '🏳️', isTurn, currentReaction, isReady } = player || {};
-    const displayName = username || name;
-    const turnClass = isTurn ? 'isTurn' : '';
-    const readyClass = isReady ? 'isReadyGlow' : '';
-
-    return (
-        <div className={`avatarContainer ${className || ''} ${isTurn ? 'isTurnContainer' : ''} ${!player ? 'waiting' : ''}`}>
-            <div className={`avatarImageWrapper ${turnClass} ${readyClass}`}>
-                <img src={avatar || '/default-avatar.png'} alt={displayName} className="avatarImage" />
-                {currentReaction && (
-                    <span className="playerReaction">{currentReaction}</span>
-                )}
-                 {/* Mostrar ✓ solo cuando está 'full' y antes de que inicie la primera ronda */}
-                 {player && isReady && gameData?.status === 'full' && (!gameData.turnOrder || gameData.turnOrder.length === 0) && <span className="readyIndicator">✓</span>}
-            </div>
-
-            <div className="playerInfo">
-                <div className="name">
-                    <span className="flag">{flag}:</span> {displayName}
-                </div>
-                {player && (
-                    <div className="balanceCount">
-                        <span className="currencySymbol">VES</span>
-                        {formatCurrency(entryFee)}
-                    </div>
-                )}
-            </div>
-
-            {player && <div className="scoreBadge">{score}</div>}
-        </div>
-    );
-};
+// --- PlayerAvatar HA SIDO MOVIDO a PlayerAvatar.jsx ---
 
 const Pips = ({ value }) => {
     const pips = [];
     const pipLayouts = {
-        0: [], 1: [5], 2: [1, 9], 3: [1, 5, 9], 4: [1, 3, 7, 9], 5: [1, 3, 5, 7, 9], 6: [1, 3, 4, 6, 7, 9],
+        0: [], 1: [5], 2: [1, 9], 3: [1, 5, 9], 4: [1, 3, 7, 9], 5: [1, 3, 5, 7, 9], 6: [1, 2, 3, 4, 5, 6],
     };
 
     if (pipLayouts[value] !== undefined) {
@@ -363,10 +560,9 @@ const Pips = ({ value }) => {
 
 const DominoTile = ({ topValue, bottomValue, isInHand = false, onClick, isDisabled = false, isPlayableHighlight = false, isSelectedHighlight = false, isDouble, className = '', orientationClass: propOrientationClass }) => {
     
-    // (Petición 1/2 Fix) If in hand, use old logic (isDouble). If on board, use passed prop.
     const orientationClass = isInHand
         ? (isDouble ? 'double' : 'normal')
-        : (propOrientationClass || 'normal'); // Fallback to 'normal'
+        : (propOrientationClass || 'normal'); // Restaurado a la V1
 
     const safeTopValue = Number.isInteger(topValue) ? topValue : 0;
     const safeBottomValue = Number.isInteger(bottomValue) ? bottomValue : 0;
@@ -390,9 +586,9 @@ const OpponentHand = ({ hand, position }) => {
     const handClasses = `opponentHand ${position}`;
 
     return (
-      <div className={handClasses}>
+    <div className={handClasses}>
         {hand.map((tile, index) => (
-          <div key={`opp-tile-${index}-${tile?.top ?? 'x'}-${tile?.bottom ?? 'y'}`} className="opponentTileWrapper">
+        <div key={`opp-tile-${index}-${tile?.top ?? 'x'}-${tile?.bottom ?? 'y'}`} className="opponentTileWrapper">
             {tile && (
                 <DominoTile
                 topValue={tile.top}
@@ -403,9 +599,9 @@ const OpponentHand = ({ hand, position }) => {
                 isDisabled={true}
                 />
             )}
-          </div>
+        </div>
         ))}
-      </div>
+    </div>
     );
 };
 
@@ -430,18 +626,56 @@ function DominoGame() {
     const [startCountdownRemaining, setStartCountdownRemaining] = useState(null);
     const [turnTimerRemaining, setTurnTimerRemaining] = useState(null);
 
+    // --- ESTADO PARA EL TOAST ---
+    const [toastMessage, setToastMessage] = useState(null);
+    const toastTimerRef = useRef(null);
+
     const [selectedTileInfo, setSelectedTileInfo] = useState(null);
     const [playableEnds, setPlayableEnds] = useState({ start: false, end: false });
 
     const [showPassButton, setShowPassButton] = useState(false);
 
-    // --- INICIO ESTADO Y REF PARA TABLERO (PETICIÓN 6) ---
     const boardContainerRef = useRef(null);
     const [boardLimits, setBoardLimits] = useState({ width: 0, height: 0 });
     const [boardLayout, setBoardLayout] = useState([]);
     const [boardEnds, setBoardEnds] = useState({ start: null, end: null });
 
-    // Efecto para medir el contenedor del tablero
+    const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+    const [tileScale, setTileScale] = useState(13);
+    const [boardScale, setBoardScale] = useState(170);
+
+    const [showGameOver, setShowGameOver] = useState(true);
+
+    // --- FUNCIÓN PARA MOSTRAR EL TOAST ---
+    const showToast = (message) => {
+        if (toastTimerRef.current) {
+            clearTimeout(toastTimerRef.current);
+        }
+        setToastMessage(message);
+        toastTimerRef.current = setTimeout(() => {
+            setToastMessage(null);
+            toastTimerRef.current = null;
+        }, 3000); // El mensaje desaparece después de 3 segundos
+    };
+
+    const handleUpdateTileScale = (direction) => {
+        setTileScale(prev => {
+            const newScale = prev + direction;
+            if (newScale < 9) return 9;
+            if (newScale > 20) return 20;
+            return newScale;
+        });
+    };
+
+    const handleUpdateBoardScale = (direction) => {
+        setBoardScale(prev => {
+            const newScale = prev + (direction * 10);
+            if (newScale < 120) return 120;
+            if (newScale > 250) return 250;
+            return newScale;
+        });
+    };
+
     useEffect(() => {
         const container = boardContainerRef.current;
         if (!container) return;
@@ -450,20 +684,36 @@ function DominoGame() {
             if (entries[0]) {
                 const { width, height } = entries[0].contentRect;
                 setBoardLimits({ width, height });
+
+                const container = boardContainerRef.current;
+                if (container) {
+                    const baseH = Math.max(20, Math.floor(height / tileScale));
+                    const baseW = baseH * 2;
+                    container.style.setProperty('--tile-w-normal', `${baseW}px`);
+                    container.style.setProperty('--tile-h-normal', `${baseH}px`);
+                    container.style.setProperty('--pip-size', `${Math.max(4, Math.floor(baseH / 7))}px`);
+                    container.style.setProperty('--tile-radius', `${Math.max(3, Math.floor(baseH / 6))}px`);
+                    container.style.setProperty('--divider-size', `${Math.max(1, Math.floor(baseH / 18))}px`);
+                }
             }
         });
         
         resizeObserver.observe(container);
-        // Set initial size
         const { width, height } = container.getBoundingClientRect();
         if (width > 0 && height > 0) {
             setBoardLimits({ width, height });
+            const baseH = Math.max(20, Math.floor(height / tileScale));
+            const baseW = baseH * 2;
+            container.style.setProperty('--tile-w-normal', `${baseW}px`);
+            container.style.setProperty('--tile-h-normal', `${baseH}px`);
+            container.style.setProperty('--pip-size', `${Math.max(4, Math.floor(baseH / 7))}px`);
+            container.style.setProperty('--tile-radius', `${Math.max(3, Math.floor(baseH / 6))}px`);
+            container.style.setProperty('--divider-size', `${Math.max(1, Math.floor(baseH / 18))}px`);
         }
 
         return () => resizeObserver.disconnect();
-    }, []);
+    }, [tileScale]);
 
-    // Efecto para recalcular el layout del tablero cuando las fichas o el tamaño cambian
     useEffect(() => {
         if (!gameData?.board || boardLimits.width === 0) {
             setBoardLayout([]);
@@ -471,12 +721,11 @@ function DominoGame() {
             return;
         }
         
-        const { layout, ends } = calculateBoardLayout(gameData.board, boardLimits.width, boardLimits.height);
+        const { layout, ends } = calculateBoardLayout(gameData.board, boardLimits.width, boardLimits.height, tileScale, selectedTileInfo?.tile);
         setBoardLayout(layout);
         setBoardEnds(ends);
 
-    }, [gameData?.board, boardLimits]);
-    // --- FIN ESTADO Y REF PARA TABLERO (PETICIÓN 6) ---
+    }, [gameData?.board, boardLimits, tileScale, selectedTileInfo]);
 
 
     useEffect(() => {
@@ -487,6 +736,10 @@ function DominoGame() {
             if (docSnap.exists()) {
                 const newData = docSnap.data();
                 setGameData(newData);
+                
+                if (newData.status === 'finished') {
+                    setShowGameOver(true);
+                }
 
                 if (selectedTileInfo && (newData.currentTurn !== currentUser?.uid || newData.status !== 'playing')) {
                     setSelectedTileInfo(null);
@@ -518,22 +771,21 @@ function DominoGame() {
             });
             setPlayers(playersMap);
             if (!foundMyHandData && !isSpectator) {
-                 setMyHand([]);
-                 setIsMyPlayerReady(false);
+                setMyHand([]);
+                setIsMyPlayerReady(false);
             }
         }, (error) => {
-             console.error("Error listening to players:", error);
+            console.error("Error listening to players:", error);
         });
 
         return () => {
             unsubscribeGame();
             unsubscribePlayers();
         };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [gameId, currentUser, navigate, isSpectator]);
 
     useEffect(() => {
-         if (!gameId) return;
+        if (!gameId) return;
         const q = query(collection(db, "domino_chat", gameId, "messages"), orderBy("timestamp", "desc"), limit(20));
         const unsubscribe = onSnapshot(q, (snapshot) => {
             const msgs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
@@ -542,12 +794,11 @@ function DominoGame() {
         return () => unsubscribe();
     }, [gameId]);
 
-     useEffect(() => {
-
-         if (isChatOpen) {
+    useEffect(() => {
+        if (isChatOpen) {
             chatMessagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-         }
-     }, [messages, isChatOpen]);
+        }
+    }, [messages, isChatOpen]);
 
     useEffect(() => {
         let startTimerId;
@@ -560,7 +811,7 @@ function DominoGame() {
                 if (remaining > 0) {
                     startTimerId = setTimeout(updateStartCountdown, 1000);
                 } else {
-                     setStartCountdownRemaining(null);
+                    setStartCountdownRemaining(null);
                 }
             };
             updateStartCountdown();
@@ -570,15 +821,13 @@ function DominoGame() {
 
         if (gameData?.turnStartTime && gameData.status === 'playing' && gameData.currentTurn) {
             const updateTurnTimer = () => {
-
                 const duration = gameData.turnTimeoutSeconds || TURN_TIMEOUT_SECONDS;
                 const remaining = calculateRemainingTime(gameData.turnStartTime, duration);
                 setTurnTimerRemaining(remaining);
                 if (remaining > 0) {
                     turnTimerId = setTimeout(updateTurnTimer, 1000);
                 } else {
-                     setTurnTimerRemaining(null);
-
+                    setTurnTimerRemaining(null);
                 }
             };
             updateTurnTimer();
@@ -594,7 +843,7 @@ function DominoGame() {
 
 
     const handleSendChat = async (e) => {
-         e.preventDefault();
+        e.preventDefault();
         const trimmedInput = chatInput.trim();
         const myUsername = players[currentUser?.uid]?.username || 'Jugador';
         if (!trimmedInput || !currentUser || !myUsername || !gameId || isSpectator) return;
@@ -615,17 +864,14 @@ function DominoGame() {
         const playerDocRef = doc(db, "domino_tournament_games", gameId, "players", currentUser.uid);
         const currentReaction = players[currentUser.uid]?.currentReaction;
         try {
-
             setPlayers(prev => ({ ...prev, [currentUser.uid]: { ...(prev[currentUser.uid] || {}), currentReaction: emoji } }));
             await updateDoc(playerDocRef, { currentReaction: emoji });
 
             setTimeout(async () => {
                 try {
-
                     const playerSnap = await getDoc(playerDocRef);
                     if (playerSnap.exists() && playerSnap.data().currentReaction === emoji) {
-                         await updateDoc(playerDocRef, { currentReaction: null });
-
+                        await updateDoc(playerDocRef, { currentReaction: null });
                     }
                 } catch (error) {
                     console.error("Error clearing reaction:", error);
@@ -633,20 +879,17 @@ function DominoGame() {
             }, 3000);
         } catch (error) {
             console.error("Error sending reaction:", error);
-
-             setPlayers(prev => ({ ...prev, [currentUser.uid]: { ...(prev[currentUser.uid] || {}), currentReaction: currentReaction } }));
+            setPlayers(prev => ({ ...prev, [currentUser.uid]: { ...(prev[currentUser.uid] || {}), currentReaction: currentReaction } }));
             alert(`Error al enviar reacción: ${error.message}`);
         }
     };
 
     const handleToggleReady = async () => {
-        // (Petición 1) La guarda principal está aquí, la condición de render es más simple.
         if (!currentUser || !gameId || gameData?.status !== 'full' || isSpectator || loadingAction) return;
         setLoadingAction(true);
         try {
             const toggleReadyFunc = httpsCallable(functions, 'handleReadyToggle');
             await toggleReadyFunc({ gameId: gameId });
-
         } catch (error) {
             console.error("Error toggling ready:", error);
             alert(`Error al marcar listo: ${error.message}`);
@@ -673,7 +916,6 @@ function DominoGame() {
     const handleTileClick = (clickedTile, indexInHand) => {
         if (!currentUser || !gameId || gameData?.currentTurn !== currentUser?.uid || loadingAction || isSpectator || gameData.status !== 'playing') return;
 
-        // (Petición 3a) Validar primera jugada 6/6
         const scores = gameData.scores || {};
         const isFirstRound = Object.values(scores).every(s => s === 0);
         if (isFirstRound && (gameData.board || []).length === 0) {
@@ -716,7 +958,6 @@ function DominoGame() {
     const handlePassTurn = async () => {
         if (!currentUser || !gameId || gameData?.currentTurn !== currentUser?.uid || loadingAction || isSpectator || selectedTileInfo) return;
 
-        // (Petición 3a) Validar pase 6/6
         const scores = gameData.scores || {};
         const isFirstRound = Object.values(scores).every(s => s === 0);
         if (isFirstRound && (gameData.board || []).length === 0) {
@@ -729,9 +970,9 @@ function DominoGame() {
 
         const moves = getValidMoves(myHand, gameData?.board);
         if (moves.length > 0) {
-             console.warn("Intento de pasar con jugadas válidas.");
-             alert("Tienes jugadas disponibles, no puedes pasar.");
-             return;
+            console.warn("Intento de pasar con jugadas válidas.");
+            alert("Tienes jugadas disponibles, no puedes pasar.");
+            return;
         }
 
         setLoadingAction(true);
@@ -747,7 +988,6 @@ function DominoGame() {
     };
 
     const { playableTileIndices } = useMemo(() => {
-        // (Petición 3a) Lógica para botón de pasar (considerando 6/6)
         let hasNoMoves = false;
         let canPass = false;
         if (myHand && gameData?.board) {
@@ -758,17 +998,17 @@ function DominoGame() {
             const isFirstRound = Object.values(scores).every(s => s === 0);
             if (isFirstRound && gameData.board.length === 0) {
                 const hasSixDouble = myHand.some(t => t.top === 6 && t.bottom === 6);
-                canPass = hasNoMoves && !hasSixDouble; // Solo puede pasar si NO tiene 6/6
+                canPass = hasNoMoves && !hasSixDouble;
             } else {
                 canPass = hasNoMoves;
             }
         }
         
         const shouldShow = gameData?.status === 'playing' &&
-                           gameData.currentTurn === currentUser?.uid &&
-                           !isSpectator &&
-                           !selectedTileInfo &&
-                           canPass; // Usar la nueva variable 'canPass'
+                                gameData.currentTurn === currentUser?.uid &&
+                                !isSpectator &&
+                                !selectedTileInfo &&
+                                canPass;
         setShowPassButton(shouldShow);
 
         if (gameData?.status !== 'playing' || gameData.currentTurn !== currentUser?.uid || !gameData?.board || isSpectator || !myHand || selectedTileInfo) {
@@ -778,7 +1018,6 @@ function DominoGame() {
         const moves = getValidMoves(myHand, gameData.board);
         const indices = new Set(moves.map(m => m.tileIndex));
         
-        // (Petición 3a) Si es la primera ronda y tiene 6/6, solo esa es jugable
         const scores = gameData.scores || {};
         const isFirstRound = Object.values(scores).every(s => s === 0);
         if (isFirstRound && gameData.board.length === 0) {
@@ -790,13 +1029,11 @@ function DominoGame() {
                 }
             }
             if (sixDoubleIndex !== -1) {
-                // Solo el 6/6 es jugable
                 return { playableTileIndices: new Set([sixDoubleIndex]) };
             }
         }
 
         return { playableTileIndices: indices };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [gameData, myHand, currentUser, isSpectator, selectedTileInfo]);
 
 
@@ -819,28 +1056,18 @@ function DominoGame() {
                 }
             }
             
-            // (Petición 3c) Reconstrucción de UI anti-horaria
-            // El backend define el turnOrder (ej: [P1, P2, P3, P4])
-            // P1 es el líder. El turno va P1 -> P4 -> P3 -> P2
-            // Si yo soy P1 (myIndex 0), el orden en UI debe ser:
-            // Bottom: P1 (yo)
-            // Right: P2 (siguiente en turnOrder)
-            // Top: P3 (siguiente)
-            // Left: P4 (siguiente)
-            
             const uiOrder = new Array(maxPlayers).fill(null);
             if (maxPlayers === 4) {
-                uiOrder[0] = turnOrder[myIndex]; // Yo (Bottom)
-                uiOrder[1] = turnOrder[(myIndex + 1) % maxPlayers]; // Derecha (playerRight)
-                uiOrder[2] = turnOrder[(myIndex + 2) % maxPlayers]; // Arriba (playerTop)
-                uiOrder[3] = turnOrder[(myIndex + 3) % maxPlayers]; // Izquierda (playerLeft)
+                uiOrder[0] = turnOrder[myIndex];
+                uiOrder[1] = turnOrder[(myIndex + 1) % maxPlayers];
+                uiOrder[2] = turnOrder[(myIndex + 2) % maxPlayers];
+                uiOrder[3] = turnOrder[(myIndex + 3) % maxPlayers];
             
-                // Mapeo a slots de UI
                 const rotatedPlayerSlots = [];
-                rotatedPlayerSlots[0] = { pos: 'playerBottom', playerId: uiOrder[0] }; // Yo
-                rotatedPlayerSlots[1] = { pos: 'playerLeft', playerId: uiOrder[3] }; // Izquierda
-                rotatedPlayerSlots[2] = { pos: 'playerTop', playerId: uiOrder[2] }; // Arriba
-                rotatedPlayerSlots[3] = { pos: 'playerRight', playerId: uiOrder[1] }; // Derecha
+                rotatedPlayerSlots[0] = { pos: 'playerBottom', playerId: uiOrder[0] };
+                rotatedPlayerSlots[1] = { pos: 'playerLeft', playerId: uiOrder[3] };
+                rotatedPlayerSlots[2] = { pos: 'playerTop', playerId: uiOrder[2] };
+                rotatedPlayerSlots[3] = { pos: 'playerRight', playerId: uiOrder[1] };
                 
                 playerSlots = rotatedPlayerSlots.map(slot => {
                     const player = slot.playerId ? players[slot.playerId] : null;
@@ -852,7 +1079,6 @@ function DominoGame() {
                 });
 
             } else {
-                // Fallback para < 4 jugadores (usando la lógica original horario)
                 const rotatedTurnOrder = [...turnOrder.slice(myIndex), ...turnOrder.slice(0, myIndex)];
                 playerSlots = playerPositions.slice(0, maxPlayers).map((pos, index) => {
                     const playerId = rotatedTurnOrder[index];
@@ -867,7 +1093,6 @@ function DominoGame() {
 
         }
         else {
-            // Lógica de llenado de sala (pre-turnOrder)
             const playerList = Object.values(players);
             const slots = new Array(maxPlayers).fill(null);
             let me = null;
@@ -877,8 +1102,8 @@ function DominoGame() {
 
 
             if (currentUser && !isSpectator) {
-                 me = playerList.find(p => p.id === currentUser.uid);
-                 if (me) myTeam = me.team;
+                    me = playerList.find(p => p.id === currentUser.uid);
+                    if (me) myTeam = me.team;
             }
 
 
@@ -892,21 +1117,19 @@ function DominoGame() {
                 opponents.sort((a,b)=>(a.joinedAt?.toMillis() || 0) - (b.joinedAt?.toMillis() || 0));
                 partners.sort((a,b)=>(a.joinedAt?.toMillis() || 0) - (b.joinedAt?.toMillis() || 0));
 
-                // (Petición 3c) Mapeo anti-horario 2v2
-                slots[0] = me; // Bottom
-                slots[1] = opponents[0] || null; // Right
-                slots[2] = partners[0] || null; // Top
-                slots[3] = opponents[1] || null; // Left
+                slots[0] = me;
+                slots[1] = opponents[0] || null;
+                slots[2] = partners[0] || null;
+                slots[3] = opponents[1] || null;
                 
                 playerSlots = [
-                     { ...(slots[0] || {}), position: 'playerBottom', isTurn: false, isReady: slots[0]?.isReady || false },
-                     { ...(slots[3] || {}), position: 'playerLeft', isTurn: false, isReady: slots[3]?.isReady || false },
-                     { ...(slots[2] || {}), position: 'playerTop', isTurn: false, isReady: slots[2]?.isReady || false },
-                     { ...(slots[1] || {}), position: 'playerRight', isTurn: false, isReady: slots[1]?.isReady || false },
+                        { ...(slots[0] || {}), position: 'playerBottom', isTurn: false, isReady: slots[0]?.isReady || false },
+                        { ...(slots[3] || {}), position: 'playerLeft', isTurn: false, isReady: slots[3]?.isReady || false },
+                        { ...(slots[2] || {}), position: 'playerTop', isTurn: false, isReady: slots[2]?.isReady || false },
+                        { ...(slots[1] || {}), position: 'playerRight', isTurn: false, isReady: slots[1]?.isReady || false },
                 ];
             }
             else {
-                // Lógica 1v1v1v1
                 let sortedPlayerList = [...playerList].sort((a,b)=>(a.joinedAt?.toMillis() || 0) - (b.joinedAt?.toMillis() || 0));
 
                 if (me) {
@@ -916,24 +1139,22 @@ function DominoGame() {
                     }
                 }
                 for (let i = 0; i < maxPlayers; i++) {
-                   if (sortedPlayerList[i]) slots[i] = sortedPlayerList[i];
+                    if (sortedPlayerList[i]) slots[i] = sortedPlayerList[i];
                 }
                 
-                // (Petición 3c) Mapeo anti-horario para 4 jugadores (1v1v1v1)
                 if (maxPlayers === 4) {
-                     const rotatedPlayerSlots = [];
-                     rotatedPlayerSlots[0] = { pos: 'playerBottom', player: slots[0] }; // Yo
-                     rotatedPlayerSlots[1] = { pos: 'playerLeft', player: slots[3] }; // Izquierda
-                     rotatedPlayerSlots[2] = { pos: 'playerTop', player: slots[2] }; // Arriba
-                     rotatedPlayerSlots[3] = { pos: 'playerRight', player: slots[1] }; // Derecha
-                     
-                     playerSlots = rotatedPlayerSlots.map(slot => {
-                         const player = slot.player;
-                         return { ...(player || {}), position: slot.pos, isTurn: false, isReady: player?.isReady || false };
-                     });
+                        const rotatedPlayerSlots = [];
+                        rotatedPlayerSlots[0] = { pos: 'playerBottom', player: slots[0] };
+                        rotatedPlayerSlots[1] = { pos: 'playerLeft', player: slots[3] };
+                        rotatedPlayerSlots[2] = { pos: 'playerTop', player: slots[2] };
+                        rotatedPlayerSlots[3] = { pos: 'playerRight', player: slots[1] };
+                        
+                        playerSlots = rotatedPlayerSlots.map(slot => {
+                            const player = slot.player;
+                            return { ...(player || {}), position: slot.pos, isTurn: false, isReady: player?.isReady || false };
+                        });
                 }
                 else {
-                    // Fallback (lógica original)
                     playerSlots = playerPositions.slice(0, maxPlayers).map((pos, index) => {
                         const player = slots[index];
                         return { ...(player || {}), position: pos, isTurn: false, isReady: player?.isReady || false };
@@ -943,6 +1164,10 @@ function DominoGame() {
         }
     }
 
+    const playerTop = playerSlots.find(p => p.position === 'playerTop');
+    const playerLeft = playerSlots.find(p => p.position === 'playerLeft');
+    const playerRight = playerSlots.find(p => p.position === 'playerRight');
+    const playerBottom = playerSlots.find(p => p.position === 'playerBottom');
 
     const currentPlayerCount = Object.keys(players).length;
     const requiredPlayers = gameData?.maxPlayers || DOMINO_CONSTANTS.MAX_PLAYERS;
@@ -961,203 +1186,300 @@ function DominoGame() {
     };
     const winnerNames = getWinnerNames();
 
+    // Función de formato local ya que se quitó la global
+    const formatCurrencyForPool = (value) => {
+        const number = Number(value) || 0;
+        return new Intl.NumberFormat('es-VE', {
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2,
+        }).format(number);
+    };
+
 
     return (
         <div className="gameContainer">
+            {/* --- RENDERIZADO DEL TOAST (MODIFICADO) --- */}
+            {toastMessage && (
+                <div className="friendRequestToast">
+                    <span>✔️</span>
+                    {toastMessage}
+                </div>
+            )}
+
+            {/* --- topBar ACTUALIZADA --- */}
             <div className="topBar">
-                 <div>{gameData?.name || `Torneo ${gameId?.substring(0, 6)}`} - Meta: {DOMINO_CONSTANTS.TARGET_SCORE_TOURNAMENT} Pts</div>
-                 {turnTimerRemaining !== null && gameData?.currentTurn && (
-                      <div className="turnTimerDisplay">
-                           Turno: {players[gameData.currentTurn]?.username || '?'} ({turnTimerRemaining}s)
-                           {gameData.turnTimeoutSeconds === PASS_TIMEOUT_SECONDS && <span className='passIndicator'>(P)</span>}
-                      </div>
-                 )}
-                 <div className="topRightInfo">
-                      <div>Pozo: {formatCurrency(gameData?.prizePoolVES || 0)} VES</div>
-                 </div>
+                <div className="topLeftControls">
+                    <button onClick={() => navigate('/domino')} className="gameBackToLobbyButton" title="Volver al Lobby">
+                        {/* La flecha se crea con CSS ahora */}
+                    </button>
+                    <div className="gameTitle">{gameData?.name || `Torneo ${gameId?.substring(0, 6)}`} - Meta: {DOMINO_CONSTANTS.TARGET_SCORE_TOURNAMENT} Pts</div>
+                </div>
+
+                {turnTimerRemaining !== null && gameData?.currentTurn && (
+                    <div className="turnTimerDisplay">
+                        Turno: {players[gameData.currentTurn]?.username || '?'} ({turnTimerRemaining}s)
+                        {gameData.turnTimeoutSeconds === PASS_TIMEOUT_SECONDS && <span className='passIndicator'>(P)</span>}
+                    </div>
+                )}
+                <div className="topRightInfo">
+                    <div>Pozo: {formatCurrencyForPool(gameData?.prizePoolVES || 0)} VES</div>
+                </div>
             </div>
 
-            <div className="playersArea">
-                {playerSlots.map((playerInfo, index) => (
-                    <React.Fragment key={playerInfo?.id || `slot-${index}`}>
+            <div className="playerArea playerAreaTop">
+                {playerTop && (
+                    <>
                         <PlayerAvatar
-                            player={playerInfo}
-                            className={playerInfo?.position || playerPositions[index]}
-                            entryFee={gameData?.entryFeeVES}
+                            player={playerTop}
+                            className="playerAvatarInArea"
                             gameData={gameData}
+                            entryFee={gameData?.entryFeeVES}
+                            isMe={playerTop.id === currentUser?.uid}
+                            onAddFriend={showToast}
+                            isSpectator={isSpectator} /* <-- AÑADIDO */
                         />
-                        {gameData?.status === 'round_over' && playerInfo.id && playerInfo.id !== currentUser?.uid && (
-                          <OpponentHand
-                            hand={players[playerInfo.id]?.hand}
-                            position={playerInfo?.position || playerPositions[index]}
-                          />
+                        {gameData?.status === 'round_over' && playerTop.id && playerTop.id !== currentUser?.uid && (
+                            <OpponentHand hand={players[playerTop.id]?.hand} position="playerTop" />
                         )}
-                    </React.Fragment>
-                ))}
+                    </>
+                )}
             </div>
 
-             <div className="gameBoard">
-                 {gameData?.status === 'waiting' && currentPlayerCount < requiredPlayers && (
-                      <div className="waitingMessage">Esperando jugadores... {currentPlayerCount}/{requiredPlayers}</div>
-                 )}
-                 {gameData?.status === 'waiting' && currentPlayerCount === requiredPlayers && (!gameData.turnOrder || gameData.turnOrder.length === 0) && (
-                      <div className="waitingMessage">Esperando jugadores... {currentPlayerCount}/{requiredPlayers}</div>
-                 )}
-                 {gameData?.status === 'full' && startCountdownRemaining !== null && (
-                      <div className="waitingMessage countdownMessage">Iniciando en: {startCountdownRemaining}s</div>
-                 )}
-                  {/* Condición ajustada para "Esperando listos" */}
-                  {gameData?.status === 'full' && startCountdownRemaining === null && (!gameData.turnOrder || gameData.turnOrder.length === 0) && !Object.values(players).every(p => p.isReady) && (
-                      <div className="waitingMessage">Esperando que todos estén listos...</div>
-                 )}
-                 {gameData?.status === 'round_over' && (
-                      <div className="waitingMessage">Ronda terminada. Siguiente ronda iniciando...</div>
-                 )}
-                 {gameData?.status === 'finished' && (
-                     <div className="gameOverOverlay">
-                         <div className="gameOverContent">
-                             <h2>¡Partida Finalizada!</h2>
-                             <p className="winnerAnnouncement">
-                                 {gameData.type === '2v2' ? 'Equipo Ganador:' : 'Ganador:'}
-                                 <br />
-                                 <span className="winnerNames">{winnerNames}</span>
-                             </p>
-                             <div className="finalScores">
-                                 <h3>Puntuación Final</h3>
-                                 {gameData.type === '2v2' ? (
-                                     <>
-                                         <p>Equipo 1: {gameData.scores?.team1 || 0}</p>
-                                         <p>Equipo 2: {gameData.scores?.team2 || 0}</p>
-                                     </>
-                                 ) : (
-                                     Object.entries(gameData.scores || {}).map(([playerId, score]) => (
-                                         <p key={playerId}>{players[playerId]?.username || 'Jugador'}: {score}</p>
-                                     ))
-                                 )}
-                             </div>
-                             <button onClick={() => navigate('/domino')} className="backToLobbyButton">Volver al Lobby</button>
-                         </div>
-                     </div>
-                 )}
+            <div className="middleArea" style={{ '--side-area-width': `${boardScale}px` }}>
+                <div className="playerArea playerAreaLeft">
+                    {playerLeft && (
+                        <>
+                            <PlayerAvatar
+                                player={playerLeft}
+                                className="playerAvatarInArea"
+                                gameData={gameData}
+                                entryFee={gameData?.entryFeeVES}
+                                isMe={playerLeft.id === currentUser?.uid}
+                                onAddFriend={showToast}
+                                isSpectator={isSpectator} /* <-- AÑADIDO */
+                            />
+                            {gameData?.status === 'round_over' && playerLeft.id && playerLeft.id !== currentUser?.uid && (
+                                <OpponentHand hand={players[playerLeft.id]?.hand} position="playerLeft" />
+                            )}
+                        </>
+                    )}
+                </div>
 
+                <div className="gameBoard">
+                    {/* --- CAMBIO AQUÍ: Ocultar si es espectador --- */}
+                    {!isSpectator && (
+                        <>
+                            <button className="settingsButton" onClick={() => setIsSettingsOpen(o => !o)}>⚙️</button>
+                            {isSettingsOpen && (
+                                <div className="settingsPanel">
+                                    <div className="settingsSection">
+                                        <span className="settingsLabel">Fichas</span>
+                                        <div className="settingsControls">
+                                            <button onClick={() => handleUpdateTileScale(1)}>🔍-</button>
+                                            <button onClick={() => handleUpdateTileScale(-1)}>🔍+</button>
+                                        </div>
+                                    </div>
+                                    <div className="settingsSection">
+                                        <span className="settingsLabel">Mesa</span>
+                                        <div className="settingsControls">
+                                            <button onClick={() => handleUpdateBoardScale(1)}>🔍-</button>
+                                            <button onClick={() => handleUpdateBoardScale(-1)}>🔍+</button>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+                        </>
+                    )}
 
-                 <div className="watermark">DOMINO</div>
-                 
-                 {/* --- INICIO RENDER TABLERO ABSOLUTO (PETICIÓN 6) --- */}
-                 <div className="boardTilesContainer" ref={boardContainerRef}>
-                      {boardLayout.map((layoutTile, index) => {
-                         if (!layoutTile) {
-                             console.warn("Missing layout tile at index", index);
-                             return null;
-                         }
-                         return (
-                             <div
-                                 key={`board-${index}-${layoutTile.tile.top}-${layoutTile.tile.bottom}`}
-                                 className="boardTileWrapper"
-                                 style={{
-                                     left: `${layoutTile.x}px`,
-                                     top: `${layoutTile.y}px`,
-                                     transform: `translate(-50%, -50%) rotate(${layoutTile.rotation}deg)`,
-                                     zIndex: index,
-                                 }}
-                             >
-                                 <DominoTile
-                                     topValue={layoutTile.tile.top}
-                                     bottomValue={layoutTile.tile.bottom}
-                                     // (Petición 1/2 Fix) Pass calculated orientation class
-                                     orientationClass={layoutTile.orientationClass} 
-                                     isDouble={layoutTile.tile.top === layoutTile.tile.bottom} // Keep isDouble for inHand logic
-                                 />
-                             </div>
-                         );
-                      })}
-                     
-                     {/* Nuevos Board End Highlights (Petición 6) */}
-                     {boardEnds.start && (
-                         <div
-                             className={`boardEndHighlight start ${playableEnds.start ? 'active' : ''}`}
-                             style={{
-                                 left: `${boardEnds.start.x}px`,
-                                 top: `${boardEnds.start.y}px`,
-                                 width: `${boardEnds.start.w}px`,
-                                 height: `${boardEnds.start.h}px`,
-                                 transform: `translate(-50%, -50%) rotate(${boardEnds.start.rotation}deg)`
-                             }}
-                             onClick={() => handleBoardEndClick('start')}
-                         />
-                     )}
-                     {boardEnds.end && (
-                         <div
-                             className={`boardEndHighlight end ${playableEnds.end ? 'active' : ''}`}
-                             style={{
-                                 left: `${boardEnds.end.x}px`,
-                                 top: `${boardEnds.end.y}px`,
-                                 width: `${boardEnds.end.w}px`,
-                                 height: `${boardEnds.end.h}px`,
-                                 transform: `translate(-50%, -50%) rotate(${boardEnds.end.rotation}deg)`
-                             }}
-                             onClick={() => handleBoardEndClick('end')}
-                         />
-                     )}
-                 </div>
-                 {/* --- FIN RENDER TABLERO ABSOLUTO (PETICIÓN 6) --- */}
+                    {gameData?.status === 'waiting' && currentPlayerCount < requiredPlayers && (
+                        <div className="waitingMessage">Esperando jugadores... {currentPlayerCount}/{requiredPlayers}</div>
+                    )}
+                    {gameData?.status === 'waiting' && currentPlayerCount === requiredPlayers && (!gameData.turnOrder || gameData.turnOrder.length === 0) && (
+                        <div className="waitingMessage">Esperando jugadores... {currentPlayerCount}/{requiredPlayers}</div>
+                    )}
+                    {gameData?.status === 'full' && startCountdownRemaining !== null && (
+                        <div className="waitingMessage countdownMessage">Iniciando en: {startCountdownRemaining}s</div>
+                    )}
+                    {gameData?.status === 'full' && startCountdownRemaining === null && (!gameData.turnOrder || gameData.turnOrder.length === 0) && !Object.values(players).every(p => p.isReady) && (
+                        <div className="waitingMessage">Esperando que todos estén listos...</div>
+                    )}
+                    {gameData?.status === 'round_over' && (
+                        <div className="waitingMessage">Ronda terminada. Siguiente ronda iniciando...</div>
+                    )}
+                    {gameData?.status === 'finished' && showGameOver && (
+                        <div className="gameOverOverlay">
+                            <div className="gameOverContent">
+                                <button className="closeGameOverButton" onClick={() => setShowGameOver(false)}>X</button>
+                                <h2>¡Partida Finalizada!</h2>
+                                <p className="winnerAnnouncement">
+                                    {gameData.type === '2v2' ? 'Equipo Ganador:' : 'Ganador:'}
+                                    <br />
+                                    <span className="winnerNames">{winnerNames}</span>
+                                </p>
+                                <div className="finalScores">
+                                    <h3>Puntuación Final</h3>
+                                    {gameData.type === '2v2' ? (
+                                        <>
+                                            <p>Equipo 1: {gameData.scores?.team1 || 0}</p>
+                                            <p>Equipo 2: {gameData.scores?.team2 || 0}</p>
+                                        </>
+                                    ) : (
+                                        Object.entries(gameData.scores || {}).map(([playerId, score]) => (
+                                            <p key={playerId}>{players[playerId]?.username || 'Jugador'}: {score}</p>
+                                        ))
+                                    )}
+                                </div>
+                                <button onClick={() => navigate('/domino')} className="backToLobbyButton">Volver al Lobby</button>
+                            </div>
+                        </div>
+                    )}
 
+                    <div className="watermark">DOMINO</div>
+                    
+                    <div className="boardTilesContainer" ref={boardContainerRef}>
+                        {boardLayout.map((layoutTile, index) => {
+                            if (!layoutTile) {
+                                console.warn("Missing layout tile at index", index);
+                                return null;
+                            }
+                            return (
+                                <div
+                                    key={`board-${index}-${layoutTile.tile.top}-${layoutTile.tile.bottom}`}
+                                    className="boardTileWrapper"
+                                    style={{
+                                        left: `${layoutTile.x}px`,
+                                        top: `${layoutTile.y}px`,
+                                        transform: `translate(-50%, -50%) rotate(${layoutTile.rotation}deg)`,
+                                        zIndex: index,
+                                    }}
+                                >
+                                    <DominoTile
+                                        topValue={layoutTile.tile.top}
+                                        bottomValue={layoutTile.tile.bottom}
+                                        orientationClass={layoutTile.orientationClass} 
+                                        isDouble={layoutTile.tile.top === layoutTile.bottom}
+                                    />
+                                </div>
+                            );
+                        })}
+                        
+                        {boardEnds.start && (
+                            <div
+                                className={`boardEndHighlight start ${playableEnds.start ? 'active' : ''}`}
+                                style={{
+                                    left: `${boardEnds.start.x}px`,
+                                    top: `${boardEnds.start.y}px`,
+                                    width: `${boardEnds.start.w}px`,
+                                    height: `${boardEnds.start.h}px`,
+                                    transform: `translate(-50%, -50%) rotate(${boardEnds.start.rotation}deg)`
+                                }}
+                                onClick={() => handleBoardEndClick('start')}
+                            />
+                        )}
+                        {boardEnds.end && (
+                            <div
+                                className={`boardEndHighlight end ${playableEnds.end ? 'active' : ''}`}
+                                style={{
+                                    left: `${boardEnds.end.x}px`,
+                                    top: `${boardEnds.end.y}px`,
+                                    width: `${boardEnds.end.w}px`,
+                                    height: `${boardEnds.end.h}px`,
+                                    transform: `translate(-50%, -50%) rotate(${boardEnds.end.rotation}deg)`
+                                }}
+                                onClick={() => handleBoardEndClick('end')}
+                            />
+                        )}
+                    </div>
 
-                 {/* (Petición 1) Botón Listo: Condición simplificada para mostrar solo en 'full' */}
-                 {gameData?.status === 'full' && (
-                      <button
-                           onClick={handleToggleReady}
-                           disabled={loadingAction || !players[currentUser?.uid] || isSpectator}
-                           className={`readyButton ${isMyPlayerReady ? 'readyButtonActive' : ''}`}
-                      >
-                           {loadingAction ? '...' : (isMyPlayerReady ? '¡Listo!' : 'Marcar Listo')}
-                      </button>
-                 )}
+                    {gameData?.status === 'full' && (
+                        <button
+                            onClick={handleToggleReady}
+                            disabled={loadingAction || !players[currentUser?.uid] || isSpectator}
+                            className={`readyButton ${isMyPlayerReady ? 'readyButtonActive' : ''}`}
+                        >
+                            {loadingAction ? '...' : (isMyPlayerReady ? '¡Listo!' : 'Marcar Listo')}
+                        </button>
+                    )}
 
-                 {showPassButton && gameData?.currentTurn === currentUser?.uid && !selectedTileInfo && (
-                     <button
-                          onClick={handlePassTurn}
-                          disabled={loadingAction}
-                          className="passButton"
-                     >
-                          Pasar
-                     </button>
-                 )}
+                    {showPassButton && gameData?.currentTurn === currentUser?.uid && !selectedTileInfo && (
+                        <button
+                            onClick={handlePassTurn}
+                            disabled={loadingAction}
+                            className="passButton"
+                        >
+                            Pasar
+                        </button>
+                    )}
+                </div>
+
+                <div className="playerArea playerAreaRight">
+                    {playerRight && (
+                        <>
+                            <PlayerAvatar
+                                player={playerRight}
+                                className="playerAvatarInArea"
+                                gameData={gameData}
+                                entryFee={gameData?.entryFeeVES}
+                                isMe={playerRight.id === currentUser?.uid}
+                                onAddFriend={showToast}
+                                isSpectator={isSpectator} /* <-- AÑADIDO */
+                            />
+                            {gameData?.status === 'round_over' && playerRight.id && playerRight.id !== currentUser?.uid && (
+                                <OpponentHand hand={players[playerRight.id]?.hand} position="playerRight" />
+                            )}
+                        </>
+                    )}
+                </div>
             </div>
+
+            <div className="playerArea playerAreaBottom">
+                {playerBottom && (
+                    <PlayerAvatar
+                        player={playerBottom}
+                        className="playerAvatarInArea"
+                        gameData={gameData}
+                        entryFee={gameData?.entryFeeVES}
+                        isMe={playerBottom.id === currentUser?.uid} /* <-- LÓGICA CORREGIDA */
+                        onAddFriend={showToast} 
+                        isSpectator={isSpectator} /* <-- AÑADIDO */
+                    />
+                )}
+            </div>
+
 
             {isChatOpen && (
-                 <div className="chatContainer">
-                     <div className="chatMessages">
-                          {messages.map(msg => (
-                              <div key={msg.id} className="chatMessage">
-                                   <span className="chatUser" style={{ color: msg.userId === currentUser?.uid ? '#ffd700' : '#aaa' }}>{msg.username || '?'}:</span>
-                                   <span className="chatText">{msg.text}</span>
-                              </div>
-                          ))}
-                          <div ref={chatMessagesEndRef} />
-                     </div>
-                     <form className="chatInputArea" onSubmit={handleSendChat}>
-                          <input
-                              type="text"
-                              className="chatInput"
-                              value={chatInput}
-                              onChange={(e) => setChatInput(e.target.value)}
-                              placeholder="Escribe un mensaje..."
-                              maxLength={100}
-                              disabled={isSpectator}
-                          />
-                          <button type="submit" className="chatSendButton" disabled={isSpectator || !chatInput.trim()}>➢</button>
-                     </form>
-                 </div>
+                <div className="chatContainer">
+                    <div className="chatMessages">
+                        {messages.map(msg => (
+                            <div key={msg.id} className="chatMessage">
+                                <span className="chatUser" style={{ color: msg.userId === currentUser?.uid ? '#ffd700' : '#aaa' }}>{msg.username || '?'}:</span>
+                                <span className="chatText">{msg.text}</span>
+                            </div>
+                        ))}
+                        <div ref={chatMessagesEndRef} />
+                    </div>
+                    <form className="chatInputArea" onSubmit={handleSendChat}>
+                        <input
+                            type="text"
+                            className="chatInput"
+                            value={chatInput}
+                            onChange={(e) => setChatInput(e.target.value)}
+                            placeholder="Escribe un mensaje..."
+                            maxLength={100}
+                            disabled={isSpectator}
+                        />
+                        <button type="submit" className="chatSendButton" disabled={isSpectator || !chatInput.trim()}>➢</button>
+                    </form>
+                </div>
             )}
             {isEmojiPanelOpen && (
-                 <div className="emojiPanel">
-                     {EMOJI_REACTIONS.map(emoji => (
-                         <button key={emoji} className="emojiButton" onClick={() => handleSendReaction(emoji)} disabled={isSpectator}>
-                             {emoji}
-                         </button>
-                     ))}
-                 </div>
+                <div className="emojiPanel">
+                    {EMOJI_REACTIONS.map(emoji => (
+                        <button key={emoji} className="emojiButton" onClick={() => handleSendReaction(emoji)} disabled={isSpectator}>
+                            {emoji}
+                        </button>
+                    ))}
+                </div>
             )}
 
             <div className="playerHandTray">
@@ -1181,10 +1503,11 @@ function DominoGame() {
                         );
                     })}
                 </div>
-                 <div className="bottomIcons">
-                      <button className="iconButton" onClick={() => { setIsChatOpen(o => !o); setIsEmojiPanelOpen(false); }}>💬</button>
-                      <button className="iconButton" onClick={() => { setIsEmojiPanelOpen(o => !o); setIsChatOpen(false); }} disabled={isSpectator}>😊</button>
-                 </div>
+                <div className="bottomIcons">
+                    {/* --- CAMBIO AQUÍ: Deshabilitar si es espectador --- */}
+                    <button className="iconButton" onClick={() => { setIsChatOpen(o => !o); setIsEmojiPanelOpen(false); }} disabled={isSpectator}>💬</button>
+                    <button className="iconButton" onClick={() => { setIsEmojiPanelOpen(o => !o); setIsChatOpen(false); }} disabled={isSpectator}>😊</button>
+                </div>
             </div>
         </div>
     );

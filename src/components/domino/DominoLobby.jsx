@@ -1,12 +1,12 @@
-/*
-* filepath: DominoLobby.jsx
-*/
 import React, { useContext, useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AuthContext } from '../../App';
 import { db, functions } from '../../firebase';
 import { collection, query, orderBy, onSnapshot, getDocs, where, limit, doc } from "firebase/firestore";
 import { httpsCallable } from 'firebase/functions';
+
+// --- NUEVA LÍNEA DE IMPORTACIÓN ---
+import './DominoLobby.css';
 
 const formatCurrency = (value) => {
     const number = Number(value) || 0;
@@ -21,13 +21,15 @@ const Header = ({ balance }) => {
     const { userData } = useContext(AuthContext);
 
     return (
-        <header className="bg-gray-900 border-b border-gray-700/50 p-3 shadow-lg flex-shrink-0">
+        // --- CLASES DE TAILWIND REEMPLAZADAS POR 'lobbyHeader' ---
+        <header className="lobbyHeader flex-shrink-0">
             <div className="flex items-center">
                 <div className="flex-1">
                     <button onClick={() => navigate('/lobby')} className="bg-cyan-600 hover:bg-cyan-700 text-white font-bold py-2 px-6 rounded-lg transition-colors">Lobby Principal</button>
                 </div>
                 <div className="flex-1 text-center">
-                    <h1 className="text-2xl font-bold tracking-widest uppercase text-cyan-400" style={{ textShadow: '0 0 5px rgba(34,211,238,0.5)' }}>LOBBY DE DOMINÓ</h1>
+                    {/* --- CLASES DE COLOR Y SOMBRA REEMPLAZADAS POR CSS --- */}
+                    <h1 className="text-2xl font-bold tracking-widest uppercase">LOBBY DE DOMINÓ</h1>
                 </div>
                 <div className="flex-1 flex justify-end items-center gap-6">
                     <div className="text-right">
@@ -61,10 +63,10 @@ const TournamentCard = ({ tournament, liveGameData, userActiveGameId, onBuyEntry
     const isLoadingAction = loadingState[tournament.id] || loadingState[`spectate-${tournament.id}`];
     const is2v2 = tournament.type === '2v2';
     
-    // (Petición 5) Indicador visual de si hay una partida activa
-    const hasActiveGame = !!liveGameData;
+    // Ahora 'hasActiveGame' también será true si el juego está 'playing'
+    const hasActiveGame = !!liveGameData; 
 
-    // Listener for team counts if it's a 2v2 game and we have a gameId
+    // ... (useEffect sin cambios) ...
     useEffect(() => {
         if (!is2v2 || !gameId) {
             setTeamCounts({ team1: 0, team2: 0 }); // Reset if not applicable
@@ -85,6 +87,7 @@ const TournamentCard = ({ tournament, liveGameData, userActiveGameId, onBuyEntry
         return () => unsubscribe();
     }, [is2v2, gameId]);
 
+
     const handleSelectTeam = (team) => {
         if (teamCounts[team] < 2) {
             setSelectedTeam(team);
@@ -93,8 +96,12 @@ const TournamentCard = ({ tournament, liveGameData, userActiveGameId, onBuyEntry
 
     const canBuy = (!is2v2 || (selectedTeam && teamCounts[selectedTeam] < 2)) && !isFull && !isLoadingAction;
 
+    // --- CLASES DE TAILWIND REEMPLAZADAS POR 'tournamentCard' Y 'disabled' ---
+    // La lógica de 'disabled' (opacidad) ahora es correcta, porque 'hasActiveGame' funciona
+    const cardClasses = `grid grid-cols-1 md:grid-cols-6 items-center gap-4 p-4 tournamentCard ${!hasActiveGame && !hasJoinedThis ? 'disabled' : ''}`;
+
     return (
-        <div className={`grid grid-cols-1 md:grid-cols-5 items-center gap-4 p-4 bg-gray-800 rounded-lg hover:bg-gray-700 transition-colors ${!hasActiveGame && !hasJoinedThis ? 'opacity-60' : ''}`}>
+        <div className={cardClasses}>
             {/* Tournament Info */}
             <div className="col-span-1 md:col-span-2">
                 <p className="text-lg font-semibold text-cyan-400">{tournament.name}</p>
@@ -128,41 +135,70 @@ const TournamentCard = ({ tournament, liveGameData, userActiveGameId, onBuyEntry
                 <p className="text-sm text-gray-400">Entrada</p>
                 <p className="text-lg font-bold">{tournament.entryFeeVES} VES</p>
             </div>
-            {/* Action Buttons */}
-            <div className="col-span-1 md:col-span-1 flex flex-col md:flex-row justify-end items-center gap-2">
+            
+            {/* --- LÓGICA DE BOTONES COMPLETAMENTE ACTUALIZADA --- */}
+            <div className="col-span-1 md:col-span-2 flex flex-row items-center gap-3 flex-nowrap">
                 {hasJoinedThis ? (
                     <>
+                        {/* --- CASO 1: YA ESTÁS EN LA PARTIDA --- */}
                         <button
                             onClick={() => navigate(`/domino/game/${userActiveGameId}`)}
-                            className="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded-lg text-sm w-full md:w-auto"
+                            className="lobbyButton lobbyButton-primary"
                             disabled={isLoadingAction}
                         >
                             {isLoadingAction ? '...' : 'Entrar a la sala'}
                         </button>
-                        <button
-                            onClick={() => onRefund(tournament.id)}
-                            className="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded-lg text-sm w-full md:w-auto"
-                            disabled={isLoadingAction}
-                        >
-                            {isLoadingAction ? '...' : 'Reembolsar'}
-                        </button>
+                        
+                        {/* Solo mostrar Reembolsar si el juego NO está en 'playing' */}
+                        {liveGameData?.status !== 'playing' && (
+                            <button
+                                onClick={() => onRefund(tournament.id)}
+                                className="lobbyButton lobbyButton-secondary"
+                                disabled={isLoadingAction}
+                            >
+                                {isLoadingAction ? '...' : 'Reembolsar'}
+                            </button>
+                        )}
                     </>
                 ) : (
                     <>
-                        <button
-                            onClick={() => onSpectate(tournament.id)}
-                            className="bg-gray-600 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded-lg text-sm w-full md:w-auto"
-                            disabled={isLoadingAction || !hasActiveGame} // (Petición 5) Deshabilitado si no hay juego
-                        >
-                            {loadingState[`spectate-${tournament.id}`] ? '...' : 'Ver'}
-                        </button>
-                        <button
-                            onClick={() => onBuyEntry(tournament.id, selectedTeam)}
-                            className={`font-bold py-2 px-4 rounded-lg text-sm w-full md:w-auto ${!canBuy ? 'bg-gray-600 cursor-not-allowed opacity-50' : 'bg-cyan-600 hover:bg-cyan-700'}`}
-                            disabled={!canBuy}
-                        >
-                            {loadingState[tournament.id] ? '...' : (isFull ? 'Llena' : 'Comprar entrada')}
-                        </button>
+                        {/* --- CASO 2: NO ESTÁS EN LA PARTIDA --- */}
+                        {liveGameData?.status === 'playing' ? (
+                            <>
+                                {/* --- Partida en curso --- */}
+                                <button
+                                    onClick={() => onSpectate(tournament.id)}
+                                    className="lobbyButton lobbyButton-neutral"
+                                    disabled={isLoadingAction}
+                                >
+                                    {loadingState[`spectate-${tournament.id}`] ? '...' : 'Ver'}
+                                </button>
+                                <button
+                                    className="lobbyButton lobbyButton-disabled"
+                                    disabled={true}
+                                >
+                                    Partida iniciada
+                                </button>
+                            </>
+                        ) : (
+                            <>
+                                {/* --- Partida en espera o llena (lógica anterior) --- */}
+                                <button
+                                    onClick={() => onSpectate(tournament.id)}
+                                    className="lobbyButton lobbyButton-neutral"
+                                    disabled={isLoadingAction || !hasActiveGame}
+                                >
+                                    {loadingState[`spectate-${tournament.id}`] ? '...' : 'Ver'}
+                                </button>
+                                <button
+                                    onClick={() => onBuyEntry(tournament.id, selectedTeam)}
+                                    className="lobbyButton lobbyButton-cta"
+                                    disabled={!canBuy}
+                                >
+                                    {loadingState[tournament.id] ? '...' : (isFull ? 'Llena' : 'Comprar entrada')}
+                                </button>
+                            </>
+                        )}
                     </>
                 )}
             </div>
@@ -180,7 +216,7 @@ const DominoLobby = () => {
     const [balance, setBalance] = useState(0);
     const [loading, setLoading] = useState({});
 
-    // Fetch tournament templates
+    // ... (useEffect de templates sin cambios) ...
     useEffect(() => {
         const q = query(collection(db, "domino_tournaments"), orderBy("createdAt", "asc"));
         const unsubscribe = onSnapshot(q, (snapshot) => {
@@ -192,7 +228,7 @@ const DominoLobby = () => {
         return () => unsubscribe();
     }, []);
 
-    // Listen to user data (balance, active games) and live game data (player counts)
+    // ... (useEffect de user y games) ...
     useEffect(() => {
         if (!currentUser?.uid) return;
 
@@ -223,10 +259,12 @@ const DominoLobby = () => {
             return () => { unsubscribeUser(); }; // Only unsubscribe user listener
         }
 
+        // --- CONSULTA ACTUALIZADA ---
+        // Ahora también buscamos juegos que estén "playing"
         const gamesQuery = query(
             collection(db, "domino_tournament_games"),
             where("tournamentTemplateId", "in", templateIds),
-            where("status", "in", ["waiting", "full"]) // Only interested in joinable/full games for counts
+            where("status", "in", ["waiting", "full", "playing"]) // <-- CAMBIO CLAVE AQUÍ
         );
         const unsubscribeGames = onSnapshot(gamesQuery, (snapshot) => {
             const gamesMap = {};
@@ -244,6 +282,8 @@ const DominoLobby = () => {
         };
     }, [currentUser, tournaments]); // Rerun when tournaments list changes
 
+
+    // ... (todas las funciones 'handle' sin cambios) ...
     const handleBuyEntry = async (templateId, selectedTeam) => {
         if (!currentUser) return alert('Debes iniciar sesión para unirte.');
         const tournament = tournaments.find(t => t.id === templateId);
@@ -313,16 +353,20 @@ const DominoLobby = () => {
         }
     };
 
+
     return (
-        <div className="bg-gray-900 text-white flex flex-col h-screen overflow-hidden">
+        // --- CLASES DE TAILWIND REEMPLAZADAS POR 'dominoLobbyContainer' ---
+        <div className="dominoLobbyContainer text-white flex flex-col h-screen overflow-hidden">
             <Header balance={balance} />
             <main className="flex-grow p-6 overflow-y-auto">
                 <div className="max-w-7xl mx-auto">
                     <div className="flex justify-between items-center mb-6">
-                        <h2 className="text-3xl font-bold text-white">Torneos Disponibles</h2>
+                        {/* --- CLASE 'text-white' REEMPLAZADA POR 'lobbySectionTitle' --- */}
+                        <h2 className="text-3xl font-bold lobbySectionTitle">Torneos Disponibles</h2>
                     </div>
 
-                    <div className="panel p-4 rounded-xl" style={{ backgroundColor: 'rgba(22, 27, 34, 0.7)', border: '1px solid rgba(255, 255, 255, 0.1)', backdropFilter: 'blur(10px)' }}>
+                    {/* --- CLASES DE TAILWIND REEMPLAZADAS POR 'lobbyPanel' --- */}
+                    <div className="lobbyPanel">
                         <div className="space-y-4">
                             {tournaments.length === 0 && <p className="text-center text-gray-500 py-4">No hay torneos abiertos en este momento.</p>}
                             {tournaments.map((tournament) => (
