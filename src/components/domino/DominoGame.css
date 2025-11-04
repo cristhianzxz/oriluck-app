@@ -827,6 +827,25 @@ body {
     to { transform: translateY(0); opacity: 1; }
 }
 
+.closeGameOverButton {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    background: rgba(255,255,255,0.1);
+    border: none;
+    color: white;
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    font-size: 1rem;
+    font-weight: bold;
+    cursor: pointer;
+    transition: background 0.2s;
+}
+.closeGameOverButton:hover {
+    background: rgba(255,255,255,0.2);
+}
+
 .gameOverContent h2 {
     font-size: 2.5rem;
     font-weight: bold;
@@ -927,6 +946,28 @@ body {
     background: rgba(0,0,0,0.8);
 }
 
+/* --- AÑADIDO: Estilo para el botón de pantalla completa --- */
+.fullscreenButton {
+    position: absolute;
+    top: 8px;
+    left: 46px; /* Al lado del botón de settings (8px + 30px + 8px) */
+    z-index: 20;
+    background: rgba(0,0,0,0.5);
+    border: 1px solid rgba(255,255,255,0.2);
+    color: white;
+    border-radius: 50%;
+    width: 30px;
+    height: 30px;
+    font-size: 1.2rem;
+    cursor: pointer;
+    display: grid;
+    place-items: center;
+    padding: 0;
+}
+.fullscreenButton:hover {
+    background: rgba(0,0,0,0.8);
+}
+
 .settingsPanel {
     position: absolute;
     top: 45px;
@@ -978,78 +1019,108 @@ body {
 }
 
 
-@media (max-width: 768px) {
-    body { overflow: auto; }
-    .gameContainer { height: auto; min-height: 100vh; }
-    .topBar { height: 45px; padding: 5px 10px; }
-    .gameTitle, .topRightInfo, .turnTimerDisplay { font-size: 0.8rem; }
-    
-    .playerAreaTop, .playerAreaBottom { height: 60px; }
-    .playerAreaLeft, .playerAreaRight { width: var(--side-area-width, 140px); }
-    .gameBoard { height: 50vh; border-width: 8px; margin: 5px; }
-    
-    .playerHandTray { height: 110px; padding: 0 50px; }
-    
-    .boardEndHighlight { width: 30px; height: 60px; }
+/* * =======================================================================
+ * --- INICIO DEL BLOQUE MÓVIL CORREGIDO (REEMPLAZADO) ---
+ * =======================================================================
+ */
 
-    .opponentHand.playerLeft { right: 0; }
-    .opponentHand.playerRight { left: 0; }
-    .opponentHand.playerTop { bottom: 0; }
-    .opponentHand .tile.opponentTile { width: 18px; height: 36px; }
-    .opponentHand .tile.opponentTile .pip { width: 2.5px; height: 2.5px; }
-    .opponentHand.playerTop .tile.opponentTile { width: 25px; height: 12px; }
-    .opponentHand.playerTop .tile.opponentTile .pip { width: 2px; height: 2px; }
-
-    .avatarContainer { min-width: 130px; gap: 4px; padding: 3px; padding-right: 6px; }
-    .avatarImageWrapper { width: 28px; height: 28px; }
-    .readyIndicator { width: 10px; height: 10px; font-size: 0.5rem; bottom: -2px; right: -2px; }
-    .playerInfo { font-size: 0.65rem; }
-    .name { font-size: 0.7rem; }
-    .flag { font-size: 0.65rem; }
-    .balanceCount { font-size: 0.65rem; }
-    .currencySymbol { font-size: 0.6rem; }
-    .scoreBadge { width: 18px; height: 18px; font-size: 0.65rem; }
-    .bottomIcons { bottom: 8px; right: 8px; }
-    .iconButton { width: 35px; height: 35px; font-size: 1.1rem; }
-    .chatContainer, .emojiPanel { bottom: 115px; height: 200px; width: calc(100% - 20px); left: 10px; right: 10px; }
-    .chatInput { padding: 8px; font-size: 0.8rem; }
-    .chatSendButton { padding: 0 10px; font-size: 1rem; }
-    .emojiPanel { right: 8px; left: auto; width: auto; }
-    .emojiButton { font-size: 1.3rem; padding: 3px; }
-    .watermark { font-size: 20vw; }
-    .waitingMessage { font-size: 0.9rem; padding: 8px 15px; }
-    .readyButton, .passButton { font-size: 0.8rem; padding: 7px 12px; }
-    .passButton { padding: 10px 25px; bottom: 10px; }
-
-    .gameOverContent { padding: 20px 25px; }
-    .gameOverContent h2 { font-size: 2rem; }
-    .winnerAnnouncement { font-size: 1rem; }
-    .winnerNames { font-size: 1.5rem; }
-    .finalScores h3 { font-size: 1rem; }
-    .finalScores p { font-size: 0.9rem; }
-    .backToLobbyButton { padding: 10px 25px; font-size: 0.9rem; }
-    
-    .gameBackToLobbyButton { width: 30px; height: 30px; }
-    .gameBackToLobbyButton::after { width: 8px; height: 8px; border-width: 2px; }
-    .topLeftControls { gap: 10px; }
+/* --- Contenedores de Avatar por Vista (NUEVO) --- */
+.mobileAvatarBar {
+    display: none; /* Oculto en escritorio */
+}
+.desktopAvatar {
+    display: flex; /* Visible en escritorio */
+    justify-content: center;
+    align-items: center;
 }
 
-@media (max-width: 480px) {
-    .topBar { height: 40px; padding: 4px 8px; }
-    .gameTitle, .topRightInfo, .turnTimerDisplay { font-size: 0.7rem; }
-    .gameBoard { margin: 5px; border-width: 6px; }
-    .playerHandTray { height: 100px; padding: 0 40px; }
+
+/* --- Pantallas de teléfono/tablet en vertical (NUEVO BREAKPOINT) --- */
+@media (max-width: 1023px) and (orientation: portrait) {
     
-    .playerAreaTop, .playerAreaBottom { height: 55px; }
-    .playerAreaLeft, .playerAreaRight { width: var(--side-area-width, 125px); }
+    /* --- INICIO: CAMBIOS EN BARRA SUPERIOR (topBar) --- */
+    .topBar {
+        flex-wrap: wrap; /* Permite que los elementos bajen */
+        height: auto; /* Altura automática para acomodar todo */
+        padding: 4px 8px;
+    }
+    .topLeftControls {
+        order: 1; /* Fila 1, Izquierda */
+        width: 50%; /* Mitad de pantalla */
+        flex-grow: 0;
+        flex-basis: auto;
+        min-width: 0; /* Para que el título se corte */
+    }
+    .gameTitle {
+        font-size: 0.8rem;
+    }
+    .topRightInfo {
+        order: 2; /* Fila 1, Derecha */
+        width: 50%; /* Mitad de pantalla */
+        flex-grow: 0;
+        flex-basis: auto;
+        justify-content: flex-end;
+        font-size: 0.8rem;
+    }
+    /* .topBarOpponentAvatars ha sido eliminado */
+    .turnTimerDisplay {
+        display: block; /* Mostrar el timer */
+        order: 3; /* Fila 2 */
+        width: 100%;
+        text-align: center;
+        font-size: 0.8rem;
+        padding-top: 4px;
+        margin-top: 4px;
+        border-top: 1px solid rgba(255, 255, 255, 0.1);
+        flex: 1 0 100%; /* Ocupa todo el ancho */
+    }
+    /* --- FIN: CAMBIOS EN BARRA SUPERIOR (topBar) --- */
+
     
+    /* --- CAMBIOS PRINCIPALES DE LAYOUT (Ocultar avatares laterales) --- */
+    .playerAreaTop, .playerAreaLeft, .playerAreaRight {
+        display: none; /* Ocultamos áreas laterales/superior */
+    }
+    .playerAreaBottom {
+        height: 60px; /* Altura para la nueva barra de avatares */
+        width: 100%;
+        display: flex; /* Asegurar que sea flex */
+        align-items: center;
+        padding: 0 5px; /* Añadido padding */
+        box-sizing: border-box; /* Añadido */
+    }
+    .gameBoard { 
+        min-height: 0; /* Dejamos que flex-grow se encargue */
+        margin: 5px; 
+        border-width: 6px;
+    }
+    /* --- FIN CAMBIOS LAYOUT --- */
+
+    
+    /* --- ARREGLO DE FICHAS EN MANO (Bandeja responsiva) --- */
+    .playerHandTray {
+        height: 15vh; /* Reducido para dar espacio a la mesa */
+        min-height: 85px; /* Mínimo para que no colapse */
+        padding: 0 10px;
+    }
     .handTiles { gap: 2px; }
+    
+    /* Las fichas en mano (tile.inHand) usarán el 'vh' base para HD */
+    
     .boardEndHighlight { width: 25px; height: 50px; }
     
-    .avatarContainer { min-width: 120px; }
     .bottomIcons { bottom: 5px; right: 5px; gap: 5px; }
     .iconButton { width: 30px; height: 30px; font-size: 1rem; }
-    .chatContainer, .emojiPanel { bottom: 105px; height: 180px; }
+    
+    /* Ajustamos el chat para la nueva altura de la bandeja */
+    .chatContainer, .emojiPanel {
+        bottom: calc(15vh + 60px + 5px); /* bandeja + barra avatar + gap */
+        min-height: 180px;
+        width: calc(100% - 20px);
+        left: 10px;
+        right: 10px;
+    }
+    
     .opponentHand.playerLeft { right: 0; }
     .opponentHand.playerRight { left: 0; }
     .opponentHand .tile.opponentTile { width: 16px; height: 32px; }
@@ -1066,7 +1137,199 @@ body {
     .gameBackToLobbyButton { width: 28px; height: 28px; }
     .gameBackToLobbyButton::after { width: 7px; height: 7px; border-width: 2px; }
     .topLeftControls { gap: 8px; }
+
+    /* --- AÑADIDO: Ocultar settings y mover fullscreen --- */
+    .settingsButton {
+        display: none; /* Ocultar el engranaje */
+    }
+    .fullscreenButton {
+        top: 8px;
+        left: 8px; /* Mover a la esquina */
+    }
+    .settingsPanel {
+        top: 45px;
+    }
+
+    /* --- INICIO: Estilos para la nueva barra de avatares móvil --- */
+    .desktopAvatar {
+        display: none; /* Ocultar en móvil vertical */
+    }
+    .mobileAvatarBar {
+        display: flex;
+        justify-content: center;
+        align-items: stretch; /* Estirar para misma altura */
+        gap: 4px; /* Espacio entre avatares */
+        width: 100%;
+    }
+    /* Estilos para los avatares minimalistas en la barra móvil */
+    .mobileAvatarBar .avatarContainer {
+        flex: 1; /* Distribuir espacio */
+        min-width: 0; /* Para que se encoja y trunque */
+        background: linear-gradient(to bottom, rgba(40, 40, 40, 0.65), rgba(20, 20, 20, 0.75));
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 25px; /* Píldora */
+        padding: 4px;
+        flex-direction: row; /* Horizontal */
+        align-items: center;
+        gap: 5px;
+    }
+    .mobileAvatarBar .avatarImageWrapper {
+        width: 30px;
+        height: 30px;
+    }
+    .mobileAvatarBar .playerInfo {
+        display: block; /* Mostrar la info */
+        flex: 1;
+        min-width: 0;
+        text-shadow: none;
+    }
+    .mobileAvatarBar .name {
+        display: block; /* Mostrar el nombre */
+        font-size: 0.7rem;
+        font-weight: 600;
+        color: white;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        margin-bottom: 0;
+    }
+    .mobileAvatarBar .flag {
+        display: none; /* Ocultar bandera */
+    }
+    .mobileAvatarBar .balanceCount {
+        display: none; /* Ocultar balance */
+    }
+    .mobileAvatarBar .scoreBadge {
+        margin-left: 4px;
+        width: 20px;
+        height: 20px;
+        font-size: 0.7rem;
+    }
+    .mobileAvatarBar .avatarContainer.isTurnContainer {
+        border-color: #ffd700;
+        box-shadow: 0 0 8px rgba(255, 215, 0, 0.8);
+        filter: none;
+    }
+    /* --- FIN: Estilos para la nueva barra de avatares móvil --- */
 }
+
+/* * =======================================================================
+ * --- INICIO: BLOQUE PARA MÓVIL HORIZONTAL (LANDSCAPE) ---
+ * =======================================================================
+ */
+@media (max-height: 500px) and (orientation: landscape) {
+    
+    /* --- Barra superior fina y de una línea --- */
+    .topBar {
+        height: 40px;
+        padding: 4px 10px;
+        flex-wrap: nowrap; /* Forzar una línea */
+    }
+    .topLeftControls {
+        order: 1;
+        width: auto;
+        flex: 1;
+    }
+    .gameTitle { font-size: 0.8rem; }
+    .topRightInfo {
+        order: 3;
+        width: auto;
+        flex: 1;
+        font-size: 0.8rem;
+    }
+    /* .topBarOpponentAvatars ya está display: none por defecto */
+    .turnTimerDisplay {
+        order: 2;
+        width: auto;
+        flex: 1.5; /* Darle más espacio en el medio */
+        border: none;
+        padding: 0;
+        margin: 0 10px;
+        font-size: 0.8rem;
+    }
+
+    /* --- Ocultar áreas superior/inferior, mantener laterales --- */
+    .playerAreaTop, .playerAreaBottom {
+        display: none; /* No hay espacio vertical */
+    }
+    .playerAreaLeft, .playerAreaRight {
+        display: flex; /* Mostrar laterales */
+        width: var(--side-area-width, 140px); /* Más delgados */
+    }
+    .gameBoard {
+        margin: 5px;
+        border-width: 6px;
+    }
+
+    /* --- Bandeja de fichas más corta --- */
+    .playerHandTray {
+        height: 100px; /* Más corta */
+        padding: 0 50px;
+    }
+    .handTiles { gap: 3px; }
+
+    /* --- Fichas en mano de tamaño fijo para landscape --- */
+    .tile.inHand {
+        height: 80px; 
+        width: 40px;
+        border-radius: 6px;
+        box-shadow: 1px 1px 4px rgba(0, 0, 0, 0.5);
+    }
+    .inHand .pip {
+        width: 6px;
+        height: 6px;
+    }
+    .tile.inHand .divider {
+        height: 2px;
+        min-height: 1px;
+        width: 85%;
+    }
+    .tile.inHand .pips-6.pipContainer,
+    .tile.double .pips-6.pipContainer {
+        gap: 5% 15%;
+        padding: 10% 8%;
+    }
+
+    /* --- Ajustar avatares laterales --- */
+    .avatarContainer {
+        min-width: 130px;
+        gap: 4px;
+        padding: 3px;
+        padding-right: 6px;
+    }
+    .avatarImageWrapper { width: 28px; height: 28px; }
+    .name { font-size: 0.7rem; }
+    .scoreBadge { width: 18px; height: 18px; font-size: 0.65rem; }
+
+    /* --- Ajustar botones --- */
+    .bottomIcons { bottom: 8px; right: 8px; }
+    .iconButton { width: 35px; height: 35px; font-size: 1.1rem; }
+    .chatContainer, .emojiPanel {
+        bottom: 105px; /* 100px de bandeja + 5px gap */
+    }
+
+    /* --- Ajustar botones de settings/fullscreen --- */
+    .settingsButton {
+        display: none; /* Ocultar engranaje */
+    }
+    .fullscreenButton {
+        top: 8px;
+        left: 8px; /* Mover a la esquina */
+    }
+
+    /* --- Ocultar barras de avatar de abajo --- */
+    .mobileAvatarBar {
+        display: none;
+    }
+    .desktopAvatar {
+        display: none;
+    }
+}
+/* * =======================================================================
+ * --- FIN DEL BLOQUE MÓVIL HORIZONTAL ---
+ * =======================================================================
+ */
+
 
 /* --- ESTILOS MODIFICADOS/NUEVOS --- */
 

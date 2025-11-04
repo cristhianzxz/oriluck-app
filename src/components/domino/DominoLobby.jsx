@@ -1,4 +1,7 @@
-import React, { useContext, useState, useEffect } from 'react';
+/*
+* filepath: DominoLobby.jsx
+*/
+import React, { useContext, useState, useEffect, useMemo } from 'react'; // useMemo importado
 import { useNavigate } from 'react-router-dom';
 import { AuthContext } from '../../App';
 import { db, functions } from '../../firebase';
@@ -6,7 +9,7 @@ import { collection, query, orderBy, onSnapshot, getDocs, where, limit, doc } fr
 import { httpsCallable } from 'firebase/functions';
 
 // --- NUEVA LÍNEA DE IMPORTACIÓN ---
-import './DominoLobby.css';
+import './DominoLobby.css'; // Asegúrate de tener este CSS
 
 const formatCurrency = (value) => {
     const number = Number(value) || 0;
@@ -63,10 +66,8 @@ const TournamentCard = ({ tournament, liveGameData, userActiveGameId, onBuyEntry
     const isLoadingAction = loadingState[tournament.id] || loadingState[`spectate-${tournament.id}`];
     const is2v2 = tournament.type === '2v2';
     
-    // Ahora 'hasActiveGame' también será true si el juego está 'playing'
     const hasActiveGame = !!liveGameData; 
 
-    // ... (useEffect sin cambios) ...
     useEffect(() => {
         if (!is2v2 || !gameId) {
             setTeamCounts({ team1: 0, team2: 0 }); // Reset if not applicable
@@ -95,15 +96,14 @@ const TournamentCard = ({ tournament, liveGameData, userActiveGameId, onBuyEntry
     };
 
     const canBuy = (!is2v2 || (selectedTeam && teamCounts[selectedTeam] < 2)) && !isFull && !isLoadingAction;
-
-    // --- CLASES DE TAILWIND REEMPLAZADAS POR 'tournamentCard' Y 'disabled' ---
-    // La lógica de 'disabled' (opacidad) ahora es correcta, porque 'hasActiveGame' funciona
-    const cardClasses = `grid grid-cols-1 md:grid-cols-6 items-center gap-4 p-4 tournamentCard ${!hasActiveGame && !hasJoinedThis ? 'disabled' : ''}`;
+    
+    // (Lógica de opacidad eliminada)
+    const cardClasses = `grid grid-cols-1 lg:grid-cols-6 items-center gap-4 p-4 tournamentCard`;
 
     return (
         <div className={cardClasses}>
             {/* Tournament Info */}
-            <div className="col-span-1 md:col-span-2">
+            <div className="col-span-1 lg:col-span-2">
                 <p className="text-lg font-semibold text-cyan-400">{tournament.name}</p>
                 <p className="text-sm text-gray-400">{tournament.type === '2v2' ? 'Parejas' : 'Individual'}</p>
                 {is2v2 && !hasJoinedThis && (
@@ -136,8 +136,8 @@ const TournamentCard = ({ tournament, liveGameData, userActiveGameId, onBuyEntry
                 <p className="text-lg font-bold">{tournament.entryFeeVES} VES</p>
             </div>
             
-            {/* --- LÓGICA DE BOTONES COMPLETAMENTE ACTUALIZADA --- */}
-            <div className="col-span-1 md:col-span-2 flex flex-row items-center gap-3 flex-nowrap">
+            {/* Botones (con corrección de layout móvil) */}
+            <div className="col-span-1 lg:col-span-2 flex flex-col sm:flex-row items-stretch sm:items-center gap-3 sm:flex-nowrap">
                 {hasJoinedThis ? (
                     <>
                         {/* --- CASO 1: YA ESTÁS EN LA PARTIDA --- */}
@@ -149,7 +149,6 @@ const TournamentCard = ({ tournament, liveGameData, userActiveGameId, onBuyEntry
                             {isLoadingAction ? '...' : 'Entrar a la sala'}
                         </button>
                         
-                        {/* Solo mostrar Reembolsar si el juego NO está en 'playing' */}
                         {liveGameData?.status !== 'playing' && (
                             <button
                                 onClick={() => onRefund(tournament.id)}
@@ -206,6 +205,62 @@ const TournamentCard = ({ tournament, liveGameData, userActiveGameId, onBuyEntry
     );
 };
 
+// --- COMPONENTE DE FILTROS ACTUALIZADO ---
+const FilterBar = ({ 
+    searchTerm, 
+    setSearchTerm,
+    filterPrice, 
+    setFilterPrice, 
+    filterAvailability, 
+    setFilterAvailability, 
+    filterType, 
+    setFilterType 
+}) => {
+    return (
+        <div className="filterBar">
+            {/* Nueva Barra de Búsqueda */}
+            <div className="searchBar">
+                <input
+                    type="text"
+                    placeholder="Buscar por nombre..."
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                />
+            </div>
+            {/* Filtros Select */}
+            <div className="filterSelects">
+                <div className="filterGroup">
+                    <label htmlFor="filterType">Tipo</label>
+                    <select id="filterType" value={filterType} onChange={(e) => setFilterType(e.target.value)}>
+                        <option value="all">Todos</option>
+                        <option value="1v1v1v1">Individual</option>
+                        <option value="2v2">Parejas</option>
+                    </select>
+                </div>
+                <div className="filterGroup">
+                    <label htmlFor="filterPrice">Precio</label>
+                    <select id="filterPrice" value={filterPrice} onChange={(e) => setFilterPrice(e.target.value)}>
+                        <option value="all">Todos</option>
+                        <option value="1">$1.00</option>
+                        <option value="2.5">$2.50</option>
+                        <option value="5">$5.00</option>
+                        <option value="10">$10.00</option>
+                        <option value="20">$20.00</option>
+                    </select>
+                </div>
+                <div className="filterGroup">
+                    <label htmlFor="filterAvailability">Disponibilidad</label>
+                    <select id="filterAvailability" value={filterAvailability} onChange={(e) => setFilterAvailability(e.target.value)}>
+                        <option value="all">Todos</option>
+                        <option value="available">Disponibles</option>
+                        <option value="not_available">Llenos / En Curso</option>
+                    </select>
+                </div>
+            </div>
+        </div>
+    );
+};
+
 
 const DominoLobby = () => {
     const navigate = useNavigate();
@@ -216,7 +271,13 @@ const DominoLobby = () => {
     const [balance, setBalance] = useState(0);
     const [loading, setLoading] = useState({});
 
-    // ... (useEffect de templates sin cambios) ...
+    // --- ESTADOS DE FILTROS ACTUALIZADOS ---
+    const [searchTerm, setSearchTerm] = useState('');
+    const [filterPrice, setFilterPrice] = useState('all');
+    const [filterAvailability, setFilterAvailability] = useState('all');
+    const [filterType, setFilterType] = useState('all'); 
+
+    // Fetch tournament templates
     useEffect(() => {
         const q = query(collection(db, "domino_tournaments"), orderBy("createdAt", "asc"));
         const unsubscribe = onSnapshot(q, (snapshot) => {
@@ -228,7 +289,7 @@ const DominoLobby = () => {
         return () => unsubscribe();
     }, []);
 
-    // ... (useEffect de user y games) ...
+    // Listen to user data (balance, active games) and live game data (player counts)
     useEffect(() => {
         if (!currentUser?.uid) return;
 
@@ -251,28 +312,30 @@ const DominoLobby = () => {
             console.error("Error fetching user data:", error);
         });
 
-        // Live game data listener (for player counts)
-        // Listen only to games relevant to the displayed tournaments
-        const templateIds = tournaments.map(t => t.id);
-        if (templateIds.length === 0) {
-            setLiveGames({}); // Clear if no templates
-            return () => { unsubscribeUser(); }; // Only unsubscribe user listener
+        // --- CORRECCIÓN DE ERROR "Too many disjunctions" ---
+        // Si no hay torneos, no ejecutes la consulta de juegos.
+        if (tournaments.length === 0) {
+            setLiveGames({});
+            return () => { unsubscribeUser(); };
         }
 
-        // --- CONSULTA ACTUALIZADA ---
-        // Ahora también buscamos juegos que estén "playing"
+        // En lugar de filtrar por un array de IDs (que tiene un límite de 30),
+        // ahora escuchamos TODOS los juegos activos.
         const gamesQuery = query(
             collection(db, "domino_tournament_games"),
-            where("tournamentTemplateId", "in", templateIds),
-            where("status", "in", ["waiting", "full", "playing"]) // <-- CAMBIO CLAVE AQUÍ
+            where("status", "in", ["waiting", "full", "playing"])
         );
+        // --- FIN DE LA CORRECCIÓN ---
+
         const unsubscribeGames = onSnapshot(gamesQuery, (snapshot) => {
             const gamesMap = {};
             snapshot.docs.forEach((doc) => {
+                // Mapeamos los juegos por su templateId para que el resto de la lógica funcione
                 gamesMap[doc.data().tournamentTemplateId] = { id: doc.id, ...doc.data() };
             });
             setLiveGames(gamesMap);
         }, (error) => {
+            // Este es el error que estabas viendo en la consola
             console.error("Error fetching live game data:", error);
         });
 
@@ -283,7 +346,48 @@ const DominoLobby = () => {
     }, [currentUser, tournaments]); // Rerun when tournaments list changes
 
 
-    // ... (todas las funciones 'handle' sin cambios) ...
+    // --- useMemo ACTUALIZADO PARA INCLUIR BÚSQUEDA Y DEVOLVER UNA SOLA LISTA ---
+    const filteredTournaments = useMemo(() => {
+        let filtered = tournaments;
+        const lowerSearchTerm = searchTerm.toLowerCase().trim();
+
+        // 1. Filtrar por Búsqueda (si hay término)
+        if (lowerSearchTerm) {
+            filtered = filtered.filter(t => 
+                t.name.toLowerCase().includes(lowerSearchTerm)
+            );
+        }
+
+        // 2. Filtrar por Tipo
+        if (filterType !== 'all') {
+            filtered = filtered.filter(t => t.type === filterType);
+        }
+
+        // 3. Filtrar por Precio
+        if (filterPrice !== 'all') {
+            filtered = filtered.filter(t => t.entryFeeUSD === Number(filterPrice));
+        }
+
+        // 4. Filtrar por Disponibilidad
+        if (filterAvailability !== 'all') {
+            if (filterAvailability === 'available') {
+                filtered = filtered.filter(t => {
+                    const game = liveGames[t.id];
+                    return !game || (game.status === 'waiting' && game.playerCount < 4);
+                });
+            } else if (filterAvailability === 'not_available') {
+                filtered = filtered.filter(t => {
+                    const game = liveGames[t.id];
+                    return game && (game.status === 'full' || game.status === 'playing');
+                });
+            }
+        }
+        
+        return filtered; // Devolver una sola lista
+
+    }, [tournaments, liveGames, filterPrice, filterAvailability, filterType, searchTerm]);
+
+
     const handleBuyEntry = async (templateId, selectedTeam) => {
         if (!currentUser) return alert('Debes iniciar sesión para unirte.');
         const tournament = tournaments.find(t => t.id === templateId);
@@ -294,9 +398,7 @@ const DominoLobby = () => {
         setLoading(prev => ({ ...prev, [templateId]: true }));
         try {
             const buyEntryFunc = httpsCallable(functions, 'buyTournamentEntry');
-            // Backend will now handle finding/creating game and adding player
             await buyEntryFunc({ tournamentTemplateId: templateId, selectedTeam: selectedTeam });
-            // No navigation here, UI updates via listeners
         } catch (error) {
             console.error("Error al comprar entrada:", error);
             alert(`Error: ${error.message}`);
@@ -312,7 +414,6 @@ const DominoLobby = () => {
         try {
             const refundFunc = httpsCallable(functions, 'refundTournamentEntry');
             await refundFunc({ gameId: gameId });
-            // UI updates via listeners
         } catch (error) {
             console.error("Error al reembolsar:", error);
             alert(`Error: ${error.message}`);
@@ -324,7 +425,6 @@ const DominoLobby = () => {
     const handleSpectate = async (templateId) => {
         setLoading(prev => ({ ...prev, [`spectate-${templateId}`]: true }));
         try {
-            // Find the most recent game (active or finished) for this template to spectate
             const gamesCollectionRef = collection(db, 'domino_tournament_games');
             const q = query(gamesCollectionRef,
                 where('tournamentTemplateId', '==', templateId),
@@ -336,12 +436,10 @@ const DominoLobby = () => {
                 const gameToSpectate = gameSnapshot.docs[0];
                 navigate(`/domino/game/${gameToSpectate.id}?spectate=true`);
             } else {
-                // If no game exists yet, maybe check liveGames map?
                 const liveGame = liveGames[templateId];
                 if (liveGame) {
                      navigate(`/domino/game/${liveGame.id}?spectate=true`);
                 } else {
-                    // (Petición 5) Mensaje de error mejorado
                     alert("No hay partidas activas o finalizadas para observar en este torneo. Inténtalo más tarde.");
                 }
             }
@@ -360,21 +458,37 @@ const DominoLobby = () => {
             <Header balance={balance} />
             <main className="flex-grow p-6 overflow-y-auto">
                 <div className="max-w-7xl mx-auto">
-                    <div className="flex justify-between items-center mb-6">
-                        {/* --- CLASE 'text-white' REEMPLAZADA POR 'lobbySectionTitle' --- */}
+                    
+                    {/* --- TÍTULO Y BARRA DE FILTROS --- */}
+                    <div className="flex flex-col md:flex-row justify-between items-center mb-6 gap-4">
                         <h2 className="text-3xl font-bold lobbySectionTitle">Torneos Disponibles</h2>
+                        {/* El componente de filtros ahora recibe 5 props */}
+                        <FilterBar 
+                            searchTerm={searchTerm}
+                            setSearchTerm={setSearchTerm}
+                            filterPrice={filterPrice}
+                            setFilterPrice={setFilterPrice}
+                            filterAvailability={filterAvailability}
+                            setFilterAvailability={setFilterAvailability}
+                            filterType={filterType} 
+                            setFilterType={setFilterType}
+                        />
                     </div>
 
-                    {/* --- CLASES DE TAILWIND REEMPLAZADAS POR 'lobbyPanel' --- */}
+                    {/* --- PANEL PRINCIPAL (UNA SOLA COLUMNA) --- */}
                     <div className="lobbyPanel">
+                        
+                        {/* --- RENDERIZADO ÚNICO DE LA LISTA FILTRADA --- */}
                         <div className="space-y-4">
-                            {tournaments.length === 0 && <p className="text-center text-gray-500 py-4">No hay torneos abiertos en este momento.</p>}
-                            {tournaments.map((tournament) => (
+                            {filteredTournaments.length === 0 && (
+                                <p className="text-center text-gray-500 py-4">No hay torneos que coincidan con los filtros.</p>
+                            )}
+                            {filteredTournaments.map((tournament) => (
                                 <TournamentCard
                                     key={tournament.id}
                                     tournament={tournament}
-                                    liveGameData={liveGames[tournament.id]} // Pass live game data if available
-                                    userActiveGameId={userActiveGames[tournament.id]} // Pass specific gameId if user joined
+                                    liveGameData={liveGames[tournament.id]} 
+                                    userActiveGameId={userActiveGames[tournament.id]} 
                                     onBuyEntry={handleBuyEntry}
                                     onRefund={handleRefund}
                                     onSpectate={handleSpectate}
@@ -382,6 +496,7 @@ const DominoLobby = () => {
                                 />
                             ))}
                         </div>
+
                     </div>
                 </div>
             </main>

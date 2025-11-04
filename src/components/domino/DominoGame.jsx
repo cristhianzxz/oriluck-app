@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useContext, useRef, useMemo } from 'react';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
-import './DominoGame.css';
+import './DominoGame.css'; // <-- Mantenemos esta importación
 import { db, functions } from '../../firebase';
 import { AuthContext } from '../../App';
 import {
@@ -22,6 +22,9 @@ const TURN_TIMEOUT_SECONDS = 30;
 const PASS_TIMEOUT_SECONDS = 10;
 
 const EMOJI_REACTIONS = ['😂', '😎', '😠', '😢', '🔥', '👍'];
+
+// --- NUEVA CONSTANTE PARA DETECTAR MÓVIL ---
+const isMobile = /Mobi/i.test(window.navigator.userAgent);
 
 function getValidMoves(hand, board) {
     const validMoves = [];
@@ -399,7 +402,7 @@ function calculateBoardLayout(board, containerWidth, containerHeight, tileScale,
                         nextX = startHead.x + oldDir[0] * (prevRenderedW / 4); 
                         nextY = startHead.y + startHead.dir[1] * (prevRenderedH / 2 + TILE_GAP + newRenderedH / 2);
                     } else { // Giro fue de Vertical a Horizontal
-                        nextX = startHead.x + startHead.dir[0] * (prevRenderedW / 2 + TILE_GAP + newRenderedW / 2);
+                        nextX = startHead.x + endHead.dir[0] * (prevRenderedW / 2 + TILE_GAP + newRenderedW / 2);
                         nextY = startHead.y + oldDir[1] * (prevRenderedH / 4);
                     }
                 }
@@ -558,6 +561,8 @@ const Pips = ({ value }) => {
     return <div className={`pipContainer pips-${value}`}>{pips}</div>;
 };
 
+// --- ELIMINADO: Componente TopBarOpponent ---
+
 const DominoTile = ({ topValue, bottomValue, isInHand = false, onClick, isDisabled = false, isPlayableHighlight = false, isSelectedHighlight = false, isDouble, className = '', orientationClass: propOrientationClass }) => {
     
     const orientationClass = isInHand
@@ -645,6 +650,50 @@ function DominoGame() {
     const [boardScale, setBoardScale] = useState(170);
 
     const [showGameOver, setShowGameOver] = useState(true);
+
+    // --- AÑADIDO: LÓGICA DE PANTALLA COMPLETA ---
+    const [isFullscreen, setIsFullscreen] = useState(false);
+
+    // --- FUNCIÓN handleToggleFullscreen MODIFICADA ---
+    const handleToggleFullscreen = async () => {
+        try {
+            if (!document.fullscreenElement) {
+                // Entrar en pantalla completa
+                await document.documentElement.requestFullscreen();
+                
+                // --- CAMBIO AQUÍ: Solo intentar bloquear en móvil ---
+                if (isMobile && window.screen && window.screen.orientation && window.screen.orientation.lock) {
+                    await window.screen.orientation.lock('landscape');
+                }
+            } else {
+                // Salir de pantalla completa
+                
+                // --- CAMBIO AQUÍ: Solo intentar desbloquear en móvil ---
+                if (isMobile && window.screen && window.screen.orientation && window.screen.orientation.unlock) {
+                    window.screen.orientation.unlock();
+                }
+                await document.exitFullscreen(); // Salir *después* de desbloquear
+            }
+        } catch (err) {
+            console.warn(`Error al gestionar pantalla completa/orientación: ${err.message}`);
+        }
+    };
+
+    useEffect(() => {
+        const onFullscreenChange = () => {
+            setIsFullscreen(!!document.fullscreenElement);
+            // Si salimos de pantalla completa (ej: con la tecla Esc) y la orientación sigue bloqueada, desbloquearla.
+            if (!document.fullscreenElement) {
+                // --- CAMBIO AQUÍ: Solo intentar desbloquear en móvil ---
+                if (isMobile && window.screen && window.screen.orientation && window.screen.orientation.unlock) {
+                    window.screen.orientation.unlock();
+                }
+            }
+        };
+        document.addEventListener('fullscreenchange', onFullscreenChange);
+        return () => document.removeEventListener('fullscreenchange', onFullscreenChange);
+    }, []);
+    // --- FIN LÓGICA PANTALLA COMPLETA ---
 
     // --- FUNCIÓN PARA MOSTRAR EL TOAST ---
     const showToast = (message) => {
@@ -1206,7 +1255,7 @@ function DominoGame() {
                 </div>
             )}
 
-            {/* --- topBar ACTUALIZADA --- */}
+            {/* --- topBar (SIN CAMBIOS, LIMPIA) --- */}
             <div className="topBar">
                 <div className="topLeftControls">
                     <button onClick={() => navigate('/domino')} className="gameBackToLobbyButton" title="Volver al Lobby">
@@ -1214,6 +1263,8 @@ function DominoGame() {
                     </button>
                     <div className="gameTitle">{gameData?.name || `Torneo ${gameId?.substring(0, 6)}`} - Meta: {DOMINO_CONSTANTS.TARGET_SCORE_TOURNAMENT} Pts</div>
                 </div>
+
+                {/* --- ELIMINADA LA BARRA DE AVATARES DE AQUÍ --- */}
 
                 {turnTimerRemaining !== null && gameData?.currentTurn && (
                     <div className="turnTimerDisplay">
@@ -1226,50 +1277,53 @@ function DominoGame() {
                 </div>
             </div>
 
+            {/* --- CORREGIDO: Avatares de ESCRITORIO --- */}
             <div className="playerArea playerAreaTop">
-                {playerTop && (
-                    <>
-                        <PlayerAvatar
-                            player={playerTop}
-                            className="playerAvatarInArea"
-                            gameData={gameData}
-                            entryFee={gameData?.entryFeeVES}
-                            isMe={playerTop.id === currentUser?.uid}
-                            onAddFriend={showToast}
-                            isSpectator={isSpectator} /* <-- AÑADIDO */
-                        />
-                        {gameData?.status === 'round_over' && playerTop.id && playerTop.id !== currentUser?.uid && (
-                            <OpponentHand hand={players[playerTop.id]?.hand} position="playerTop" />
-                        )}
-                    </>
+                <PlayerAvatar
+                    player={playerTop}
+                    className="playerAvatarInArea"
+                    gameData={gameData}
+                    entryFee={gameData?.entryFeeVES}
+                    isMe={playerTop?.id === currentUser?.uid}
+                    onAddFriend={showToast}
+                    isSpectator={isSpectator}
+                />
+                {gameData?.status === 'round_over' && playerTop?.id && playerTop.id !== currentUser?.uid && (
+                    <OpponentHand hand={players[playerTop.id]?.hand} position="playerTop" />
                 )}
             </div>
 
             <div className="middleArea" style={{ '--side-area-width': `${boardScale}px` }}>
+                {/* --- CORREGIDO: Avatares de ESCRITORIO --- */}
                 <div className="playerArea playerAreaLeft">
-                    {playerLeft && (
-                        <>
-                            <PlayerAvatar
-                                player={playerLeft}
-                                className="playerAvatarInArea"
-                                gameData={gameData}
-                                entryFee={gameData?.entryFeeVES}
-                                isMe={playerLeft.id === currentUser?.uid}
-                                onAddFriend={showToast}
-                                isSpectator={isSpectator} /* <-- AÑADIDO */
-                            />
-                            {gameData?.status === 'round_over' && playerLeft.id && playerLeft.id !== currentUser?.uid && (
-                                <OpponentHand hand={players[playerLeft.id]?.hand} position="playerLeft" />
-                            )}
-                        </>
+                    <PlayerAvatar
+                        player={playerLeft}
+                        className="playerAvatarInArea"
+                        gameData={gameData}
+                        entryFee={gameData?.entryFeeVES}
+                        isMe={playerLeft?.id === currentUser?.uid}
+                        onAddFriend={showToast}
+                        isSpectator={isSpectator}
+                    />
+                    {gameData?.status === 'round_over' && playerLeft?.id && playerLeft.id !== currentUser?.uid && (
+                        <OpponentHand hand={players[playerLeft.id]?.hand} position="playerLeft" />
                     )}
                 </div>
 
                 <div className="gameBoard">
-                    {/* --- CAMBIO AQUÍ: Ocultar si es espectador --- */}
                     {!isSpectator && (
                         <>
+                            {/* El CSS ocultará este botón en móvil */}
                             <button className="settingsButton" onClick={() => setIsSettingsOpen(o => !o)}>⚙️</button>
+                            
+                            <button 
+                                className="fullscreenButton" 
+                                onClick={handleToggleFullscreen} 
+                                title={isFullscreen ? 'Salir de pantalla completa' : 'Pantalla completa'}
+                            >
+                                {isFullscreen ? '⤡' : '⤢'}
+                            </button>
+
                             {isSettingsOpen && (
                                 <div className="settingsPanel">
                                     <div className="settingsSection">
@@ -1412,39 +1466,81 @@ function DominoGame() {
                     )}
                 </div>
 
+                {/* --- CORREGIDO: Avatares de ESCRITORIO --- */}
                 <div className="playerArea playerAreaRight">
-                    {playerRight && (
-                        <>
-                            <PlayerAvatar
-                                player={playerRight}
-                                className="playerAvatarInArea"
-                                gameData={gameData}
-                                entryFee={gameData?.entryFeeVES}
-                                isMe={playerRight.id === currentUser?.uid}
-                                onAddFriend={showToast}
-                                isSpectator={isSpectator} /* <-- AÑADIDO */
-                            />
-                            {gameData?.status === 'round_over' && playerRight.id && playerRight.id !== currentUser?.uid && (
-                                <OpponentHand hand={players[playerRight.id]?.hand} position="playerRight" />
-                            )}
-                        </>
+                    <PlayerAvatar
+                        player={playerRight}
+                        className="playerAvatarInArea"
+                        gameData={gameData}
+                        entryFee={gameData?.entryFeeVES}
+                        isMe={playerRight?.id === currentUser?.uid}
+                        onAddFriend={showToast}
+                        isSpectator={isSpectator}
+                    />
+                    {gameData?.status === 'round_over' && playerRight?.id && playerRight.id !== currentUser?.uid && (
+                        <OpponentHand hand={players[playerRight.id]?.hand} position="playerRight" />
                     )}
                 </div>
             </div>
 
+            {/* --- INICIO: ÁREA INFERIOR ACTUALIZADA --- */}
+            {/* Esta área contendrá AMBAS versiones (móvil y escritorio) */}
             <div className="playerArea playerAreaBottom">
-                {playerBottom && (
+                
+                {/* --- Versión de ESCRITORIO (se oculta en móvil) --- */}
+                <div className="desktopAvatar">
                     <PlayerAvatar
                         player={playerBottom}
                         className="playerAvatarInArea"
                         gameData={gameData}
                         entryFee={gameData?.entryFeeVES}
-                        isMe={playerBottom.id === currentUser?.uid} /* <-- LÓGICA CORREGIDA */
+                        isMe={playerBottom?.id === currentUser?.uid}
                         onAddFriend={showToast} 
-                        isSpectator={isSpectator} /* <-- AÑADIDO */
+                        isSpectator={isSpectator}
                     />
-                )}
+                </div>
+
+                {/* --- Versión MÓVIL (se oculta en escritorio) --- */}
+                <div className="mobileAvatarBar">
+                    <PlayerAvatar
+                        player={playerBottom}
+                        className="playerAvatarInArea"
+                        gameData={gameData}
+                        entryFee={gameData?.entryFeeVES}
+                        isMe={playerBottom?.id === currentUser?.uid}
+                        onAddFriend={showToast} 
+                        isSpectator={isSpectator}
+                    />
+                    <PlayerAvatar
+                        player={playerLeft}
+                        className="playerAvatarInArea"
+                        gameData={gameData}
+                        entryFee={gameData?.entryFeeVES}
+                        isMe={playerLeft?.id === currentUser?.uid}
+                        onAddFriend={showToast} 
+                        isSpectator={isSpectator}
+                    />
+                    <PlayerAvatar
+                        player={playerTop}
+                        className="playerAvatarInArea"
+                        gameData={gameData}
+                        entryFee={gameData?.entryFeeVES}
+                        isMe={playerTop?.id === currentUser?.uid}
+                        onAddFriend={showToast} 
+                        isSpectator={isSpectator}
+                    />
+                    <PlayerAvatar
+                        player={playerRight}
+                        className="playerAvatarInArea"
+                        gameData={gameData}
+                        entryFee={gameData?.entryFeeVES}
+                        isMe={playerRight?.id === currentUser?.uid}
+                        onAddFriend={showToast} 
+                        isSpectator={isSpectator}
+                    />
+                </div>
             </div>
+            {/* --- FIN: ÁREA INFERIOR ACTUALIZADA --- */}
 
 
             {isChatOpen && (

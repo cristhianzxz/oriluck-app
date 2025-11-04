@@ -2,8 +2,17 @@ import React, { useState, useEffect, useContext } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { functions, db } from '../../firebase';
 import { httpsCallable } from 'firebase/functions';
-import { collection, onSnapshot, doc, getDoc, query, where, orderBy, limit, getDocs } from 'firebase/firestore';
+import { collection, onSnapshot, doc, getDoc, query, where, orderBy, limit, getDocs, Timestamp } from 'firebase/firestore'; // Importar Timestamp
 import { AuthContext } from '../../App';
+
+// --- AÑADIDO: Función de formato de moneda ---
+const formatCurrency = (value) => {
+    const number = Number(value) || 0;
+    return new Intl.NumberFormat('es-VE', {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+    }).format(number);
+};
 
 const AdminHeader = () => {
     const navigate = useNavigate();
@@ -43,6 +52,7 @@ const DominoAdmin = () => {
     const [loading, setLoading] = useState({});
     const [liveStats, setLiveStats] = useState({ tables: 0, players: 0, totalBet: 0, commissionToday: 0 });
 
+    // --- NUEVO HOOK 1: Para cargar la configuración (Solo se ejecuta 1 vez) ---
     useEffect(() => {
         const fetchSettings = async () => {
             const settingsRef = doc(db, 'domino_settings', 'config');
@@ -54,7 +64,11 @@ const DominoAdmin = () => {
             }
         };
         fetchSettings();
+    }, []); // <-- El array vacío asegura que solo se ejecute al montar.
 
+    // --- NUEVO HOOK 2: Para listeners de plantillas y juegos (Solo se ejecuta 1 vez) ---
+    useEffect(() => {
+        // 1. Escuchar plantillas de torneos
         const templatesQuery = query(collection(db, 'domino_tournaments'), orderBy("createdAt", "asc"));
         const unsubscribeTemplates = onSnapshot(templatesQuery, (snapshot) => {
             const templatesData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
@@ -63,6 +77,7 @@ const DominoAdmin = () => {
             console.error("Error al leer plantillas de torneos:", error);
         });
 
+        // 2. Escuchar juegos activos (para contadores de jugadores/mesas)
         const gamesQuery = query(collection(db, "domino_tournament_games"), where("status", "in", ["waiting", "full", "playing"]));
         const unsubscribeGames = onSnapshot(gamesQuery, (snapshot) => {
             const gamesMap = {};
@@ -79,17 +94,76 @@ const DominoAdmin = () => {
             setLiveStats(prev => ({ ...prev, tables: snapshot.size, players: totalPlayers }));
         });
 
-        // Placeholder para cargar estadísticas de comisión/total jugado (requeriría otra query)
-        // Ejemplo: const todayStart = new Date(); todayStart.setHours(0,0,0,0);
-        // const commissionQuery = query(collection(db, 'domino_commissions'), where('timestamp', '>=', todayStart));
-        // ... y luego sumar los amounts
-
+        // Función de limpieza
         return () => {
             unsubscribeTemplates();
             unsubscribeGames();
         };
+    }, []); // <-- El array vacío asegura que solo se ejecute al montar.
 
-    }, []);
+
+    // --- NUEVO HOOK 3: Para las estadísticas (Depende de 'commission') ---
+    // --- AHORA CON CONSOLE.LOGS DE DIAGNÓSTICO ---
+    useEffect(() => {
+        console.log("HOOK 3: Iniciando listener de estadísticas. Comisión actual:", commission);
+
+        const todayStart = new Date();
+        todayStart.setHours(0, 0, 0, 0); // Define el inicio del día de HOY (00:00:00)
+        const todayStartTimestamp = Timestamp.fromDate(todayStart); // Convertir a Timestamp de Firestore
+
+        console.log("HOOK 3: Buscando transacciones desde:", todayStartTimestamp.toDate().toString());
+
+        const statsQuery = query(
+            collection(db, 'domino_transactions'), // <-- 1. Escuchar la nueva colección
+            where('timestamp', '>=', todayStartTimestamp)
+        );
+        
+        const unsubscribeStats = onSnapshot(statsQuery, (snapshot) => {
+            console.log(`HOOK 3: ¡Snapshot recibido! Número de documentos: ${snapshot.size}`);
+            
+            let totalBet = 0;
+            
+            snapshot.forEach((doc) => {
+                const data = doc.data();
+                console.log(`HOOK 3: Procesando doc ${doc.id}: type=${data.type}, amountVES=${data.amountVES}`);
+                
+                if (data.type === 'buy') {
+                    totalBet += data.amountVES || 0;
+                } else if (data.type === 'refund') {
+                    totalBet -= data.amountVES || 0;
+                }
+            });
+
+            console.log(`HOOK 3: Total Bet (neto) calculado: ${totalBet}`);
+            
+            const commissionPercent = commission / 100;
+            const positiveTotalBet = Math.max(0, totalBet); 
+            const commissionToday = positiveTotalBet * commissionPercent;
+
+            console.log(`HOOK 3: Seteando estado: totalBet=${positiveTotalBet}, commissionToday=${commissionToday}`);
+            
+            setLiveStats(prev => ({
+                ...prev,
+                totalBet: positiveTotalBet, 
+                commissionToday: commissionToday
+            }));
+
+        }, (error) => {
+            // ¡¡Este es el error que necesitamos ver!!
+            console.error("Error GRAVE al leer estadísticas en vivo:", error);
+        });
+
+        // Función de limpieza
+        return () => {
+            console.log("HOOK 3: Limpiando listener de estadísticas.");
+            unsubscribeStats();
+        };
+
+    }, [commission]); // <-- Este SÍ depende de 'commission'
+
+    // =================================================================
+    // --- FIN DE BLOQUE useEffect CORREGIDO ---
+    // =================================================================
 
     const handleSaveSettings = async () => {
         if (!currentUser) return alert('Debes estar autenticado.');
@@ -157,9 +231,10 @@ const DominoAdmin = () => {
 
         return activeTournaments.map((tournament) => {
             const gamesForTemplate = liveGames[tournament.id] || [];
-            const currentGame = gamesForTemplate.find(g => g.status !== 'finished') || gamesForTemplate[0];
+            // Busca un juego que no esté terminado, o usa el primero que encuentre
+            const currentGame = gamesForTemplate.find(g => g.status !== 'finished' && g.status !== 'round_over') || gamesForTemplate[0];
             const playerCount = currentGame?.playerCount || 0;
-            const gameStatus = currentGame?.status || tournament.status;
+            const gameStatus = currentGame?.status || 'open'; // Si no hay juego, está 'open'
             const gameId = currentGame?.id;
             const maxPlayers = tournament.maxPlayers || 4;
 
@@ -276,8 +351,10 @@ const DominoAdmin = () => {
                         <div className="grid grid-cols-2 gap-4">
                             <div><p className="text-sm text-gray-400">Mesas Activas</p><p className="text-3xl font-bold">{liveStats.tables}</p></div>
                             <div><p className="text-sm text-gray-400">Jugadores en Línea</p><p className="text-3xl font-bold">{liveStats.players}</p></div>
-                            <div><p className="text-sm text-gray-400">Total Jugado (Hoy)</p><p className="text-3xl font-bold">{liveStats.totalBet} VES</p></div>
-                            <div><p className="text-sm text-gray-400">Comisión (Hoy)</p><p className="text-3xl font-bold text-green-500">{liveStats.commissionToday} VES</p></div>
+                            
+                            {/* --- JSX ACTUALIZADO CON formatCurrency --- */}
+                            <div><p className="text-sm text-gray-400">Total Jugado (Hoy)</p><p className="text-3xl font-bold">{formatCurrency(liveStats.totalBet)} VES</p></div>
+                            <div><p className="text-sm text-gray-400">Comisión (Hoy)</p><p className="text-3xl font-bold text-green-500">{formatCurrency(liveStats.commissionToday)} VES</p></div>
                         </div>
                     </Panel>
 
