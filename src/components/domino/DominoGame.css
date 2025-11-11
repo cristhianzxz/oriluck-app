@@ -1,7 +1,6 @@
 /* --- ESTILO DE FONDO MODIFICADO --- */
 body {
     font-family: 'Roboto', 'Montserrat', sans-serif;
-    /* Color de fondo base para TODA la aplicación (ya no tiene la imagen) */
     background-color: #1a010c; 
     margin: 0;
     padding: 0;
@@ -15,16 +14,11 @@ body {
     height: 100vh;
     position: relative;
     overflow: hidden;
-    
-    /* --- IMAGEN DE FONDO MOVIDA AQUÍ --- */
     background-image: url('/fondodomino.jpg');
     background-size: cover;
     background-position: center center;
     background-repeat: no-repeat;
-    
-    /* Velo oscuro sobre la imagen de fondo para que resalten los neones */
     background-color: rgba(0, 0, 0, 0.4); 
-    /* Usamos 'background-blend-mode' para aplicar el velo sobre la imagen */
     background-blend-mode: multiply; 
 }
 
@@ -39,14 +33,8 @@ body {
     flex-shrink: 0;
     height: 50px;
     box-sizing: border-box;
-
-    /* Fondo degradado oscuro (Morado -> Vinotinto -> Morado) */
     background: linear-gradient(90deg, #300533, #5a0101 50%, #300533 100%);
-    
-    /* Borde inferior de neón (Magenta/Fucsia) */
     border-bottom: 1px solid #ff007f;
-    
-    /* Sombra de brillo de neón */
     box-shadow: 0 2px 15px rgba(255, 0, 127, 0.4), 0 1px 3px rgba(0, 0, 0, 0.3);
 }
 
@@ -54,19 +42,17 @@ body {
     display: flex;
     align-items: center;
     gap: 15px;
-    flex: 1; /* Ocupa 1/3 de espacio */
-    min-width: 0; /* Para que text-overflow funcione */
+    flex: 1;
+    min-width: 0;
 }
 
 .gameTitle {
     font-size: 1rem;
-    font-weight: 600; /* Más grueso */
+    font-weight: 600;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    
-    /* Efecto Neón para el Título */
-    color: #fce7f3; /* Rosa muy pálido */
+    color: #fce7f3;
     text-shadow: 0 0 4px #fff, 
                  0 0 10px #ff007f, 
                  0 0 18px #ff007f;
@@ -82,25 +68,24 @@ body {
     padding: 0;
     cursor: pointer;
     transition: background 0.2s ease;
-    flex-shrink: 0; /* Evita que se encoja */
-    position: relative; /* Clave para posicionar la flecha CSS */
+    flex-shrink: 0;
+    position: relative;
 }
 
 .gameBackToLobbyButton:hover {
     background: rgba(255, 255, 255, 0.2);
 }
 
-/* La flecha CSS (Chevron) */
 .gameBackToLobbyButton::after {
     content: '';
     position: absolute;
     top: 50%;
-    left: 53%; /* Ligeramente a la derecha del centro para compensar */
-    width: 10px; /* Tamaño */
-    height: 10px; /* Tamaño */
-    border-left: 3px solid white; /* Grosor */
-    border-bottom: 3px solid white; /* Grosor */
-    transform: translate(-50%, -50%) rotate(45deg); /* La magia */
+    left: 53%;
+    width: 10px;
+    height: 10px;
+    border-left: 3px solid white;
+    border-bottom: 3px solid white;
+    transform: translate(-50%, -50%) rotate(45deg);
     transition: border-color 0.2s ease;
 }
 
@@ -109,29 +94,25 @@ body {
     align-items: center;
     gap: 15px;
     font-size: 0.9rem;
-    flex: 1; /* Ocupa 1/3 de espacio */
-    justify-content: flex-end; /* Alinear a la derecha */
-    
-    /* Efecto Neón para el Pozo */
+    flex: 1;
+    justify-content: flex-end;
     font-weight: 600;
     color: #fce7f3;
     text-shadow: 0 0 4px #fff, 
                  0 0 10px #ff007f, 
                  0 0 18px #ff007f;
 }
-/* --- FIN DE ESTILOS DE NEÓN --- */
 
 .turnTimerDisplay {
     color: #ffd700;
     font-weight: bold;
     font-size: 0.9rem;
     text-align: center;
-    flex: 1; /* Ocupa 1/3 de espacio */
+    flex: 1;
     margin: 0 10px;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    /* Sombra para destacar sobre el fondo oscuro */
     text-shadow: 0 0 5px rgba(0,0,0,0.7), 0 0 8px #ffd700;
 }
 
@@ -172,15 +153,11 @@ body {
     transition: width 0.3s ease-out;
 }
 
-/* --- ESTILO DE NEÓN PARA LA MESA --- */
 .gameBoard {
     flex-grow: 3;
-    /* Fondo de mesa oscuro, color vino tinto/púrpura muy oscuro */
     background: radial-gradient(circle, #290222, #1a010c);
     border: 8px solid transparent;
-    /* Borde de neón fucsia */
     border-image: linear-gradient(145deg, #ff007f, #e60073, #ff007f) 1;
-    /* Sombra de neón fucsia */
     box-shadow: inset 0 0 30px rgba(87, 0, 54, 0.7), 0 0 20px rgba(255, 0, 127, 0.4);
     margin: 0;
     border-radius: 10px;
@@ -190,7 +167,6 @@ body {
     justify-content: center;
     align-items: center;
 }
-/* --- FIN ESTILO MESA --- */
 
 .watermark {
     position: absolute;
@@ -211,7 +187,6 @@ body {
     height: 100%;
     overflow: hidden;
     z-index: 2;
-    /* Velo sutil sobre la mesa para dar profundidad */
     background: linear-gradient(rgba(255, 255, 255, 0.03), rgba(255, 255, 255, 0.01));
 }
 
@@ -242,15 +217,11 @@ body {
     background-color: rgba(255, 235, 59, 0.4);
 }
 
-/* --- ESTILO DE NEÓN PARA LA BARRA DE FICHAS --- */
 .playerHandTray {
     flex-shrink: 0;
     height: 140px;
-    /* Mismo fondo que la barra superior */
     background: linear-gradient(90deg, #300533, #5a0101 50%, #300533 100%);
-    /* Borde de neón fucsia */
     border-top: 2px solid #ff007f;
-    /* Sombra de neón */
     box-shadow: 0 -2px 15px rgba(255, 0, 127, 0.4);
     display: flex;
     justify-content: center;
@@ -260,8 +231,6 @@ body {
     box-sizing: border-box;
     position: relative;
 }
-/* --- FIN ESTILO BARRA DE FICHAS --- */
-
 
 .handTiles {
     display: flex;
@@ -313,18 +282,92 @@ body {
     cursor: not-allowed;
 }
 
+/* ============================================== */
+/* --- INICIO DE LA SOLUCIÓN DEFINITIVA --- */
+/* ============================================== */
+
+/* --- CAMBIO 1: El contenedor ahora es 'relative' --- */
 .tile {
-    background: #f7f3e8;
+    background: transparent;
     border: 1px solid #444;
     border-radius: 6px;
     box-shadow: 1px 1px 3px rgba(0, 0, 0, 0.4), inset 0 0 2px rgba(0, 0, 0, 0.1);
-    display: flex;
-    padding: 2px;
+    display: flex; /* Mantenemos flex por si acaso, pero position es la clave */
+    padding: 0;
     transition: all 0.15s ease-out;
     cursor: pointer;
     flex-shrink: 0;
     user-select: none;
+    overflow: hidden;
+    position: relative; /* ¡CLAVE! Para centrar la <img> con 'absolute' */
 }
+
+/* --- CAMBIO 2: La <img> base ahora es 'absolute' --- */
+.tile img {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    
+    /* 'cover' es la mejor opción. Llenará el espacio y recortará 
+       lo mínimo (si tus imágenes 1:2 son perfectas, no recortará nada) */
+    object-fit: cover; 
+    
+    border-radius: inherit;
+    transition: transform 0.3s ease-out;
+    --tile-extra-rotation: 0deg;
+    
+    /* Quitamos width/height de aquí. Se definirán por tipo. */
+}
+
+/* ================================================== */
+/* --- "SISTEMA INTELIGENTE" DE DIMENSIÓN Y ROTACIÓN --- */
+/* ================================================== */
+
+/* --- CAMBIO 3: Fichas Verticales (Mano y Dobles) --- */
+/* Le decimos que ocupe el 100% y se centre (sin rotar) */
+.tile.inHand img,
+.tile.onBoard.double img {
+    width: 100%;
+    height: 100%;
+    transform: translate(-50%, -50%) rotate(calc(0deg + var(--tile-extra-rotation, 0deg))); 
+}
+
+/* --- CAMBIO 4: Fichas Horizontales (Normales en Mesa) --- */
+/* ¡LA MAGIA! Invertimos el ancho y el alto ANTES de rotar */
+.tile.onBoard.normal img {
+    /* El ancho de la imagen es el ALTO del contenedor */
+    width: var(--tile-h-normal); 
+    
+    /* El alto de la imagen es el ANCHO del contenedor */
+    height: var(--tile-w-normal); 
+    
+    /* Ahora centramos y rotamos */
+    transform: translate(-50%, -50%) rotate(calc(90deg + var(--tile-extra-rotation, 0deg))); 
+}
+
+/* --- CAMBIO 5: Fichas del Oponente (Misma Lógica) --- */
+.opponentHand .tile.opponentTile img {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    object-fit: cover;
+    border-radius: inherit;
+    width: 100%; /* El contenedor (20x40) ya es vertical */
+    height: 100%;
+    transform: translate(-50%, -50%) rotate(calc(0deg + var(--tile-extra-rotation, 0deg)));
+}
+
+.opponentHand.playerTop .tile.opponentTile img {
+    /* El contenedor es 30x15. Invertimos dimensiones. */
+    width: 15px; 
+    height: 30px;
+    transform: translate(-50%, -50%) rotate(calc(90deg + var(--tile-extra-rotation, 0deg)));
+}
+
+/* ============================================ */
+/* --- FIN DEL SISTEMA --- */
+/* ============================================ */
+
 
 .tile.onBoard {
     border-radius: var(--tile-radius, 6px);
@@ -340,10 +383,6 @@ body {
     height: var(--tile-w-normal, 70px);
     flex-direction: column;
 }
-.tile.onBoard.normal .half { width: 50%; height: 100%; }
-.tile.onBoard.double .half { width: 100%; height: 50%; }
-.tile.onBoard.normal .divider { height: 85%; width: var(--divider-size, 2px); margin: auto 1px; }
-.tile.onBoard.double .divider { height: var(--divider-size, 2px); width: 85%; margin: 1px auto; }
 
 .tile.inHand {
     width: 6.5vh;
@@ -352,8 +391,7 @@ body {
     box-shadow: 2px 2px 6px rgba(0, 0, 0, 0.5);
     flex-direction: column;
 }
-.tile.inHand .half { width: 100%; height: 50%; }
-.tile.inHand .divider { height: 0.25vh; min-height: 1px; width: 90%; margin: 0.1vh auto; }
+
 .tile.inHand:hover:not(:disabled) {
     transform: scale(1.05) translateY(-8px);
     z-index: 1;
@@ -369,7 +407,7 @@ body {
 .tile.playableHighlight {
     border: 2px solid #ffd700;
     box-shadow: 0 0 10px rgba(255, 215, 0, 0.7), 1px 1px 3px rgba(0, 0, 0, 0.4);
-    padding: 1px;
+    padding: 0;
 }
 .tile.selectedHighlight {
     border: 3px solid #ff9800;
@@ -378,99 +416,9 @@ body {
     padding: 0px;
 }
 
-
-.half {
-    flex: 1;
-    position: relative;
-    padding: 2px;
-    display: flex;
-    justify-content: center;
-    align-items: center;
-}
-
-.divider {
-    background-color: #555;
-    border-radius: 1px;
-}
-
-.pipContainer {
-    width: 100%;
-    height: 100%;
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    grid-template-rows: repeat(3, 1fr);
-    gap: 1px;
-    padding: 10%;
-    box-sizing: border-box;
-}
-
-.pip {
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    background-color: #222;
-    box-shadow: inset 0.5px 0.5px 1px rgba(255, 255, 255, 0.1);
-    align-self: center;
-    justify-self: center;
-}
-.inHand .pip {
-    width: 0.9vh;
-    height: 0.9vh;
-}
-
-.tile.onBoard .pip {
-    width: var(--pip-size, 5px);
-    height: var(--pip-size, 5px);
-}
-
-.pip-1 { grid-area: 1 / 1; }
-.pip-2 { grid-area: 1 / 2; }
-.pip-3 { grid-area: 1 / 3; }
-.pip-4 { grid-area: 2 / 1; }
-.pip-5 { grid-area: 2 / 2; }
-.pip-6 { grid-area: 2 / 3; }
-.pip-7 { grid-area: 3 / 1; }
-.pip-8 { grid-area: 3 / 2; }
-.pip-9 { grid-area: 3 / 3; }
-
-.pips-6.pipContainer {
-    grid-template-rows: repeat(2, 1fr);
-    grid-template-columns: repeat(3, 1fr);
-    gap: 5% 10%;
-}
-.pips-6 .pip-1 { grid-area: 1 / 1; }
-.pips-6 .pip-2 { grid-area: 1 / 2; }
-.pips-6 .pip-3 { grid-area: 1 / 3; }
-.pips-6 .pip-4 { grid-area: 2 / 1; }
-.pips-6 .pip-5 { grid-area: 2 / 2; }
-.pips-6 .pip-6 { grid-area: 2 / 3; }
-
-.tile.inHand .pips-6.pipContainer,
-.tile.double .pips-6.pipContainer {
-    grid-template-columns: repeat(2, 1fr);
-    grid-template-rows: repeat(3, 1fr);
-    gap: 5% 20%;
-    padding: 15% 10%;
-}
-
-.tile.inHand .pips-6 .pip-1,
-.tile.double .pips-6 .pip-1 { grid-area: 1 / 1; }
-
-.tile.inHand .pips-6 .pip-2,
-.tile.double .pips-6 .pip-2 { grid-area: 2 / 1; }
-
-.tile.inHand .pips-6 .pip-3,
-.tile.double .pips-6 .pip-3 { grid-area: 3 / 1; }
-
-.tile.inHand .pips-6 .pip-4,
-.tile.double .pips-6 .pip-4 { grid-area: 1 / 2; }
-
-.tile.inHand .pips-6 .pip-5,
-.tile.double .pips-6 .pip-5 { grid-area: 2 / 2; }
-
-.tile.inHand .pips-6 .pip-6,
-.tile.double .pips-6 .pip-6 { grid-area: 3 / 2; }
-
+/* ================================================== */
+/* --- CSS DE PIPS, DIVIDER, HALF ELIMINADO --- */
+/* ================================================== */
 
 .avatarContainer {
     display: flex;
@@ -497,9 +445,8 @@ body {
     background: rgba(0, 0, 0, 0.7);
 }
 
-/* --- ESTILO CLAVE --- */
 .avatarImageWrapper {
-    position: relative; /* <-- ESTO ES VITAL */
+    position: relative;
     width: 38px;
     height: 38px;
     border-radius: 50%;
@@ -508,9 +455,8 @@ body {
     border: 1px solid #777;
     transition: all 0.2s ease-out;
     flex-shrink: 0;
-    overflow: hidden; /* <-- ESTO ES VITAL (recorta el contenido) */
+    overflow: hidden;
 }
-/* --- FIN ESTILO CLAVE --- */
 
 .avatarImageWrapper.isReadyGlow {
     box-shadow: 0 0 6px #32cd32;
@@ -548,7 +494,7 @@ body {
     font-weight: bold;
     border: 1px solid white;
     box-shadow: 0 0 3px rgba(0,0,0,0.5);
-    z-index: 5; /* Asegura que esté sobre la imagen */
+    z-index: 5;
 }
 
 .playerInfo {
@@ -781,14 +727,16 @@ body {
     cursor: default;
     opacity: 1;
     filter: none;
-    padding: 1px;
+    padding: 0; 
+    position: relative; /* ¡CLAVE! Añadido para centrar la img */
 }
-.opponentHand .tile.opponentTile .pip { width: 3px; height: 3px; }
-.opponentHand .tile.opponentTile .divider { width: 80%; height: 1px; }
 
-.opponentHand.playerTop .tile.opponentTile { width: 30px; height: 15px; flex-direction: row; }
-.opponentHand.playerTop .tile.opponentTile .pip { width: 2.5px; height: 2.5px; }
-.opponentHand.playerTop .tile.opponentTile .divider { height: 80%; width: 1px; }
+.opponentHand.playerTop .tile.opponentTile { 
+    width: 30px; 
+    height: 15px; 
+    flex-direction: row; 
+    position: relative; /* ¡CLAVE! Añadido para centrar la img */
+}
 
 .gameOverOverlay {
     position: absolute;
@@ -946,11 +894,10 @@ body {
     background: rgba(0,0,0,0.8);
 }
 
-/* --- AÑADIDO: Estilo para el botón de pantalla completa --- */
 .fullscreenButton {
     position: absolute;
     top: 8px;
-    left: 46px; /* Al lado del botón de settings (8px + 30px + 8px) */
+    left: 46px;
     z-index: 20;
     background: rgba(0,0,0,0.5);
     border: 1px solid rgba(255,255,255,0.2);
@@ -1024,97 +971,83 @@ body {
  * =======================================================================
  */
 
-/* --- Contenedores de Avatar por Vista (NUEVO) --- */
 .mobileAvatarBar {
-    display: none; /* Oculto en escritorio */
+    display: none;
 }
 .desktopAvatar {
-    display: flex; /* Visible en escritorio */
+    display: flex;
     justify-content: center;
     align-items: center;
 }
 
-
-/* --- Pantallas de teléfono/tablet en vertical (NUEVO BREAKPOINT) --- */
 @media (max-width: 1023px) and (orientation: portrait) {
     
-    /* --- INICIO: CAMBIOS EN BARRA SUPERIOR (topBar) --- */
     .topBar {
-        flex-wrap: wrap; /* Permite que los elementos bajen */
-        height: auto; /* Altura automática para acomodar todo */
+        flex-wrap: wrap;
+        height: auto;
         padding: 4px 8px;
     }
     .topLeftControls {
-        order: 1; /* Fila 1, Izquierda */
-        width: 50%; /* Mitad de pantalla */
+        order: 1;
+        width: 50%;
         flex-grow: 0;
         flex-basis: auto;
-        min-width: 0; /* Para que el título se corte */
+        min-width: 0;
     }
     .gameTitle {
         font-size: 0.8rem;
     }
     .topRightInfo {
-        order: 2; /* Fila 1, Derecha */
-        width: 50%; /* Mitad de pantalla */
+        order: 2;
+        width: 50%;
         flex-grow: 0;
         flex-basis: auto;
         justify-content: flex-end;
         font-size: 0.8rem;
     }
-    /* .topBarOpponentAvatars ha sido eliminado */
     .turnTimerDisplay {
-        display: block; /* Mostrar el timer */
-        order: 3; /* Fila 2 */
+        display: block;
+        order: 3;
         width: 100%;
         text-align: center;
         font-size: 0.8rem;
         padding-top: 4px;
         margin-top: 4px;
         border-top: 1px solid rgba(255, 255, 255, 0.1);
-        flex: 1 0 100%; /* Ocupa todo el ancho */
+        flex: 1 0 100%;
     }
-    /* --- FIN: CAMBIOS EN BARRA SUPERIOR (topBar) --- */
 
-    
-    /* --- CAMBIOS PRINCIPALES DE LAYOUT (Ocultar avatares laterales) --- */
     .playerAreaTop, .playerAreaLeft, .playerAreaRight {
-        display: none; /* Ocultamos áreas laterales/superior */
+        display: none;
     }
     .playerAreaBottom {
-        height: 60px; /* Altura para la nueva barra de avatares */
+        height: 60px;
         width: 100%;
-        display: flex; /* Asegurar que sea flex */
+        display: flex;
         align-items: center;
-        padding: 0 5px; /* Añadido padding */
-        box-sizing: border-box; /* Añadido */
+        padding: 0 5px;
+        box-sizing: border-box;
     }
     .gameBoard { 
-        min-height: 0; /* Dejamos que flex-grow se encargue */
+        min-height: 0;
         margin: 5px; 
         border-width: 6px;
     }
-    /* --- FIN CAMBIOS LAYOUT --- */
-
     
-    /* --- ARREGLO DE FICHAS EN MANO (Bandeja responsiva) --- */
     .playerHandTray {
-        height: 15vh; /* Reducido para dar espacio a la mesa */
-        min-height: 85px; /* Mínimo para que no colapse */
+        height: 15vh;
+        min-height: 85px;
         padding: 0 10px;
     }
     .handTiles { gap: 2px; }
-    
-    /* Las fichas en mano (tile.inHand) usarán el 'vh' base para HD */
     
     .boardEndHighlight { width: 25px; height: 50px; }
     
     .bottomIcons { bottom: 5px; right: 5px; gap: 5px; }
     .iconButton { width: 30px; height: 30px; font-size: 1rem; }
     
-    /* Ajustamos el chat para la nueva altura de la bandeja */
     .chatContainer, .emojiPanel {
-        bottom: calc(15vh + 60px + 5px); /* bandeja + barra avatar + gap */
+        bottom: calc(15vh + 60px + 5px);
         min-height: 180px;
         width: calc(100% - 20px);
         left: 10px;
@@ -1124,9 +1057,7 @@ body {
     .opponentHand.playerLeft { right: 0; }
     .opponentHand.playerRight { left: 0; }
     .opponentHand .tile.opponentTile { width: 16px; height: 32px; }
-    .opponentHand .tile.opponentTile .pip { width: 2px; height: 2px; }
     .opponentHand.playerTop .tile.opponentTile { width: 22px; height: 11px; }
-    .opponentHand.playerTop .tile.opponentTile .pip { width: 1.5px; height: 1.5px; }
     .passButton { padding: 8px 20px; font-size: 0.75rem; }
 
     .gameOverContent { padding: 15px 20px; }
@@ -1138,38 +1069,35 @@ body {
     .gameBackToLobbyButton::after { width: 7px; height: 7px; border-width: 2px; }
     .topLeftControls { gap: 8px; }
 
-    /* --- AÑADIDO: Ocultar settings y mover fullscreen --- */
     .settingsButton {
-        display: none; /* Ocultar el engranaje */
+        display: none;
     }
     .fullscreenButton {
         top: 8px;
-        left: 8px; /* Mover a la esquina */
+        left: 8px;
     }
     .settingsPanel {
         top: 45px;
     }
 
-    /* --- INICIO: Estilos para la nueva barra de avatares móvil --- */
     .desktopAvatar {
-        display: none; /* Ocultar en móvil vertical */
+        display: none;
     }
     .mobileAvatarBar {
         display: flex;
         justify-content: center;
-        align-items: stretch; /* Estirar para misma altura */
-        gap: 4px; /* Espacio entre avatares */
+        align-items: stretch;
+        gap: 4px;
         width: 100%;
     }
-    /* Estilos para los avatares minimalistas en la barra móvil */
     .mobileAvatarBar .avatarContainer {
-        flex: 1; /* Distribuir espacio */
-        min-width: 0; /* Para que se encoja y trunque */
+        flex: 1;
+        min-width: 0;
         background: linear-gradient(to bottom, rgba(40, 40, 40, 0.65), rgba(20, 20, 20, 0.75));
         border: 1px solid rgba(255, 255, 255, 0.1);
-        border-radius: 25px; /* Píldora */
+        border-radius: 25px;
         padding: 4px;
-        flex-direction: row; /* Horizontal */
+        flex-direction: row;
         align-items: center;
         gap: 5px;
     }
@@ -1178,13 +1106,13 @@ body {
         height: 30px;
     }
     .mobileAvatarBar .playerInfo {
-        display: block; /* Mostrar la info */
+        display: block;
         flex: 1;
         min-width: 0;
         text-shadow: none;
     }
     .mobileAvatarBar .name {
-        display: block; /* Mostrar el nombre */
+        display: block;
         font-size: 0.7rem;
         font-weight: 600;
         color: white;
@@ -1194,10 +1122,10 @@ body {
         margin-bottom: 0;
     }
     .mobileAvatarBar .flag {
-        display: none; /* Ocultar bandera */
+        display: none;
     }
     .mobileAvatarBar .balanceCount {
-        display: none; /* Ocultar balance */
+        display: none;
     }
     .mobileAvatarBar .scoreBadge {
         margin-left: 4px;
@@ -1210,20 +1138,14 @@ body {
         box-shadow: 0 0 8px rgba(255, 215, 0, 0.8);
         filter: none;
     }
-    /* --- FIN: Estilos para la nueva barra de avatares móvil --- */
 }
 
-/* * =======================================================================
- * --- INICIO: BLOQUE PARA MÓVIL HORIZONTAL (LANDSCAPE) ---
- * =======================================================================
- */
 @media (max-height: 500px) and (orientation: landscape) {
     
-    /* --- Barra superior fina y de una línea --- */
     .topBar {
         height: 40px;
         padding: 4px 10px;
-        flex-wrap: nowrap; /* Forzar una línea */
+        flex-wrap: nowrap;
     }
     .topLeftControls {
         order: 1;
@@ -1237,60 +1159,41 @@ body {
         flex: 1;
         font-size: 0.8rem;
     }
-    /* .topBarOpponentAvatars ya está display: none por defecto */
     .turnTimerDisplay {
         order: 2;
         width: auto;
-        flex: 1.5; /* Darle más espacio en el medio */
+        flex: 1.5;
         border: none;
         padding: 0;
         margin: 0 10px;
         font-size: 0.8rem;
     }
 
-    /* --- Ocultar áreas superior/inferior, mantener laterales --- */
     .playerAreaTop, .playerAreaBottom {
-        display: none; /* No hay espacio vertical */
+        display: none;
     }
     .playerAreaLeft, .playerAreaRight {
-        display: flex; /* Mostrar laterales */
-        width: var(--side-area-width, 140px); /* Más delgados */
+        display: flex;
+        width: var(--side-area-width, 140px);
     }
     .gameBoard {
         margin: 5px;
         border-width: 6px;
     }
 
-    /* --- Bandeja de fichas más corta --- */
     .playerHandTray {
-        height: 100px; /* Más corta */
+        height: 100px;
         padding: 0 50px;
     }
     .handTiles { gap: 3px; }
 
-    /* --- Fichas en mano de tamaño fijo para landscape --- */
     .tile.inHand {
         height: 80px; 
         width: 40px;
         border-radius: 6px;
         box-shadow: 1px 1px 4px rgba(0, 0, 0, 0.5);
     }
-    .inHand .pip {
-        width: 6px;
-        height: 6px;
-    }
-    .tile.inHand .divider {
-        height: 2px;
-        min-height: 1px;
-        width: 85%;
-    }
-    .tile.inHand .pips-6.pipContainer,
-    .tile.double .pips-6.pipContainer {
-        gap: 5% 15%;
-        padding: 10% 8%;
-    }
 
-    /* --- Ajustar avatares laterales --- */
     .avatarContainer {
         min-width: 130px;
         gap: 4px;
@@ -1301,23 +1204,20 @@ body {
     .name { font-size: 0.7rem; }
     .scoreBadge { width: 18px; height: 18px; font-size: 0.65rem; }
 
-    /* --- Ajustar botones --- */
     .bottomIcons { bottom: 8px; right: 8px; }
     .iconButton { width: 35px; height: 35px; font-size: 1.1rem; }
     .chatContainer, .emojiPanel {
-        bottom: 105px; /* 100px de bandeja + 5px gap */
+        bottom: 105px;
     }
 
-    /* --- Ajustar botones de settings/fullscreen --- */
     .settingsButton {
-        display: none; /* Ocultar engranaje */
+        display: none;
     }
     .fullscreenButton {
         top: 8px;
-        left: 8px; /* Mover a la esquina */
+        left: 8px;
     }
 
-    /* --- Ocultar barras de avatar de abajo --- */
     .mobileAvatarBar {
         display: none;
     }
@@ -1325,11 +1225,6 @@ body {
         display: none;
     }
 }
-/* * =======================================================================
- * --- FIN DEL BLOQUE MÓVIL HORIZONTAL ---
- * =======================================================================
- */
-
 
 /* --- ESTILOS MODIFICADOS/NUEVOS --- */
 
@@ -1338,7 +1233,6 @@ body {
     to { opacity: 1; }
 }
 
-/* Overlay oscuro sobre el avatar */
 .avatarImageOverlay {
     position: absolute;
     top: 0;
@@ -1346,30 +1240,27 @@ body {
     right: 0;
     bottom: 0;
     background: rgba(0, 0, 0, 0.6);
-    /* No necesita border-radius, el padre (.avatarImageWrapper) lo recorta */
-    z-index: 11; /* Encima de la imagen, debajo del botón */
+    z-index: 11;
     animation: fadeIn 0.2s ease;
-    pointer-events: none; /* Deja pasar el clic al botón */
+    pointer-events: none;
 }
 
-/* Botón '+' DENTRO del avatar */
 .addFriendButton {
     position: absolute;
     top: 0;
     left: 0;
     right: 0;
     bottom: 0;
-    z-index: 12; /* Encima del overlay */
+    z-index: 12;
     background: transparent;
     border: none;
     color: white;
-    font-size: 1.8rem; /* Tamaño del '+' */
-    font-weight: 300; /* Un '+' más fino */
+    font-size: 1.8rem;
+    font-weight: 300;
     cursor: pointer;
     padding: 0;
     display: grid;
     place-items: center;
-    /* No necesita border-radius, el padre (.avatarImageWrapper) lo recorta */
     transition: background 0.2s ease;
     animation: fadeIn 0.2s ease;
     opacity: 0.9;
@@ -1381,15 +1272,14 @@ body {
     opacity: 1;
 }
 
-/* Toast de notificación (Arriba a la derecha) */
 .friendRequestToast {
     position: absolute;
-    top: 60px; /* Debajo de la barra superior */
+    top: 60px;
     right: 20px;
     display: flex;
     align-items: center;
     gap: 10px;
-    background-color: #22c55e; /* Verde brillante */
+    background-color: #22c55e;
     color: white;
     padding: 12px 20px;
     border-radius: 8px;
@@ -1400,7 +1290,6 @@ body {
     animation: toastAnimation 3s ease-out forwards;
 }
 
-/* Animación para el Toast (Fade in y rise, luego fade out y rise) */
 @keyframes toastAnimation {
     0% {
         transform: translateY(20px);

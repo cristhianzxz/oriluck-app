@@ -11,6 +11,7 @@ import { httpsCallable } from 'firebase/functions';
 
 // --- NUEVA LÍNEA DE IMPORTACIÓN ---
 import { PlayerAvatar } from './PlayerAvatar';
+import { getImageOrientationForTile } from './tileImageOrientation';
 
 const DOMINO_CONSTANTS = {
     TARGET_SCORE_TOURNAMENT: 100,
@@ -564,24 +565,55 @@ const Pips = ({ value }) => {
 // --- ELIMINADO: Componente TopBarOpponent ---
 
 const DominoTile = ({ topValue, bottomValue, isInHand = false, onClick, isDisabled = false, isPlayableHighlight = false, isSelectedHighlight = false, isDouble, className = '', orientationClass: propOrientationClass }) => {
-    
+
     const orientationClass = isInHand
         ? (isDouble ? 'double' : 'normal')
-        : (propOrientationClass || 'normal'); // Restaurado a la V1
+        : (propOrientationClass || 'normal');
 
     const safeTopValue = Number.isInteger(topValue) ? topValue : 0;
     const safeBottomValue = Number.isInteger(bottomValue) ? bottomValue : 0;
-    const tileClasses = `tile ${isInHand ? 'inHand' : 'onBoard'} ${orientationClass} ${isDisabled ? 'disabled' : ''} ${isPlayableHighlight ? 'playableHighlight' : ''} ${isSelectedHighlight ? 'selectedHighlight' : ''} ${className}`;
+
+    const isDoubleWhite = safeTopValue === 0 && safeBottomValue === 0;
+
+    const tileClasses = `tile ${isInHand ? 'inHand' : 'onBoard'} ${orientationClass} ${isDisabled ? 'disabled' : ''} ${isPlayableHighlight ? 'playableHighlight' : ''} ${isSelectedHighlight ? 'selectedHighlight' : ''} ${className} ${isDoubleWhite ? 'isDoubleWhite' : ''}`;
+
+    let tileName = '0-0';
+    if (safeTopValue === 0 || safeBottomValue === 0) {
+        tileName = `${Math.max(safeTopValue, safeBottomValue)}-0`;
+    } else {
+        const min = Math.min(safeTopValue, safeBottomValue);
+        const max = Math.max(safeTopValue, safeBottomValue);
+        tileName = `${min}-${max}`;
+    }
+
+    const orientation = getImageOrientationForTile(tileName);
+    const imageTopValue = orientation.top;
+    const imageBottomValue = orientation.bottom;
+
+    let extraRotation = 0;
+    if (safeTopValue === imageTopValue && safeBottomValue === imageBottomValue) {
+        extraRotation = 0;
+    } else if (safeTopValue === imageBottomValue && safeBottomValue === imageTopValue) {
+        extraRotation = 180;
+    } else if (safeTopValue !== safeBottomValue || imageTopValue !== imageBottomValue) {
+        if (process.env.NODE_ENV !== 'production') {
+            console.warn('No orientation match for tile image', {
+                requestedTop: safeTopValue,
+                requestedBottom: safeBottomValue,
+                imageTopValue,
+                imageBottomValue,
+                tileName,
+            });
+        }
+    }
+
+    extraRotation = ((extraRotation % 360) + 360) % 360;
+    const imgStyle = { '--tile-extra-rotation': `${extraRotation}deg` };
+    const tileSrc = `/fichas/${tileName}.png`;
 
     return (
         <div className={tileClasses} onClick={!isDisabled ? onClick : undefined}>
-            <div className="half">
-                <Pips value={safeTopValue} />
-            </div>
-            <div className="divider"></div>
-            <div className="half">
-                <Pips value={safeBottomValue} />
-            </div>
+            <img src={tileSrc} alt={`Domino ${tileName}`} style={imgStyle} />
         </div>
     );
 };
@@ -711,7 +743,7 @@ function DominoGame() {
         setTileScale(prev => {
             const newScale = prev + direction;
             if (newScale < 9) return 9;
-            if (newScale > 20) return 20;
+            if (newScale > 21) return 21;
             return newScale;
         });
     };
@@ -890,6 +922,24 @@ function DominoGame() {
         };
     }, [gameData]);
 
+
+useEffect(() => {
+    // Detecta modo móvil (portrait y ancho <= 1023px)
+    const checkMobile = () => {
+        const isPortrait = window.matchMedia('(orientation: portrait)').matches;
+        const isSmall = window.innerWidth <= 1023;
+        if (isPortrait && isSmall) {
+            setTileScale(21); // Fuerza el tamaño mínimo (más pequeño)
+        }
+    };
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    window.addEventListener('orientationchange', checkMobile);
+    return () => {
+        window.removeEventListener('resize', checkMobile);
+        window.removeEventListener('orientationchange', checkMobile);
+    };
+}, []);
 
     const handleSendChat = async (e) => {
         e.preventDefault();
@@ -1246,7 +1296,7 @@ function DominoGame() {
 
 
     return (
-        <div className="gameContainer">
+    <div className="gameContainer">
             {/* --- RENDERIZADO DEL TOAST (MODIFICADO) --- */}
             {toastMessage && (
                 <div className="friendRequestToast">
@@ -1396,6 +1446,7 @@ function DominoGame() {
                                 console.warn("Missing layout tile at index", index);
                                 return null;
                             }
+
                             return (
                                 <div
                                     key={`board-${index}-${layoutTile.tile.top}-${layoutTile.tile.bottom}`}
