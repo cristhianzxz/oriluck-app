@@ -167,17 +167,17 @@ function calculateBoardLayout(board, containerWidth, containerHeight, tileScale,
 
 
         let halfPrev, halfNew, nextX, nextY;
-        if (endHead.dir[0] !== 0) { // Moviendo en Horizontal
-            halfPrev = prevRenderedW / 2;
-            halfNew = newRenderedW / 2;
-            nextX = endHead.x + endHead.dir[0] * (halfPrev + halfNew + TILE_GAP);
-            nextY = endHead.y;
-        } else { // Moviendo en Vertical
-            halfPrev = prevRenderedH / 2;
-            halfNew = newRenderedH / 2;
-            nextX = endHead.x;
-            nextY = endHead.y + endHead.dir[1] * (halfPrev + halfNew + TILE_GAP);
-        }
+if (tempDir[0] !== 0) { // Siguiente movimiento es Horizontal
+    halfPrev = prevRenderedW / 2;
+    halfNew = newRenderedW / 2;
+    nextX = prevLayout.x + tempDir[0] * (halfPrev + halfNew + TILE_GAP);
+    nextY = prevLayout.y;
+} else { // Siguiente movimiento es Vertical
+    halfPrev = prevRenderedH / 2;
+    halfNew = newRenderedH / 2;
+    nextX = prevLayout.x;
+    nextY = prevLayout.y + tempDir[1] * (halfPrev + halfNew + TILE_GAP);
+}
 
         let didTurn = false;
 
