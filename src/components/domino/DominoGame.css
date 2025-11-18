@@ -1138,9 +1138,54 @@ body {
         box-shadow: 0 0 8px rgba(255, 215, 0, 0.8);
         filter: none;
     }
+
+    .mobileOpponentHands {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        margin: 5px 10px 0;
+        width: calc(100% - 20px);
+    }
+    .mobileOpponentHandCard {
+        padding: 8px;
+    }
+    .mobileOpponentHandHeader {
+        font-size: 0.75rem;
+    }
+    .mobileOpponentTiles {
+        gap: 2px;
+    }
+    .mobileOpponentTile {
+        width: 22px;
+        height: 44px;
+    }
 }
 
 @media (max-height: 500px) and (orientation: landscape) {
+    .middleArea {
+        flex-direction: column;
+        gap: 6px;
+    }
+    .playerAreaLeft, .playerAreaRight {
+        display: none;
+    }
+    .landscapeAvatarBar {
+        display: flex;
+        gap: 6px;
+        width: 100%;
+        box-sizing: border-box;
+        padding: 4px 8px;
+        justify-content: center;
+        align-items: stretch;
+    }
+    .landscapeAvatarBar .avatarContainer {
+        flex: 1;
+        min-width: 0;
+    }
+    .gameBoard {
+        flex: 1;
+        width: 100%;
+    }
     
     .topBar {
         height: 40px;
@@ -1307,4 +1352,56 @@ body {
         transform: translateY(-10px);
         opacity: 0;
     }
+}
+
+.mobileOpponentHands {
+    display: none;
+}
+
+.mobileOpponentHandCard {
+    background: rgba(10, 10, 10, 0.75);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 10px;
+    padding: 8px 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+
+.mobileOpponentHandHeader {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 0.85rem;
+    color: #fce7f3;
+}
+
+.mobileOpponentTiles {
+    display: flex;
+    gap: 3px;
+    overflow-x: auto;
+    padding-bottom: 4px;
+}
+
+.mobileOpponentTile {
+    width: 26px;
+    height: 52px;
+}
+
+.mobileOpponentTurn {
+    font-size: 0.7rem;
+    color: #ffd700;
+    text-transform: uppercase;
+}
+
+.landscapeAvatarBar {
+    display: none;
+}
+
+.landscapeAvatarPlaceholder {
+    color: #ddd;
+    font-size: 0.85rem;
+    text-align: center;
+    padding: 6px 10px;
 }

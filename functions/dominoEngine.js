@@ -396,9 +396,11 @@ async function startDominoRound(tx, gameRef) {
         return { updates: [], firstPlayerId: null, taskPayload: null, firstTurnDuration: 0 };
     }
     
+    const currentRoundNumber = typeof gameData.roundNumber === 'number' ? gameData.roundNumber : 0;
+    const newRoundNumber = currentRoundNumber + 1;
+    const isFirstRound = newRoundNumber === 1;
     const scores = gameData.scores || {};
-    const isFirstRound = Object.values(scores).every(s => s === 0);
-    logger.info(`[startDominoRound] Game ${gameRef.id}. Is first round: ${isFirstRound}`);
+    logger.info(`[startDominoRound] Game ${gameRef.id}. Round #${newRoundNumber}. Is first round: ${isFirstRound}`);
 
     let deck = [];
     for (let i = 0; i <= 6; i++) { for (let j = i; j <= 6; j++) deck.push({ top: i, bottom: j }); }
@@ -407,17 +409,60 @@ async function startDominoRound(tx, gameRef) {
     let startingPlayerId = null;
     let highestDouble = -1;
     const playerIds = playersSnap.docs.map(doc => doc.id);
-    const playerHands = {};
-    const playerJoinedAt = {};
+        const playerHands = {};
+        const playerJoinedAt = {};
 
-    playersSnap.docs.forEach(doc => {
-         const hand = deck.splice(0, DOMINO_CONSTANTS.HAND_SIZE);
-         playerHands[doc.id] = hand;
-         const joinedAtMillis = doc.data().joinedAt?.toMillis();
-         playerJoinedAt[doc.id] = typeof joinedAtMillis === 'number' ? joinedAtMillis : Date.now();
+        // --- REPARTO ALEATORIO DE MANOS ---
+        const hands = [];
+        for (let i = 0; i < playerIds.length; i++) {
+            hands.push(deck.splice(0, DOMINO_CONSTANTS.HAND_SIZE));
+        }
+        // Baraja el array de manos para que no coincida con el orden de turnos
+        const shuffledHands = hands.sort(() => Math.random() - 0.5);
+
+    playersSnap.docs.forEach((doc, idx) => {
+        playerHands[doc.id] = shuffledHands[idx];
+        const joinedAtMillis = doc.data().joinedAt?.toMillis();
+        playerJoinedAt[doc.id] = typeof joinedAtMillis === 'number' ? joinedAtMillis : Date.now();
     });
 
+    let turnOrder = Array.isArray(gameData.turnOrder) ? [...gameData.turnOrder] : null;
+    let turnOrderUpdate = null;
+
+    if (!turnOrder || turnOrder.length !== maxPlayers) {
+        logger.warn(`Invalid or missing turnOrder in ${gameRef.id}, reconstructing.`);
+        let reconstructedTurnOrder = [];
+        const sortedPlayerIds = [...playerIds].sort((a, b) => playerJoinedAt[a] - playerJoinedAt[b]);
+
+        if (gameData.type === '2v2' && maxPlayers === 4) {
+            const team1 = [], team2 = [];
+            const playersData = {}; playersSnap.forEach(d => playersData[d.id] = d.data());
+            sortedPlayerIds.forEach(pid => {
+                const pData = playersData[pid];
+                if(pData?.team === 'team1') team1.push(pid); else if (pData?.team === 'team2') team2.push(pid);
+            });
+            if (team1.length === 2 && team2.length === 2) {
+                reconstructedTurnOrder = [team1[0], team2[0], team1[1], team2[1]];
+            } else {
+                logger.error(`Error reconstructing 2v2 order ${gameRef.id}. Teams mismatch. Fallback to join order.`);
+                reconstructedTurnOrder = sortedPlayerIds;
+            }
+        } else {
+            reconstructedTurnOrder = sortedPlayerIds;
+        }
+        turnOrder = reconstructedTurnOrder;
+        turnOrderUpdate = { turnOrder: turnOrder };
+    }
+
+    if (!isFirstRound && turnOrder && turnOrder.length > 0) {
+        const previousOrder = [...turnOrder];
+        turnOrder = [...turnOrder.slice(1), turnOrder[0]];
+        turnOrderUpdate = { turnOrder };
+        logger.info(`[startDominoRound] Rotación sent. derecha. Orden anterior: ${previousOrder.join(', ')}. Nuevo orden: ${turnOrder.join(', ')}`);
+    }
+
     if (isFirstRound) {
+        // Busca quién tiene el 6/6 y lo obliga a salir con esa ficha
         for (const pid of playerIds) {
             if (playerHands[pid] && playerHands[pid].some(t => t.top === 6 && t.bottom === 6)) {
                 startingPlayerId = pid;
@@ -426,6 +471,9 @@ async function startDominoRound(tx, gameRef) {
                 break;
             }
         }
+    } else {
+        // A partir de la segunda ronda respetamos el orden ya rotado
+        startingPlayerId = turnOrder && turnOrder.length > 0 ? turnOrder[0] : null;
     }
 
     if (!startingPlayerId) {
@@ -453,40 +501,6 @@ async function startDominoRound(tx, gameRef) {
         }
     }
     
-    let turnOrder = gameData.turnOrder;
-    let turnOrderUpdate = null;
-
-    if (turnOrder && turnOrder.length === maxPlayers) {
-        if (!isFirstRound) {
-            turnOrder = [turnOrder[turnOrder.length - 1], ...turnOrder.slice(0, turnOrder.length - 1)];
-            turnOrderUpdate = { turnOrder: turnOrder };
-            logger.info(`[startDominoRound] Rotación anti-horaria. Nuevo orden: ${turnOrder.join(', ')}`);
-        }
-    } else {
-         logger.warn(`Invalid or missing turnOrder in ${gameRef.id}, reconstructing.`);
-         let reconstructedTurnOrder = [];
-         const sortedPlayerIds = [...playerIds].sort((a, b) => playerJoinedAt[a] - playerJoinedAt[b]);
-
-         if (gameData.type === '2v2' && maxPlayers === 4) {
-             const team1 = [], team2 = [];
-             const playersData = {}; playersSnap.forEach(d => playersData[d.id] = d.data());
-             sortedPlayerIds.forEach(pid => {
-                 const pData = playersData[pid];
-                 if(pData?.team === 'team1') team1.push(pid); else if (pData?.team === 'team2') team2.push(pid);
-             });
-             if (team1.length === 2 && team2.length === 2) {
-                 reconstructedTurnOrder = [team1[0], team2[0], team1[1], team2[1]];
-             } else {
-                 logger.error(`Error reconstructing 2v2 order ${gameRef.id}. Teams mismatch. Fallback to join order.`);
-                 reconstructedTurnOrder = sortedPlayerIds;
-             }
-         } else {
-             reconstructedTurnOrder = sortedPlayerIds;
-         }
-         turnOrder = reconstructedTurnOrder;
-         turnOrderUpdate = { turnOrder: turnOrder };
-    }
-
     if (!startingPlayerId) {
         if (turnOrder && turnOrder.length > 0) {
             startingPlayerId = turnOrder[0];
@@ -548,7 +562,8 @@ async function startDominoRound(tx, gameRef) {
         winner: null,
         roundWinner: null,
         roundPoints: 0,
-        ...(turnOrderUpdate || {})
+        ...(turnOrderUpdate || {}),
+        roundNumber: newRoundNumber
     };
     updates.push({ ref: gameRef, data: gameUpdateData });
 
@@ -983,7 +998,10 @@ module.exports.playDominoTile = onCall({ region: REGION }, async (request) => {
             if (gameData.currentTurn !== userId) throw new HttpsError('failed-precondition', 'Not your turn.');
             
             const scores = gameData.scores || {};
-            const isFirstRound = Object.values(scores).every(s => s === 0);
+            const roundNumber = typeof gameData.roundNumber === 'number'
+                ? gameData.roundNumber
+                : (Object.values(scores).some(s => s > 0) ? 2 : 1);
+            const isFirstRound = roundNumber === 1;
             if (isFirstRound && (gameData.board || []).length === 0) {
                 const hasSixDouble = playerData.hand.some(t => t.top === 6 && t.bottom === 6);
                 if (hasSixDouble && (tile.top !== 6 || tile.bottom !== 6)) {
@@ -1031,9 +1049,13 @@ module.exports.playDominoTile = onCall({ region: REGION }, async (request) => {
                 }
 
             } else {
-                const turnOrder = gameData.turnOrder;
+                const turnOrder = Array.isArray(gameData.turnOrder) ? gameData.turnOrder : [];
+                if (turnOrder.length === 0) {
+                    throw new HttpsError('failed-precondition', 'Turn order no disponible.');
+                }
                 const currentIndex = turnOrder.indexOf(userId);
-                const nextIndex = (currentIndex - 1 + turnOrder.length) % turnOrder.length;
+                const safeIndex = currentIndex === -1 ? 0 : currentIndex;
+                const nextIndex = (safeIndex + 1) % turnOrder.length;
                 const nextPlayerId = turnOrder[nextIndex];
 
                 const nextPlayerRef = gameRef.collection('players').doc(nextPlayerId);
@@ -1115,7 +1137,10 @@ module.exports.passDominoTurn = onCall({ region: REGION }, async (request) => {
             if (gameData.currentTurn !== userId) throw new HttpsError('failed-precondition', 'Not your turn.');
             
             const scores = gameData.scores || {};
-            const isFirstRound = Object.values(scores).every(s => s === 0);
+            const roundNumber = typeof gameData.roundNumber === 'number'
+                ? gameData.roundNumber
+                : (Object.values(scores).some(s => s > 0) ? 2 : 1);
+            const isFirstRound = roundNumber === 1;
             if (isFirstRound && (gameData.board || []).length === 0) {
                 const hasSixDouble = playerData.hand.some(t => t.top === 6 && t.bottom === 6);
                 if (hasSixDouble) {
@@ -1126,9 +1151,13 @@ module.exports.passDominoTurn = onCall({ region: REGION }, async (request) => {
             const validMoves = getValidMoves(playerData.hand, gameData.board);
             if (validMoves.length > 0) throw new HttpsError('failed-precondition', 'You have valid moves, cannot pass.');
 
-            const turnOrder = gameData.turnOrder;
+            const turnOrder = Array.isArray(gameData.turnOrder) ? gameData.turnOrder : [];
+            if (turnOrder.length === 0) {
+                throw new HttpsError('failed-precondition', 'Turn order no disponible.');
+            }
             const currentIndex = turnOrder.indexOf(userId);
-            const nextIndex = (currentIndex - 1 + turnOrder.length) % turnOrder.length;
+            const safeIndex = currentIndex === -1 ? 0 : currentIndex;
+            const nextIndex = (safeIndex + 1) % turnOrder.length;
             const nextPlayerId = turnOrder[nextIndex];
             const currentPassCount = (gameData.passCount || 0) + 1;
             let roundEndResults = null;
@@ -1201,8 +1230,16 @@ module.exports.passDominoTurn = onCall({ region: REGION }, async (request) => {
                         nextRoundTask = { gameId: gameId };
                     }
                 } else {
-                    logger.info(`[passDominoTurn] Normal pass. Pass count: ${currentPassCount}. Next player: ${nextPlayerId}.`);
-                    const nextPlayerRef = gameRef.collection('players').doc(nextPlayerId);
+                            const turnOrder = Array.isArray(gameData.turnOrder) ? gameData.turnOrder : [];
+                            if (turnOrder.length === 0) {
+                                throw new HttpsError('failed-precondition', 'Turn order no disponible.');
+                            }
+                            const currentIndex = turnOrder.indexOf(expectedPlayerId);
+                            const safeIndex = currentIndex === -1 ? 0 : currentIndex;
+                            const nextIndex = (safeIndex + 1) % turnOrder.length;
+                            const nextPlayerId = turnOrder[nextIndex];
+                            logger.info(`[turnTimeoutTrigger] Normal pass. Conteo: ${currentPassCount}. Próximo jugador: ${nextPlayerId}.`);
+                            const nextPlayerRef = gameRef.collection('players').doc(nextPlayerId);
                     const nextPlayerSnap = await tx.get(nextPlayerRef);
                     const nextPlayerHand = nextPlayerSnap.exists ? nextPlayerSnap.data().hand : [];
                     const nextPlayerMoves = getValidMoves(nextPlayerHand, gameData.board);
@@ -1449,7 +1486,10 @@ module.exports.turnTimeoutTrigger = onRequest({ region: REGION, secrets: [] }, a
               logger.info(`turnTimeoutTrigger: Processing timeout for ${expectedPlayerId} in ${gameId}.`);
               
               const scores = gameData.scores || {};
-              const isFirstRound = Object.values(scores).every(s => s === 0);
+              const roundNumber = typeof gameData.roundNumber === 'number'
+                  ? gameData.roundNumber
+                  : (Object.values(scores).some(s => s > 0) ? 2 : 1);
+              const isFirstRound = roundNumber === 1;
               if (isFirstRound && (gameData.board || []).length === 0) {
                   const hasSixDouble = playerData.hand.some(t => t.top === 6 && t.bottom === 6);
                   if (hasSixDouble) {
@@ -1464,10 +1504,14 @@ module.exports.turnTimeoutTrigger = onRequest({ region: REGION, secrets: [] }, a
 
               if (validMoves.length === 0) { // Auto-Pasar
                    logger.info(`Player ${expectedPlayerId} auto-passing via timeout.`);
-                   const turnOrder = gameData.turnOrder; 
-                   const currentIndex = turnOrder.indexOf(expectedPlayerId); 
-                   const nextIndex = (currentIndex - 1 + turnOrder.length) % turnOrder.length; 
-                   const nextPlayerId = turnOrder[nextIndex];
+                const turnOrder = Array.isArray(gameData.turnOrder) ? gameData.turnOrder : [];
+                if (turnOrder.length === 0) {
+                    throw new HttpsError('failed-precondition', 'Turn order no disponible.');
+                }
+                const currentIndex = turnOrder.indexOf(expectedPlayerId);
+                const safeIndex = currentIndex === -1 ? 0 : currentIndex;
+                const nextIndex = (safeIndex + 1) % turnOrder.length;
+                const nextPlayerId = turnOrder[nextIndex];
                    const currentPassCount = (gameData.passCount || 0) + 1;
 
                    let canAnyonePlay = false;
@@ -1522,7 +1566,7 @@ module.exports.turnTimeoutTrigger = onRequest({ region: REGION, secrets: [] }, a
                                 nextRoundTask = { gameId: gameId };
                             }
                         } else {
-                            logger.info(`[passDominoTurn] Normal pass. Pass count: ${currentPassCount}. Next player: ${nextPlayerId}.`);
+                            logger.info(`[turnTimeoutTrigger] Auto-pass. Conteo: ${currentPassCount}. Próximo jugador: ${nextPlayerId}.`);
                             const nextPlayerRef = gameRef.collection('players').doc(nextPlayerId);
                             const nextPlayerSnap = await tx.get(nextPlayerRef);
                             const nextPlayerHand = nextPlayerSnap.exists ? nextPlayerSnap.data().hand : [];
@@ -1552,9 +1596,13 @@ module.exports.turnTimeoutTrigger = onRequest({ region: REGION, secrets: [] }, a
                    const tileIndexInHand = playerData.hand.findIndex(t => t?.top === randomMove.tile.top && t?.bottom === randomMove.tile.bottom);
                    if (tileIndexInHand === -1) {
                         logger.error(`Could not find random move tile in player's hand during auto-play for ${expectedPlayerId}`);
-                        const turnOrder = gameData.turnOrder; 
-                        const currentIndex = turnOrder.indexOf(expectedPlayerId); 
-                        const nextIndex = (currentIndex - 1 + turnOrder.length) % turnOrder.length; 
+                        const turnOrder = Array.isArray(gameData.turnOrder) ? gameData.turnOrder : [];
+                        if (turnOrder.length === 0) {
+                            throw new HttpsError('failed-precondition', 'Turn order no disponible.');
+                        }
+                        const currentIndex = turnOrder.indexOf(expectedPlayerId);
+                        const safeIndex = currentIndex === -1 ? 0 : currentIndex;
+                        const nextIndex = (safeIndex + 1) % turnOrder.length;
                         const nextPlayerId = turnOrder[nextIndex]; 
                         const currentPassCount = (gameData.passCount || 0) + 1;
                         const nextPlayerRef = gameRef.collection('players').doc(nextPlayerId); const nextPlayerSnap = await tx.get(nextPlayerRef); const nextPlayerHand = nextPlayerSnap.exists ? nextPlayerSnap.data().hand : []; const nextPlayerMoves = getValidMoves(nextPlayerHand, gameData.board); nextTurnDuration = nextPlayerMoves.length > 0 ? TURN_TIMEOUT_SECONDS : PASS_TIMEOUT_SECONDS;
@@ -1587,10 +1635,14 @@ module.exports.turnTimeoutTrigger = onRequest({ region: REGION, secrets: [] }, a
                                   nextRoundTask = { gameId: gameId };
                             }
                        } else {
-                            const turnOrder = gameData.turnOrder; 
-                            const currentIndex = turnOrder.indexOf(expectedPlayerId); 
-                            const nextIndex = (currentIndex - 1 + turnOrder.length) % turnOrder.length; 
-                            const nextPlayerId = turnOrder[nextIndex];
+                            const turnOrder = Array.isArray(gameData.turnOrder) ? gameData.turnOrder : [];
+                            if (turnOrder.length === 0) {
+                                throw new HttpsError('failed-precondition', 'Turn order no disponible.');
+                            }
+                            const currentIndex = turnOrder.indexOf(expectedPlayerId);
+                            const safeIndex = currentIndex === -1 ? 0 : currentIndex;
+                            const nextIndex = (safeIndex + 1) % turnOrder.length;
+                            const nextPlayerId = turnOrder[nextIndex]; 
 
                             const nextPlayerRef = gameRef.collection('players').doc(nextPlayerId);
                             const nextPlayerSnap = await tx.get(nextPlayerRef);

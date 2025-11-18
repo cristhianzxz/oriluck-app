@@ -653,9 +653,9 @@ function DominoGame() {
 
     const [gameData, setGameData] = useState(null);
     const [players, setPlayers] = useState({});
-    const [myHand, setMyHand] = useState([]);
-    const [messages, setMessages] = useState([]);
-    const [chatInput, setChatInput] = useState('');
+    const [myHand, setMyHand] = useState([]);        
+    const [messages, setMessages] = useState([]);        
+    const [chatInput, setChatInput] = useState('');        
     const [isChatOpen, setIsChatOpen] = useState(false);
     const [isEmojiPanelOpen, setIsEmojiPanelOpen] = useState(false);
     const [isMyPlayerReady, setIsMyPlayerReady] = useState(false);
@@ -681,6 +681,8 @@ function DominoGame() {
     const [isSettingsOpen, setIsSettingsOpen] = useState(false);
     const [tileScale, setTileScale] = useState(13);
     const [boardScale, setBoardScale] = useState(170);
+    const [isPortraitMobile, setIsPortraitMobile] = useState(false);
+    const [isLandscapeMobile, setIsLandscapeMobile] = useState(false);
 
     const [showGameOver, setShowGameOver] = useState(true);
 
@@ -924,23 +926,29 @@ function DominoGame() {
     }, [gameData]);
 
 
-useEffect(() => {
-    // Detecta modo móvil (portrait y ancho <= 1023px)
-    const checkMobile = () => {
-        const isPortrait = window.matchMedia('(orientation: portrait)').matches;
-        const isSmall = window.innerWidth <= 1023;
-        if (isPortrait && isSmall) {
-            setTileScale(21); // Fuerza el tamaño mínimo (más pequeño)
-        }
-    };
-    checkMobile();
-    window.addEventListener('resize', checkMobile);
-    window.addEventListener('orientationchange', checkMobile);
-    return () => {
-        window.removeEventListener('resize', checkMobile);
-        window.removeEventListener('orientationchange', checkMobile);
-    };
-}, []);
+    useEffect(() => {
+        const evaluateViewport = () => {
+            const width = window.innerWidth;
+            const height = window.innerHeight;
+            const portraitMobile = width <= 1023 && height >= width;
+            const landscapeMobile = height <= 500 || (width <= 1023 && width > height);
+
+            setIsPortraitMobile(portraitMobile);
+            setIsLandscapeMobile(landscapeMobile);
+
+            if (portraitMobile) {
+                setTileScale(21);
+            }
+        };
+
+        evaluateViewport();
+        window.addEventListener('resize', evaluateViewport);
+        window.addEventListener('orientationchange', evaluateViewport);
+        return () => {
+            window.removeEventListener('resize', evaluateViewport);
+            window.removeEventListener('orientationchange', evaluateViewport);
+        };
+    }, []);
 
     const handleSendChat = async (e) => {
         e.preventDefault();
@@ -1017,7 +1025,10 @@ useEffect(() => {
         if (!currentUser || !gameId || gameData?.currentTurn !== currentUser?.uid || loadingAction || isSpectator || gameData.status !== 'playing') return;
 
         const scores = gameData.scores || {};
-        const isFirstRound = Object.values(scores).every(s => s === 0);
+        const roundNumber = typeof gameData.roundNumber === 'number'
+            ? gameData.roundNumber
+            : (Object.values(scores).some(s => s > 0) ? 2 : 1);
+        const isFirstRound = roundNumber === 1;
         if (isFirstRound && (gameData.board || []).length === 0) {
             const hasSixDouble = myHand.some(t => t.top === 6 && t.bottom === 6);
             if (hasSixDouble && (clickedTile.top !== 6 || clickedTile.bottom !== 6)) {
@@ -1059,7 +1070,10 @@ useEffect(() => {
         if (!currentUser || !gameId || gameData?.currentTurn !== currentUser?.uid || loadingAction || isSpectator || selectedTileInfo) return;
 
         const scores = gameData.scores || {};
-        const isFirstRound = Object.values(scores).every(s => s === 0);
+        const roundNumber = typeof gameData.roundNumber === 'number'
+            ? gameData.roundNumber
+            : (Object.values(scores).some(s => s > 0) ? 2 : 1);
+        const isFirstRound = roundNumber === 1;
         if (isFirstRound && (gameData.board || []).length === 0) {
             const hasSixDouble = myHand.some(t => t.top === 6 && t.bottom === 6);
             if (hasSixDouble) {
@@ -1095,7 +1109,10 @@ useEffect(() => {
             hasNoMoves = moves.length === 0;
 
             const scores = gameData.scores || {};
-            const isFirstRound = Object.values(scores).every(s => s === 0);
+            const roundNumber = typeof gameData.roundNumber === 'number'
+                ? gameData.roundNumber
+                : (Object.values(scores).some(s => s > 0) ? 2 : 1);
+            const isFirstRound = roundNumber === 1;
             if (isFirstRound && gameData.board.length === 0) {
                 const hasSixDouble = myHand.some(t => t.top === 6 && t.bottom === 6);
                 canPass = hasNoMoves && !hasSixDouble;
@@ -1119,7 +1136,10 @@ useEffect(() => {
         const indices = new Set(moves.map(m => m.tileIndex));
         
         const scores = gameData.scores || {};
-        const isFirstRound = Object.values(scores).every(s => s === 0);
+        const roundNumber = typeof gameData.roundNumber === 'number'
+            ? gameData.roundNumber
+            : (Object.values(scores).some(s => s > 0) ? 2 : 1);
+        const isFirstRound = roundNumber === 1;
         if (isFirstRound && gameData.board.length === 0) {
             let sixDoubleIndex = -1;
             for (let i = 0; i < myHand.length; i++) {
@@ -1286,6 +1306,25 @@ useEffect(() => {
     };
     const winnerNames = getWinnerNames();
 
+    const showMobileOpponentHands = isPortraitMobile && ['round_over', 'finished'].includes(gameData?.status);
+    const opponentHandsForMobile = playerSlots
+        .filter(slot => slot?.id && slot.id !== currentUser?.uid)
+        .map(slot => {
+            const revealedHand = players[slot.id]?.hand || [];
+            if (!revealedHand || revealedHand.length === 0) return null;
+            return {
+                slot,
+                hand: revealedHand
+            };
+        })
+        .filter(Boolean);
+
+    const landscapeAvatarSlots = playerSlots.filter(slot => slot && slot.position);
+
+    const middleAreaStyle = {
+        '--side-area-width': `${isLandscapeMobile ? 0 : boardScale}px`
+    };
+
     // Función de formato local ya que se quitó la global
     const formatCurrencyForPool = (value) => {
         const number = Number(value) || 0;
@@ -1329,37 +1368,61 @@ useEffect(() => {
             </div>
 
             {/* --- CORREGIDO: Avatares de ESCRITORIO --- */}
-            <div className="playerArea playerAreaTop">
-                <PlayerAvatar
-                    player={playerTop}
-                    className="playerAvatarInArea"
-                    gameData={gameData}
-                    entryFee={gameData?.entryFeeVES}
-                    isMe={playerTop?.id === currentUser?.uid}
-                    onAddFriend={showToast}
-                    isSpectator={isSpectator}
-                />
-                {gameData?.status === 'round_over' && playerTop?.id && playerTop.id !== currentUser?.uid && (
-                    <OpponentHand hand={players[playerTop.id]?.hand} position="playerTop" />
-                )}
-            </div>
-
-            <div className="middleArea" style={{ '--side-area-width': `${boardScale}px` }}>
-                {/* --- CORREGIDO: Avatares de ESCRITORIO --- */}
-                <div className="playerArea playerAreaLeft">
+            {!isLandscapeMobile && (
+                <div className="playerArea playerAreaTop">
                     <PlayerAvatar
-                        player={playerLeft}
+                        player={playerTop}
                         className="playerAvatarInArea"
                         gameData={gameData}
                         entryFee={gameData?.entryFeeVES}
-                        isMe={playerLeft?.id === currentUser?.uid}
+                        isMe={playerTop?.id === currentUser?.uid}
                         onAddFriend={showToast}
                         isSpectator={isSpectator}
                     />
-                    {gameData?.status === 'round_over' && playerLeft?.id && playerLeft.id !== currentUser?.uid && (
-                        <OpponentHand hand={players[playerLeft.id]?.hand} position="playerLeft" />
+                    {gameData?.status === 'round_over' && playerTop?.id && playerTop.id !== currentUser?.uid && (
+                        <OpponentHand hand={players[playerTop.id]?.hand} position="playerTop" />
                     )}
                 </div>
+            )}
+
+            <div className="middleArea" style={middleAreaStyle}>
+                {isLandscapeMobile && (
+                    <div className="landscapeAvatarBar">
+                        {landscapeAvatarSlots.length === 0 && (
+                            <div className="landscapeAvatarPlaceholder">Esperando jugadores...</div>
+                        )}
+                        {landscapeAvatarSlots.map(slot => (
+                            <PlayerAvatar
+                                key={slot.id || slot.position}
+                                player={slot}
+                                className="playerAvatarInArea"
+                                gameData={gameData}
+                                entryFee={gameData?.entryFeeVES}
+                                isMe={slot?.id === currentUser?.uid}
+                                onAddFriend={showToast}
+                                isSpectator={isSpectator}
+                            />
+                        ))}
+                    </div>
+                )}
+
+                {/* --- CORREGIDO: Avatares de ESCRITORIO --- */}
+                {!isLandscapeMobile && (
+                    <div className="playerArea playerAreaLeft">
+                        <PlayerAvatar
+                            player={playerLeft}
+                            className="playerAvatarInArea"
+                            gameData={gameData}
+                            entryFee={gameData?.entryFeeVES}
+                            isMe={playerLeft?.id === currentUser?.uid}
+                            onAddFriend={showToast}
+                            isSpectator={isSpectator}
+                        />
+                        {gameData?.status === 'round_over' && playerLeft?.id && playerLeft.id !== currentUser?.uid && (
+                            <OpponentHand hand={players[playerLeft.id]?.hand} position="playerLeft" />
+                        )}
+                    </div>
+                )}
 
                 <div className="gameBoard">
                     {!isSpectator && (
@@ -1519,79 +1582,109 @@ useEffect(() => {
                 </div>
 
                 {/* --- CORREGIDO: Avatares de ESCRITORIO --- */}
-                <div className="playerArea playerAreaRight">
-                    <PlayerAvatar
-                        player={playerRight}
-                        className="playerAvatarInArea"
-                        gameData={gameData}
-                        entryFee={gameData?.entryFeeVES}
-                        isMe={playerRight?.id === currentUser?.uid}
-                        onAddFriend={showToast}
-                        isSpectator={isSpectator}
-                    />
-                    {gameData?.status === 'round_over' && playerRight?.id && playerRight.id !== currentUser?.uid && (
-                        <OpponentHand hand={players[playerRight.id]?.hand} position="playerRight" />
-                    )}
-                </div>
+                {!isLandscapeMobile && (
+                    <div className="playerArea playerAreaRight">
+                        <PlayerAvatar
+                            player={playerRight}
+                            className="playerAvatarInArea"
+                            gameData={gameData}
+                            entryFee={gameData?.entryFeeVES}
+                            isMe={playerRight?.id === currentUser?.uid}
+                            onAddFriend={showToast}
+                            isSpectator={isSpectator}
+                        />
+                        {gameData?.status === 'round_over' && playerRight?.id && playerRight.id !== currentUser?.uid && (
+                            <OpponentHand hand={players[playerRight.id]?.hand} position="playerRight" />
+                        )}
+                    </div>
+                )}
             </div>
+
+            {showMobileOpponentHands && opponentHandsForMobile.length > 0 && (
+                <div className="mobileOpponentHands">
+                    {opponentHandsForMobile.map(({ slot, hand }) => (
+                        <div key={`mobile-hand-${slot.id}`} className="mobileOpponentHandCard">
+                            <div className="mobileOpponentHandHeader">
+                                <span className="mobileOpponentName">{slot.username || 'Jugador'}</span>
+                                {slot.isTurn && <span className="mobileOpponentTurn">• Turno</span>}
+                            </div>
+                            <div className="mobileOpponentTiles">
+                                {hand.map((tile, index) => (
+                                    <DominoTile
+                                        key={`mobile-opp-${slot.id}-${index}`}
+                                        topValue={tile.top}
+                                        bottomValue={tile.bottom}
+                                        isDouble={tile.top === tile.bottom}
+                                        isInHand={true}
+                                        className="mobileOpponentTile"
+                                        isDisabled={true}
+                                    />
+                                ))}
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            )}
 
             {/* --- INICIO: ÁREA INFERIOR ACTUALIZADA --- */}
             {/* Esta área contendrá AMBAS versiones (móvil y escritorio) */}
-            <div className="playerArea playerAreaBottom">
-                
-                {/* --- Versión de ESCRITORIO (se oculta en móvil) --- */}
-                <div className="desktopAvatar">
-                    <PlayerAvatar
-                        player={playerBottom}
-                        className="playerAvatarInArea"
-                        gameData={gameData}
-                        entryFee={gameData?.entryFeeVES}
-                        isMe={playerBottom?.id === currentUser?.uid}
-                        onAddFriend={showToast} 
-                        isSpectator={isSpectator}
-                    />
-                </div>
+            {!isLandscapeMobile && (
+                <div className="playerArea playerAreaBottom">
+                    
+                    {/* --- Versión de ESCRITORIO (se oculta en móvil) --- */}
+                    <div className="desktopAvatar">
+                        <PlayerAvatar
+                            player={playerBottom}
+                            className="playerAvatarInArea"
+                            gameData={gameData}
+                            entryFee={gameData?.entryFeeVES}
+                            isMe={playerBottom?.id === currentUser?.uid}
+                            onAddFriend={showToast} 
+                            isSpectator={isSpectator}
+                        />
+                    </div>
 
-                {/* --- Versión MÓVIL (se oculta en escritorio) --- */}
-                <div className="mobileAvatarBar">
-                    <PlayerAvatar
-                        player={playerBottom}
-                        className="playerAvatarInArea"
-                        gameData={gameData}
-                        entryFee={gameData?.entryFeeVES}
-                        isMe={playerBottom?.id === currentUser?.uid}
-                        onAddFriend={showToast} 
-                        isSpectator={isSpectator}
-                    />
-                    <PlayerAvatar
-                        player={playerLeft}
-                        className="playerAvatarInArea"
-                        gameData={gameData}
-                        entryFee={gameData?.entryFeeVES}
-                        isMe={playerLeft?.id === currentUser?.uid}
-                        onAddFriend={showToast} 
-                        isSpectator={isSpectator}
-                    />
-                    <PlayerAvatar
-                        player={playerTop}
-                        className="playerAvatarInArea"
-                        gameData={gameData}
-                        entryFee={gameData?.entryFeeVES}
-                        isMe={playerTop?.id === currentUser?.uid}
-                        onAddFriend={showToast} 
-                        isSpectator={isSpectator}
-                    />
-                    <PlayerAvatar
-                        player={playerRight}
-                        className="playerAvatarInArea"
-                        gameData={gameData}
-                        entryFee={gameData?.entryFeeVES}
-                        isMe={playerRight?.id === currentUser?.uid}
-                        onAddFriend={showToast} 
-                        isSpectator={isSpectator}
-                    />
+                    {/* --- Versión MÓVIL (se oculta en escritorio) --- */}
+                    <div className="mobileAvatarBar">
+                        <PlayerAvatar
+                            player={playerBottom}
+                            className="playerAvatarInArea"
+                            gameData={gameData}
+                            entryFee={gameData?.entryFeeVES}
+                            isMe={playerBottom?.id === currentUser?.uid}
+                            onAddFriend={showToast} 
+                            isSpectator={isSpectator}
+                        />
+                        <PlayerAvatar
+                            player={playerLeft}
+                            className="playerAvatarInArea"
+                            gameData={gameData}
+                            entryFee={gameData?.entryFeeVES}
+                            isMe={playerLeft?.id === currentUser?.uid}
+                            onAddFriend={showToast} 
+                            isSpectator={isSpectator}
+                        />
+                        <PlayerAvatar
+                            player={playerTop}
+                            className="playerAvatarInArea"
+                            gameData={gameData}
+                            entryFee={gameData?.entryFeeVES}
+                            isMe={playerTop?.id === currentUser?.uid}
+                            onAddFriend={showToast} 
+                            isSpectator={isSpectator}
+                        />
+                        <PlayerAvatar
+                            player={playerRight}
+                            className="playerAvatarInArea"
+                            gameData={gameData}
+                            entryFee={gameData?.entryFeeVES}
+                            isMe={playerRight?.id === currentUser?.uid}
+                            onAddFriend={showToast} 
+                            isSpectator={isSpectator}
+                        />
+                    </div>
                 </div>
-            </div>
+            )}
             {/* --- FIN: ÁREA INFERIOR ACTUALIZADA --- */}
 
 
